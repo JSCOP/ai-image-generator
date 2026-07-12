@@ -27,10 +27,11 @@ Spec keys (all in one flat object):
   model             main Responses model for gpt-image backends (default from environment)
   image_model       image provider model (default gpt-image-2)
   reference_images  [string] paths (default [])
+  action            "auto" | "generate" | "edit" (default "generate"; GPT reference edits should use "edit")
   topic_root        project output root (default project root)
   preset            path to preset JSON  (required when mode=batch)
   jobs              [object]  (required when mode=jobs); each item:
-                      { id, prompt, reference_images?, size?, quality? }
+                      { id, prompt, reference_images?, size?, quality?, action? }
                       output -> output/<topic_slug>/<id>.png
   prompt_prefix     string prepended to every job's prompt (mode=jobs)
   prompt_suffix     string appended to every job's prompt (mode=jobs)
@@ -82,13 +83,14 @@ SCHEMA = {
     "quality": {"type": "string", "enum": ["low", "medium", "high"], "default": "high"},
     "model": {"type": "string", "description": "main Responses model used by gpt-image backends"},
     "image_model": {"type": "string", "default": "gpt-image-2", "description": "gpt-image-*, gemini-*-image, or grok-imagine-*"},
+    "action": {"type": "string", "enum": ["auto", "generate", "edit"], "default": "generate", "description": "image tool action; use edit for GPT reference-image restyling"},
     "reference_images": {"type": "array<string>", "description": "image paths", "default": []},
     "topic_root": {"type": "string", "description": "project output root", "default": str(ROOT)},
     "preset": {"type": "string", "required_when": "mode=batch", "description": "path to preset JSON"},
     "jobs": {
         "type": "array<object>",
         "required_when": "mode=jobs",
-        "description": "per-image specs; each item: {id, prompt, reference_images?, size?, quality?}",
+        "description": "per-image specs; each item: {id, prompt, reference_images?, size?, quality?, action?}",
     },
     "prompt_prefix": {"type": "string", "description": "shared preamble prepended to each job's prompt (mode=jobs)"},
     "prompt_suffix": {"type": "string", "description": "shared suffix appended to each job's prompt (mode=jobs)"},
@@ -111,6 +113,7 @@ EXAMPLES = {
         "count": 3,
         "size": "1920x1088",
         "quality": "high",
+        "action": "edit",
         "reference_images": ["E:/ai-image-generator/output/extraction-rpg-dad/ui_combat_hud/extraction-rpg-dad_000001.png"],
     },
     "batch_resume": {
@@ -185,6 +188,12 @@ def _resolve_job_timeout(spec: dict) -> float | None:
     return timeout if timeout > 0 else None
 
 
+def _validate_action(action: str) -> str | None:
+    if action not in ("auto", "generate", "edit"):
+        return f"invalid action {action!r}; expected auto, generate, or edit"
+    return None
+
+
 def _run_child(cmd: list[str], timeout_sec: float | None) -> tuple[int, str]:
     try:
         proc = subprocess.run(
@@ -228,7 +237,9 @@ def run_single(spec: dict) -> dict:
     quality = spec.get("quality", "high")
     model = spec.get("model")
     image_model = spec.get("image_model")
+    action = str(spec.get("action") or "generate")
     concurrency = max(1, int(spec.get("concurrency", 4)))
+    resume = bool(spec.get("resume"))
     refs = [_resolve_under_root(r) for r in list(spec.get("reference_images") or [])]
     topic_root = _resolve_under_root(spec.get("topic_root"))
     output_dir = topic_root / "output" / topic_slug
@@ -242,6 +253,9 @@ def run_single(spec: dict) -> dict:
         return {"ok": False, "error": err}
     if quality not in ("low", "medium", "high"):
         return {"ok": False, "error": f"invalid quality {quality!r}"}
+    err = _validate_action(action)
+    if err:
+        return {"ok": False, "error": err}
     for r in refs:
         if not r.is_file():
             return {"ok": False, "error": f"reference image not found: {r}"}
@@ -257,6 +271,9 @@ def run_single(spec: dict) -> dict:
         # outside output/<topic_slug>/ when topic contained "/".
         name = f"{topic_slug}.png" if count == 1 else f"{topic_slug}_{i:03d}.png"
         out_path = str((output_dir / name).resolve())
+        if resume and Path(out_path).is_file():
+            _emit_progress({"event": "image_skipped", "mode": "single", "index": i, "output": out_path})
+            return i, 0, out_path, ""
         _emit_progress({"event": "image_started", "mode": "single", "index": i, "output": out_path})
         image_started = time.time()
         cmd = [
@@ -264,6 +281,7 @@ def run_single(spec: dict) -> dict:
             "--topic", topic, "--topic-root", str(topic_root),
             "-o", name, "--size", size, "--quality", quality,
         ]
+        cmd += ["--action", action]
         if timeout_sec is not None:
             cmd += ["--timeout", f"{timeout_sec:g}"]
         if model:
@@ -306,7 +324,7 @@ def run_jobs(spec: dict) -> dict:
         "id": "01_xxx",                # required: unique id (used as filename)
         "prompt": "scene description",  # required (combined with prompt_prefix/suffix)
         "reference_images": [...],      # optional; falls back to spec.reference_images
-        "size": "...", "quality": "..." # optional; fall back to spec values
+        "size": "...", "quality": "...", "action": "edit"  # optional; fall back to spec values
       }
 
     Spec-level keys:
@@ -325,6 +343,7 @@ def run_jobs(spec: dict) -> dict:
     default_refs = list(spec.get("reference_images") or [])
     default_model = spec.get("model")
     default_image_model = spec.get("image_model")
+    default_action = str(spec.get("action") or "generate")
     dry_run = bool(spec.get("dry_run"))
     resume = bool(spec.get("resume"))
     prefix = (spec.get("prompt_prefix") or "").strip()
@@ -362,6 +381,7 @@ def run_jobs(spec: dict) -> dict:
         refs_paths = list(refs_raw) if refs_raw is not None else default_refs
         model = job.get("model") or default_model
         image_model = job.get("image_model") or default_image_model
+        action = str(job.get("action") or default_action)
         refs = [_resolve_under_root(r) for r in refs_paths]
         body = (job.get("prompt") or "").strip()
         prompt_parts = [p for p in (prefix, body, suffix) if p]
@@ -372,6 +392,9 @@ def run_jobs(spec: dict) -> dict:
             return idx, {"ok": False, "id": job_id, "error": err}
         if quality not in ("low", "medium", "high"):
             return idx, {"ok": False, "id": job_id, "error": f"invalid quality {quality!r}"}
+        err = _validate_action(action)
+        if err:
+            return idx, {"ok": False, "id": job_id, "error": err}
         for r in refs:
             if not r.is_file():
                 return idx, {"ok": False, "id": job_id, "error": f"reference image not found: {r}"}
@@ -391,6 +414,7 @@ def run_jobs(spec: dict) -> dict:
             "--topic", parent_topic, "--topic-root", str(topic_root),
             "-o", name, "--size", size, "--quality", quality,
         ]
+        cmd += ["--action", action]
         if timeout_sec is not None:
             cmd += ["--timeout", f"{timeout_sec:g}"]
         for r in refs:

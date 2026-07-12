@@ -1,113 +1,134 @@
 ---
 name: ai-image-generator
-description: Use when a user asks to generate, edit, reinterpret, restyle, upscale, or batch-create AI images with the local CLIProxyAPI image generator, especially requests mentioning ImageGallery, reference images, blueprints, floorplans, airport/T2IN visuals, native image_generation_call errors, or E:\\ai-image-generator.
+description: Use for generating, editing, restyling, upscaling, or batch-creating images through the local CLIProxyAPI image generator, including reference images, ImageGallery, blueprints, floorplans, CAD maps, airport/T2IN visuals, Gemini, and GPT Image requests.
 ---
 
 # AI Image Generator
 
-## Overview
+## Local installation
 
-Use the local `E:\ai-image-generator` project for AI image generation through CLIProxyAPI. This is separate from any built-in image tool; do not claim an image exists until the local command returns `ok: true` with concrete output paths.
+Always use this repository and entry point:
 
-Core safety rule: covered image-generation requests MUST go through the local CLI only. Native Responses/API image generation calls (`image_generation_call`, built-in image tools, or tool outputs embedded as base64 in chat history) are unsafe here because they can pollute OMP conversation history and break later turns with errors such as `400 Unknown parameter: input[N].action`.
+- Project: `C:/Users/jisung/workspaces/ai-image-generator`
+- Entry point: `C:/Users/jisung/workspaces/ai-image-generator/tools/ai_image.py`
+- Run with `cwd` set to the project root.
 
-## When to Use
+Do not assume `E:/ai-image-generator`. Do not call `scripts/gen_image.py` directly for agent work; `tools/ai_image.py` provides stable JSON input/output, edit-action forwarding, per-job timeouts, resume support, and batch orchestration.
 
-Use this skill for:
-- AI image generation, image editing, style transfer, restyling, reinterpretation, or upscaling requests.
-- Requests that provide or mention reference images, floorplans, blueprints, CAD/vector maps, airport/T2IN visuals, UI/dashboard art, or `ImageGallery`.
-- Batch image requests using presets or multiple explicit prompt jobs.
+## CLIProxyAPI configuration
 
-Do not use this skill for pure image analysis when the user does not ask to create or edit an image.
+- `CLIPROXY_BASE_URL=http://100.98.54.122:8317/v1`
+- Read `CLIPROXY_API_KEY` from the process or Windows user environment only.
+- Never write the API key into the repository, specs, prompts, logs, or output metadata.
+- Before diagnosing model behavior, verify the authenticated `/v1/models` request succeeds.
 
-## Hard Rules
+## Providers
 
-- Default to exactly one image unless the user specifies a count.
-- A listed set of N spaces/items with wording like `one each`, `한 장씩`, or `각각` is an explicit count; use `mode: "jobs"` and produce exactly one output per listed item unless the user asks otherwise.
-- If the user explicitly asks for final/high quality (`final`, `high`, `고퀄`, `최종`, `바로 최종`, `그냥 최종본`), generate final output directly: `1920x1080`, `quality: "high"`, full useful references, no quality-choice question.
-- For multi-image, reference-heavy, T2IN/ImageGallery, or expensive jobs where the user does not specify draft vs final quality, ask one concise choice before generating: fast draft review or final high-quality output.
-- Use fast draft review when the user prioritizes speed, exploration, variants, or approval before final: `1280x720` or `1024x576`, `quality: "medium"`, usually `concurrency: 2`, then rerun approved images at final settings.
-- Never delete or overwrite existing generated images unless explicitly asked.
-- Never say the image was created until `tools/ai_image.py` returns JSON with `ok: true` and output paths.
-- Never use native Responses/API image generation (`image_generation_call`) or built-in image tools for requests covered by this skill, even when the user attaches reference images.
-- Never leave a generated image only as a chat/base64 result; produce concrete files under the requested output package.
-- If the current workspace has an `ImageGallery/` rule, set `topic_root` to `ImageGallery/<request-slug>` so outputs land under that request package.
-- For T2IN workspace requests, keep generated assets under `E:/CityAI/IncheonProject/t2in-dev/ImageGallery/<request-slug>/`, not loose workspace files.
-- For batch generation, run `dry_run: true` first, inspect planned outputs, then run the real job.
-- If a previous turn used native image generation or the next turn fails with `Unknown parameter: input[N].action`, treat the session history as contaminated: explain that no reliable file path exists, avoid reusing the same polluted history for generation, and rerun via `E:/ai-image-generator/tools/ai_image.py` into `ImageGallery/<request-slug>/`.
+- `gpt-image-2`: default and recommended, especially for reference-image editing.
+- `gpt-image-1.5`: available alternative.
+- `gemini-3.1-flash-image`: fast Gemini image generation with reference images.
+- `gemini-3.1-pro`: reasoning/vision model, not the image generator.
+- `grok-imagine-*`: use only if `/v1/models` confirms availability; reference editing is not implemented by this CLI.
 
-## Quick Reference
+## Hard rules
 
-| Need | Use |
+- Default to exactly one image unless the user gives a count.
+- “각각”, “한 장씩”, or “one each” means one output per listed item; use `mode: "jobs"`.
+- Default final output to `1920x1080`, `quality: "high"` unless the user requests a draft or another size.
+- Never delete or overwrite an existing image unless explicitly requested. Use a new topic or `resume: true`.
+- Batch mode must run with `dry_run: true` first, then run the inspected plan.
+- Never claim success until JSON returns `ok: true`, `failures` is empty, every output exists, and the output count matches.
+- Inspect saved images before describing visual correctness.
+- Do not use OMP native image generation for covered requests.
+
+## Output roots
+
+For T2IN work, prefer:
+
+`E:/CityAI/IncheonProject/t2in-dev/ImageGallery/<request-slug>`
+
+If the `E:` drive is unavailable, do not fail repeatedly. Use the existing workspace gallery:
+
+`C:/Users/jisung/workspaces/cityai/t2in-dev/ImageGallery/<request-slug>`
+
+For other projects, prefer `<workspace>/ImageGallery/<request-slug>` when that convention exists.
+
+## Modes and key fields
+
+| Need | Specification |
 |---|---|
-| One image | `mode: "single"` |
-| Multiple explicit prompts | `mode: "jobs"` |
-| Preset dataset | `mode: "batch"` |
-| Reference images | `reference_images: ["path"]` |
-| Native image error/history pollution | Stop using native image calls; rerun through `tools/ai_image.py` with file outputs |
-| T2IN organized output | `topic_root: "E:/CityAI/IncheonProject/t2in-dev/ImageGallery/<request-slug>"` |
-| Standard size | `1920x1080`; the CLI pads/buckets provider requests and saves the exact requested dimensions |
-| Square size | `1024x1024` or another positive `WIDTHxHEIGHT`; dimensions no longer need to be divisible by 16 |
-| Gemini/Antigravity | `image_model: "gemini-3.1-flash-image"`; reference images supported; native buckets `512`, `1K`, `2K`, `4K`, then exact-size conversion |
-| Grok/xAI | `grok-imagine-image*`; text-to-image only in this CLI and requires available xAI credits |
+| One/repeated prompt | `mode: "single"`, `prompt`, optional `count` |
+| Explicit different jobs | `mode: "jobs"`, `jobs: [{id, prompt, ...}]` |
+| Preset dataset | `mode: "batch"`, `preset`, `count`, first `dry_run: true` |
+| References | `reference_images: ["absolute/path.png"]` |
+| GPT reference edit | `image_model: "gpt-image-2"`, `action: "edit"` |
+| New composition | `action: "generate"` |
+| Partial-run recovery | same topic/count plus `resume: true` |
 
-## Quality / Speed Workflow
+`action` accepts `auto`, `generate`, or `edit`. It is supported at the top level for `single` and `jobs`, and each job may override it. Use `edit` for GPT reference restyling where source preservation matters.
 
-- Final/direct mode: use `1920x1080`, `quality: "high"`, and the full reference set when the user clearly asks for final/high-quality output.
-- Unspecified multi-image/reference-heavy jobs: ask whether to run a fast draft pass first or go straight to final quality.
-- Draft pass: use `1280x720` or `1024x576`, `quality: "medium"`, `resume: true`, and `concurrency: 2` unless the backend is known to handle more. Prefer text style guidance over extra style reference images for draft speed.
-- Final pass: regenerate only approved images at `1920x1080`, `quality: "high"`, with full source/style references.
-- Do not lower `job_timeout_sec` expecting faster generation; it only limits how long to wait before killing a slow job.
+## Exact-structure floorplan workflow
 
-## Command Pattern
+Generative models do not guarantee CAD-coordinate identity. For the best structure retention:
 
-Run from the generator project root:
+1. Use the structure/blueprint image as the only reference.
+2. Use `gpt-image-2` with `action: "edit"`.
+3. Describe the desired visual style in text instead of supplying a second style-layout image.
+4. Explicitly lock perimeter, partitions, openings, facility count/order/spacing, circulation, and source rotation.
+5. Generate 1–2 samples first and compare them directly with the source.
+6. Generate the requested count only after a sample passes visual inspection.
+7. Use `resume: true` after cancellation or partial failure to skip existing numbered outputs.
 
-```bash
-python tools/ai_image.py <<'JSON'
+A style reference containing architecture can leak its rooms, counters, gates, empty-space ratios, and circulation into the result. If exact structure is more important than style matching, do not pass that style image to the model. Extract its palette, line treatment, facility vocabulary, and lighting through analysis, then encode those traits in the prompt.
+
+## Strict flat top-view workflow
+
+Terms such as `3D`, `2.5D`, `digital twin`, `realistic materials`, `ambient occlusion`, `bevel`, and `soft shadows` can trigger visible height or perspective. When the user forbids 3D, explicitly require:
+
+- exact 90-degree vertical overhead view;
+- true orthographic projection;
+- zero wall/object height and no visible side faces;
+- flat 2D vector shapes, solid fills, and uniform thin strokes;
+- no shadows, gradients implying depth, extrusion, bevel, perspective, or photorealism.
+
+For airport security maps, keep facility interpretation inside existing source footprints: X-ray conveyor belts, tray-return lanes, walk-through metal-detector frames, body-scanner circles, document readers, automated e-gates, and queue stanchions. Never add equipment outside source geometry.
+
+## Reference edit example
+
+```json
 {
   "mode": "single",
-  "prompt": "Complete final prompt here. Include subject, action, composition, lighting, style, constraints, and negative constraints.",
-  "topic": "blueprint-reinterpret-v1",
-  "topic_root": "E:/CityAI/IncheonProject/t2in-dev/ImageGallery/blueprint-reinterpret",
-  "count": 1,
+  "prompt": "Preserve the complete source geometry and restyle it as a strict flat 90-degree airport security map. No moved, missing, duplicated, or invented structures; no 3D, perspective, shadows, text, logos, or watermark.",
+  "topic": "airport-floorplan-flat-edit",
+  "topic_root": "C:/Users/jisung/workspaces/cityai/t2in-dev/ImageGallery/airport-floorplan-flat-edit",
+  "count": 2,
   "size": "1920x1080",
   "quality": "high",
+  "image_model": "gpt-image-2",
+  "action": "edit",
+  "resume": true,
+  "concurrency": 2,
   "reference_images": [
-    "E:/CityAI/IncheonProject/t2in-dev/ImageGallery/blueprint-reinterpret/input/reference-01.png"
+    "C:/absolute/path/structure-source.png"
   ]
 }
-JSON
 ```
 
-Use tool execution with `cwd` set to `E:/ai-image-generator`.
+## Performance and recovery
 
-## Prompt Requirements
+- Reference-heavy/high-resolution work should start with `concurrency: 2`.
+- `job_timeout_sec` limits waiting; lowering it does not make generation faster.
+- Long GPT runs may produce some outputs before interruption. Rerun the identical topic/count with `resume: true` rather than overwriting successful files.
+- Use a fresh topic for materially changed prompts.
 
-Prompts must be final, self-contained, and specific:
-- Subject and source interpretation goal.
-- Camera/framing or top-view/isometric requirement.
-- Style direction: dark navy blueprint, crisp SVG-like vector infographic, clean CAD lines, flat colors, organized layers, low/no noise.
-- Preservation constraints: keep source floorplan/map structure, scale, zones, and circulation logic unless the user asks for redesign.
-- Negative constraints: no arbitrary distortion, no random dotted routes/nodes, no paper texture, no real logos, no watermarks, no unreadable brand signage.
+## Output verification
 
-For CAD/vector map styling, prefer: clean dark navy blueprint-style or vector infographic, crisp SVG-like lines, low/no noise, flat colors, organized layers, no paper texture or grain.
+After each real run:
 
-## Output Handling
-
-After a successful run:
-1. Read the returned JSON.
-2. Report the exact output paths.
-3. If the workspace requires `ImageGallery`, keep or move final outputs under that package and preserve prompt/run metadata in `manifest.json` or `README.md` for non-trivial requests.
-4. Do not describe visual details as observed unless you actually inspect the generated image file.
-
-## Common Mistakes
-
-| Mistake | Correction |
-|---|---|
-| Using the built-in image tool after the user requested this skill | Use `E:/ai-image-generator/tools/ai_image.py` instead. |
-| Native `image_generation_call` appears in history or `Unknown parameter: input[N].action` occurs | Treat OMP history as polluted and rerun with the local CLI into `ImageGallery/<request-slug>/`. |
-| Saying generation succeeded before seeing output JSON | Wait for `ok: true` and paths. |
-| Leaving outputs in loose workspace root files | Use `ImageGallery/<request-slug>/`. |
-| Batch-generating without a plan | Run `dry_run: true` first. |
-| Relying on a reference image that is only in chat | Save or locate it as a real file path before calling the CLI. |
+1. Parse the final JSON line.
+2. Require `ok: true` and an empty `failures` list.
+3. Confirm every listed path exists.
+4. Confirm output count and dimensions.
+5. Build or inspect a contact sheet for multi-image work.
+6. Compare top candidates directly against the structure source.
+7. Report observed deviations honestly; do not call generative output CAD-exact without evidence.
