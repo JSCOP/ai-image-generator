@@ -208,5 +208,86 @@ class GeneratorObservabilityTests(unittest.TestCase):
         image_model_index = commands[0].index("--image-model")
         self.assertEqual(commands[0][image_model_index + 1], "gemini-3.1-flash-image")
 
+    def test_ai_entrypoint_passes_edit_action_for_single(self):
+        ai_image = load_module("ai_image_action_under_test", ROOT / "tools" / "ai_image.py")
+        commands = []
+        original_run_child = ai_image._run_child
+        ai_image._run_child = lambda cmd, timeout: (commands.append(cmd) or (0, "ok"))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                result = ai_image.run_single(
+                    {
+                        "prompt": "preserve source geometry",
+                        "topic": "edit-action-test",
+                        "topic_root": tmp,
+                        "action": "edit",
+                    }
+                )
+        finally:
+            ai_image._run_child = original_run_child
+
+        self.assertTrue(result["ok"])
+        action_index = commands[0].index("--action")
+        self.assertEqual(commands[0][action_index + 1], "edit")
+
+    def test_ai_entrypoint_passes_per_job_action(self):
+        ai_image = load_module("ai_image_job_action_under_test", ROOT / "tools" / "ai_image.py")
+        commands = []
+        original_run_child = ai_image._run_child
+        ai_image._run_child = lambda cmd, timeout: (commands.append(cmd) or (0, "ok"))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                result = ai_image.run_jobs(
+                    {
+                        "topic": "job-edit-action-test",
+                        "topic_root": tmp,
+                        "action": "generate",
+                        "jobs": [{"id": "01_edit", "prompt": "edit", "action": "edit"}],
+                        "concurrency": 1,
+                    }
+                )
+        finally:
+            ai_image._run_child = original_run_child
+
+        self.assertTrue(result["ok"])
+        action_index = commands[0].index("--action")
+        self.assertEqual(commands[0][action_index + 1], "edit")
+    def test_run_single_resume_skips_existing_outputs(self):
+        ai_image = load_module("ai_image_resume_under_test", ROOT / "tools" / "ai_image.py")
+        commands = []
+        original_run_child = ai_image._run_child
+        ai_image._run_child = lambda cmd, timeout: (commands.append(cmd) or (0, "ok"))
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                output_dir = Path(tmp) / "output" / "resume-test"
+                output_dir.mkdir(parents=True)
+                existing = output_dir / "resume-test_001.png"
+                existing.write_bytes(b"existing")
+                result = ai_image.run_single(
+                    {
+                        "prompt": "diagnostic",
+                        "topic": "resume-test",
+                        "topic_root": tmp,
+                        "count": 2,
+                        "resume": True,
+                        "concurrency": 1,
+                    }
+                )
+        finally:
+            ai_image._run_child = original_run_child
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["outputs"]), 2)
+        self.assertEqual(len(commands), 1)
+        self.assertTrue(result["outputs"][0].endswith("resume-test_001.png"))
+
+
+    def test_ai_entrypoint_rejects_invalid_action(self):
+        ai_image = load_module("ai_image_invalid_action_under_test", ROOT / "tools" / "ai_image.py")
+        result = ai_image.run_single({"prompt": "diagnostic", "action": "preserve"})
+
+        self.assertFalse(result["ok"])
+        self.assertIn("invalid action", result["error"])
+
 if __name__ == "__main__":
     unittest.main()

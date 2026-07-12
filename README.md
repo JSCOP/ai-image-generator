@@ -18,6 +18,8 @@ CLIProxyAPI 기반 이미지 생성 CLI입니다. Claude Code, Codex, Hermes Age
 - 대량/참조-heavy 작업에서 안정성이 필요하면 품질을 낮추지 말고 `concurrency`를 낮춰 조절합니다. 보통 `concurrency: 2`부터 시작합니다.
 - `job_timeout_sec`는 속도 옵션이 아니라 느린 job을 언제 중단할지 정하는 제한입니다.
 - `concurrency`를 높인다고 항상 빨라지지 않습니다. 4장 이상 고해상도/참조-heavy 작업은 `2`부터 확인하고, 백엔드가 안정적일 때만 `4` 이상으로 올립니다.
+- 구조 보존형 참조 편집은 `gpt-image-*`와 `action: "edit"`를 사용합니다. 스타일 이미지가 구조를 오염시킬 수 있으면 구조 원본만 전달하고 스타일은 텍스트로 지정합니다.
+- 정확한 도면/배치 작업은 먼저 1~2장을 생성해 원본과 비교 검수한 뒤 다량 생성합니다. 기존 일부 출력이 있으면 같은 topic에 `resume: true`를 사용해 누락분만 재개합니다.
 
 ## 설치 / 환경
 
@@ -109,12 +111,20 @@ open-manual-crop-tool.cmd
   "count": 1,
   "size": "1920x1080",
   "quality": "high",
+  "action": "edit",
+  "resume": true,
   "reference_images": [
     "D:/Eagle/CityAI.library/images/MOGQ97HSI25NC.info/Clipboard - 2026-04-27 13.59.04.png"
   ]
 }
 '@ | python tools\ai_image.py
 ```
+
+`action`은 `auto`, `generate`, `edit` 중 하나입니다. GPT 참조 이미지의 구조를 유지하며 재스타일링할 때는 `edit`를 명시합니다. `single`과 `jobs` 모두 top-level 기본값과 job별 override를 지원합니다.
+
+도면 구조가 최우선이면 스타일 참조 이미지를 함께 전달하지 않는 것이 안전합니다. 구조 원본 한 장만 `reference_images`에 넣고 색상, 재질, 시설 표현, top-view 규칙을 prompt에 서술합니다. 여러 참조 이미지를 함께 넣으면 모델이 스타일 이미지의 공간 배치를 섞을 수 있습니다.
+
+중단된 반복 생성을 재개할 때는 기존 topic/count를 유지하고 `resume: true`를 지정합니다. 이미 존재하는 numbered output은 `image_skipped`로 건너뛰고 누락된 파일만 생성합니다.
 
 응답 예:
 
