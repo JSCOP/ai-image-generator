@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+auths/
+config.yaml
+*.key
+*.pem
+
+# Generated images, events, and batch state
+output/
+runs/
+*/output/
+*/runs/
+*.log
+*.events
+*.sse
+
+# Private or large reference assets and model weights
+refs/
+*.pt
+*.pth
+*.onnx
+
+# Local tooling state
+.playwright-mcp/
+.codegraph/
+.omo/
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

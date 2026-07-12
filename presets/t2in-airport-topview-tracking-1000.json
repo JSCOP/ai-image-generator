@@ -1,0 +1,213 @@
+{
+  "topic": "t2in-airport-topview-tracking-1000",
+  "size": "1920x1088",
+  "quality": "high",
+  "model": "gpt-5.4",
+  "image_model": "gpt-image-2",
+  "global_style": "Use case: photorealistic natural synthetic dataset image for ADX engine and multi-object tracking tests. Scene is inspired by Incheon International Airport Terminal 2 interiors but uses only generic fictional signage. Camera is a ceiling-mounted CCTV camera looking straight down at exactly 90 degrees, true orthographic top-down, no tilt, no 3/4 perspective, no horizon line, no wall elevation view, no ceiling visible. People must appear as directly overhead heads, shoulders, arms, coats, backpacks, rolling suitcases, luggage carts, strollers, wheelchairs, and staff uniforms, with enough separation for object detection and enough partial occlusion for tracking difficulty. Keep floor-plan geometry readable with vertical and horizontal architectural axes, crisp polished floor reflections, natural shadows falling straight down, varied passenger density, realistic queues and walking paths.",
+  "negative": "no real brand logos, no readable airline names, no exact airport name in signage, no watermark, no UI overlay, no map overlay, no labels, no captions, no fisheye lens, no oblique angle, no balcony view, no cinematic ground-level perspective, no distorted anatomy, no duplicated malformed people, no fantasy objects, no emergency or violent incident, no smoke, no fire, no police action, no unreadable clutter covering the whole image. Output one coherent natural overhead airport photograph.",
+  "categories": [
+    {
+      "name": "check_in_counter_queue",
+      "weight": 8,
+      "templates": [
+        "Wide departure check-in hall with a long row of generic airline counters along one edge, wood plank queue zone, chrome stanchions with green belts, 35 travelers, 16 rolling suitcases, 5 luggage carts, and two staff positions behind counters.",
+        "Top-down view of a check-in island with self-service kiosks, baggage scales, parallel queue lanes, moderate passenger traffic, family groups with carts, clear walking aisle crossing the lower frame.",
+        "Busy but orderly check-in counter row with shallow zigzag queue maze, mixed standing and walking passengers, several empty lanes for calibration, polished gray stone corridor beside warm wood flooring.",
+        "Sparse early-morning check-in hall with only a few passengers, long counter row, two kiosk clusters, clean reflections, large open floor area useful for background subtraction tests.",
+        "Peak-time check-in queue with dense but separated travelers, rolling suitcases in different colors, staff at counters, line barriers creating occlusions, no readable logos or text."
+      ]
+    },
+    {
+      "name": "self_checkin_kiosk_cluster",
+      "weight": 5,
+      "templates": [
+        "Cluster of self check-in kiosks in two neat rows near a generic information pillar, travelers tapping screens, small suitcases beside feet, luggage carts parked at the side, clean open circulation paths.",
+        "Top-down self-service zone with five podium kiosks, low glass partitions, queue belts, scattered passengers waiting at different distances, bright reflective floor and generic blue-green wayfinding bands.",
+        "Automated bag drop and self-check area with conveyor mouths, baggage scales, kiosk screens seen from above, staff assisting one traveler, carts and suitcases creating mild occlusion.",
+        "Quiet kiosk wayfinding node with three information kiosks, floor arrows, generic overhead sign panels visible only as top surfaces, a few travelers crossing diagonally through the scene."
+      ]
+    },
+    {
+      "name": "security_checkpoint",
+      "weight": 6,
+      "templates": [
+        "Airport security screening area with multiple parallel lanes, tray return belts, walk-through scanners seen only from above, organized queue lanes, 40 travelers, staff checkpoints, clear rectangular geometry.",
+        "Pre-security waiting zone with dense queue barriers, conveyor machines, inspection tables, people placing bags in trays, strong top-down separability and partial occlusions from stanchions.",
+        "Lightly crowded security checkpoint with open lanes, trays stacked on counters, travelers spaced across a wide waiting grid, no readable signage, crisp overhead CCTV look.",
+        "Busy screening queue with bottleneck at lane entrance, staff managing flow, travelers with backpacks and carry-ons, polished floor reflections, realistic but non-emergency mood."
+      ]
+    },
+    {
+      "name": "departure_hall_open_floor",
+      "weight": 7,
+      "templates": [
+        "Large departures hall with open polished tile floor, sparse travelers walking in different directions, check-in islands visible at frame edge, blue-green wayfinding strips, long shadows straight down.",
+        "Bright terminal concourse with broad open floor, 25 travelers distributed across the frame, carts parked in a row, planters and generic wayfinding totems, strong grid-like floor seams.",
+        "Moderately busy departure hall with crossing pedestrian paths, empty central region, seating rows at one side, glass partitions and generic digital signboards seen as top surfaces.",
+        "Late-morning open hall with window-shadow bands across polished stone, travelers and luggage carts forming natural trajectories for tracking, no crowded queue, clean background."
+      ]
+    },
+    {
+      "name": "gate_waiting_area",
+      "weight": 6,
+      "templates": [
+        "Gate waiting area with rows of connected seats, boarding podium, generic digital screens as top panels, seated passengers, standing queue, suitcases placed beside seats, glass wall light.",
+        "Quiet terminal lounge beside full-height window wall, seating islands, charging tables, passengers sitting and walking, carts near aisle edges, reflective gray floor.",
+        "Busy boarding gate zone with lane dividers, two boarding podiums, compact queue, seated passengers in rows, staff positions, jet bridge threshold implied by rectangular doorway top surface.",
+        "Sparse gate lounge with clear aisles, small groups waiting, wheelchair user and stroller included naturally, luggage beside chairs, clean overhead geometry for tracking tests."
+      ]
+    },
+    {
+      "name": "boarding_queue",
+      "weight": 4,
+      "templates": [
+        "Boarding queue at a generic gate with two parallel lanes, travelers holding bags, rolling suitcases, staff podiums, rectangular gate entrance, seats along the side, moderate occlusion.",
+        "Dense boarding group forming a curved queue near gate podiums, separated individual bodies visible from above, overhead sign panels are blank and generic, no readable text.",
+        "Early boarding scene with small queue, empty seats, a few walking passengers crossing behind the queue, high-contrast suitcases against pale floor."
+      ]
+    },
+    {
+      "name": "arrival_hall_meeting_area",
+      "weight": 5,
+      "templates": [
+        "Arrival hall meeting area with glass barrier line, greeting groups, luggage carts, people walking from exit lanes, generic meeting point sign as a blank top surface, open polished floor.",
+        "Post-arrival public zone with families gathering around carts, scattered suitcases, seating benches, information counter, smooth passenger flow from one side to another.",
+        "Wide arrivals concourse with moderate crowds, rope dividers, carts clustered near exit, varied body orientations, strong reflections and top-down CCTV viewpoint.",
+        "Quiet arrival hall with sparse travelers, empty waiting rails, benches, and a few carts, useful clean-background tracking frames."
+      ]
+    },
+    {
+      "name": "baggage_claim",
+      "weight": 5,
+      "templates": [
+        "Baggage claim hall with two carousel arcs visible from above, passengers waiting around the belt, carts and suitcases, glass partitions and broad walking paths.",
+        "Arrival baggage zone with rectangular carousel edge, travelers leaning toward luggage belt, carts parked in clusters, mixed walking and stationary people for tracking.",
+        "Busy baggage pickup area with crowd around carousel, suitcases on belt, strong partial occlusion but each person still top-down readable, polished floor reflections.",
+        "Sparse baggage hall with one carousel, few passengers, many empty floor regions, overhead camera exactly vertical."
+      ]
+    },
+    {
+      "name": "retail_concourse",
+      "weight": 5,
+      "templates": [
+        "Airport retail concourse with generic glass storefronts, display islands, planters, shoppers with carry-ons, wide central walkway, warm shop lighting reflected on stone floor.",
+        "Duty-free style shopping zone with open counters, product display tables as top rectangles, travelers browsing and walking, no real brand logos, clean aisle geometry.",
+        "Commercial terminal corridor with shop entrances on both sides, planters and benches in center, moderate passenger traffic, luggage carts parked along storefront edge.",
+        "Sparse retail hall with large clean reflective surfaces, a few shoppers, generic signboards, glass partitions, and straight walking trajectories."
+      ]
+    },
+    {
+      "name": "food_court",
+      "weight": 5,
+      "templates": [
+        "Airport food court with cafe counters, round and square tables, seated travelers, rolling bags beside chairs, planters, central aisle with walking passengers, warm storefront accents.",
+        "Dining plaza around a central planter island, tables and chairs from direct overhead, 45 people sitting and walking, luggage carts along edges, clean separation of objects.",
+        "Quiet cafe seating zone with small tables, sofas, planters, counter line, few travelers and suitcases, reflective floor with natural indoor lighting.",
+        "Busy restaurant cluster with order queue, seated groups, carts parked near tables, realistic top-down people shapes and mild occlusion from furniture."
+      ]
+    },
+    {
+      "name": "cafe_lounge",
+      "weight": 4,
+      "templates": [
+        "Premium airport cafe lounge with warm counter, small tables, lounge chairs, planters, seated travelers, bags beside seats, open walkway crossing the frame.",
+        "Observation lounge beside glass facade with three planters holding small trees, benches, white side tables, travelers resting with luggage carts, strong daylight reflections.",
+        "Coffee kiosk seating area with one generic counter, queue of travelers, tables aligned in rows, suitcases and backpacks visible from above."
+      ]
+    },
+    {
+      "name": "moving_walkway",
+      "weight": 5,
+      "templates": [
+        "Long moving walkway corridor with two parallel travelator belts, glass railings, pedestrians on both belts and side lanes, rolling suitcases, strong linear perspective-free overhead geometry.",
+        "Transfer passage with moving walkways, ceiling-camera top-down view, sparse passengers moving in opposite directions, blue-green floor wayfinding strips beside belts.",
+        "Busy connector hall with travelator belts, people clustered at entry and exit points, carts waiting near the side, clean rectangular railings from above.",
+        "Quiet moving walkway with only a few travelers, long empty belt surfaces, polished floor, realistic overhead shadows and reflections."
+      ]
+    },
+    {
+      "name": "escalator_atrium",
+      "weight": 5,
+      "templates": [
+        "Central atrium with paired escalators, glass elevator shaft, planter islands, upper-level void represented as floor opening edges, travelers around escalator landings, strict top-down only.",
+        "Airport vertical circulation zone with escalators and stairs seen from directly above, glass railings, luggage carts, groups entering and exiting, no side wall elevation.",
+        "Bright multi-level atrium floor plan with one elevator shaft, escalator rectangles, benches, planters, scattered passengers, strong geometric readability.",
+        "Busy escalator landing with queue-like pedestrian flow, rolling suitcases, carts, reflective floors, all structures shown only by top surfaces."
+      ]
+    },
+    {
+      "name": "transfer_corridor",
+      "weight": 5,
+      "templates": [
+        "Wide transfer corridor with blue and green floor wayfinding bands, glass walls, bench seating, information kiosks, travelers walking in both directions with luggage.",
+        "Long connecting passage with ribbed wall edge shown as thin boundary, benches, vending machines as top rectangles, sparse travelers and carts, clean top-down CCTV framing.",
+        "Moderate-flow transfer hall with crossing paths, generic signs, wide open central lane, people separated for tracking, suitcases and backpacks visible.",
+        "Crowded transfer corridor bottleneck near kiosk cluster, staff guiding movement, natural non-emergency congestion, visible individual overhead silhouettes."
+      ]
+    },
+    {
+      "name": "immigration_control",
+      "weight": 4,
+      "templates": [
+        "Immigration control hall with rows of generic booths, glass partitions, parallel queue lanes, document check counters, travelers waiting with carry-ons, no readable text.",
+        "Passport control area with compact service booths and long stanchion lanes, moderate crowd, staff behind booths, overhead bodies and luggage clearly visible.",
+        "Quiet border screening zone with mostly empty lanes, a few travelers approaching booths, strong floor-plan geometry and clean background."
+      ]
+    },
+    {
+      "name": "airport_entrance_lobby",
+      "weight": 4,
+      "templates": [
+        "Terminal entrance lobby interior with sliding glass door lines, information desk, luggage cart rows, waiting travelers, glass facade shadows, broad polished floor.",
+        "Curbside entrance interior with generic ticketing signs, cart return area, families entering with suitcases, staff near doorway, top-down ceiling CCTV view.",
+        "Wide public entry zone with wayfinding pillars, benches, floor markings, sparse pedestrian traffic, natural daylight and clean reflections."
+      ]
+    },
+    {
+      "name": "rest_area",
+      "weight": 4,
+      "templates": [
+        "Quiet rest area with recliner seats, charging tables, plants, travelers resting with luggage beside seats, open aisle, overhead shapes separated and trackable.",
+        "Airport relaxation zone with benches and lounge chairs arranged in islands, sparse walkers crossing, suitcases and backpacks near seated people.",
+        "Small waiting island with planters, information kiosk, scattered chairs, moderate passenger flow around the island, polished floor reflections."
+      ]
+    },
+    {
+      "name": "crowd_bottleneck_normal",
+      "weight": 4,
+      "templates": [
+        "Normal non-emergency crowd bottleneck at a queue entrance, dense passenger cluster but orderly movement, staff guide point, many suitcases and carts, clear overhead individual shapes.",
+        "Busy concourse pinch point between planter island and kiosk row, compressed pedestrian paths, no panic, realistic occlusion and re-identification challenge for tracking.",
+        "High-density terminal walkway with two crossing flows, luggage carts creating temporary blockages, people still individually visible from overhead."
+      ]
+    },
+    {
+      "name": "calibration_sparse_scene",
+      "weight": 3,
+      "templates": [
+        "Very sparse airport interior calibration scene with large clean floor area, only five travelers, two suitcases, one cart, strong floor seams and generic architectural fixtures.",
+        "Empty late-night terminal corridor with a few maintenance staff and travelers, clear top-down object silhouettes, reflective floor and visible geometric reference lines.",
+        "Low-traffic check-in hall edge with mostly empty queue barriers and isolated passengers, ideal for background and scale calibration."
+      ]
+    },
+    {
+      "name": "cart_cluster_tracking",
+      "weight": 3,
+      "templates": [
+        "Luggage cart return area with nested carts, travelers taking and returning carts, suitcases of different colors, moderate occlusion around cart cluster, strict vertical top view.",
+        "Terminal cart parking zone beside a glass wall, families loading bags onto carts, individual people and cart handles visible from overhead, clean walking lane.",
+        "Busy cart cluster near check-in entrance with carts moving in different directions, passengers pulling suitcases, natural tracking challenge without incident."
+      ]
+    },
+    {
+      "name": "staff_service_counter",
+      "weight": 3,
+      "templates": [
+        "Generic airport information counter island with staff, travelers queueing for help, stanchions, kiosks, colorful blank digital wall reflection, no readable text.",
+        "Help desk zone with single curved counter, three staff positions, passengers with luggage, open circulation around the island, polished floor and top-down camera.",
+        "Service counter beside wayfinding kiosks, small queue and crossing walkers, carts at one edge, natural indoor lighting and realistic overhead people shapes."
+      ]
+    }
+  ]
+}

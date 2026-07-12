@@ -1,0 +1,190 @@
+{
+  "topic": "extraction-rpg-dad",
+  "size": "1920x1088",
+  "quality": "high",
+  "model": "gpt-5.5",
+  "image_model": "gpt-image-2",
+  "global_style": "Dark and Darker / Escape from Tarkov inspired dark fantasy extraction RPG aesthetic. Grim medieval dungeon atmosphere, low-key lighting dominated by warm flickering torchlight against deep shadows, desaturated palette of charcoal black, iron gray, oxidized brass, blood red, candle amber. Heavy painterly textures, weathered stone, rusted iron, scratched leather, aged parchment. UI panels look like riveted iron plates and burnt parchment with brass corners. Designed as a mobile (landscape, 16:9) adaptation of Dark and Darker — every UI screen reads like a dark fantasy hardcore extraction game running on a phone, with touch-sized buttons but the same gritty visual language. Game scenes are top-down or slightly high-angle (about 60 degrees) over a stylized dungeon, readable silhouettes, atmospheric torch light pools.",
+  "negative": "no bright cartoon colors, no chibi, no anime, no cute mascot style, no cell-shaded look, no neon, no clean pastel UI, no real brand logos, no readable signage text, no watermark, no nsfw, no modern guns, no sci-fi tech, no pixel art.",
+  "categories": [
+    {
+      "name": "gameplay_barbarian",
+      "weight": 3,
+      "templates": [
+        "Top-down view of a heavily armored barbarian mid-swing with a two-handed felling axe inside a torch-lit stone dungeon room, swinging at a skeleton, sparks and dust kicked up, deep shadows, painterly Dark and Darker style, mobile landscape composition.",
+        "High-angle 60-degree view of a barbarian in chainmail and fur cloak charging down a narrow stone corridor toward a zombie, torchlight from wall sconces, blood spatter on flagstones, gritty Dark and Darker mood.",
+        "Top-down dungeon scene of a barbarian standing over a defeated skeleton beside an opened iron-bound chest, glowing loot inside, candlelight casting long shadows, mobile-framed extraction RPG screenshot look."
+      ]
+    },
+    {
+      "name": "gameplay_wizard",
+      "weight": 3,
+      "templates": [
+        "Top-down view of a robed wizard casting a magic missile arc that lights up a dark stone crypt, faint blue glow on cobwebbed pillars, skeleton enemies stepping out of the shadows, Dark and Darker dungeon mood, mobile landscape framing.",
+        "High-angle dungeon scene of a wizard hurling a fireball down a corridor at advancing zombies, warm fire glow contrasting deep blacks, painterly textures, Dark and Darker style.",
+        "Top-down view of a wizard reading a glowing rune on a stone altar in a torch-lit ritual chamber, magic light reflecting on iron sconces, dark fantasy extraction RPG atmosphere."
+      ]
+    },
+    {
+      "name": "gameplay_rogue",
+      "weight": 2,
+      "templates": [
+        "Top-down view of a hooded rogue crouched in shadow behind a pillar, dagger drawn, a skeleton patrolling a torch-lit dungeon corridor ahead, Dark and Darker stealth moment, mobile landscape framing.",
+        "High-angle dungeon scene of a rogue picking a lock on an iron-bound chest, lockpick glint, torchlight from a single wall sconce, deep shadows, gritty extraction RPG style."
+      ]
+    },
+    {
+      "name": "gameplay_party",
+      "weight": 2,
+      "templates": [
+        "Top-down dungeon scene of a three-person party (fighter with shield, cleric with mace, ranger with bow) advancing through a torch-lit stone hall, atmospheric god rays from broken ceiling, Dark and Darker style.",
+        "High-angle view of a party fighting a wave of skeletons in a square crypt room, torchlight pools, scattered bones, painterly dark fantasy mobile composition."
+      ]
+    },
+    {
+      "name": "monsters_zombies",
+      "weight": 2,
+      "templates": [
+        "Top-down composition of three rotted dungeon zombies shambling through a damp stone corridor, candlelight catching their tattered armor, Dark and Darker enemy concept feel, mobile landscape framing.",
+        "Painterly dark fantasy bestiary plate of a brute zombie with a rusted cleaver inside a crypt, single torch lighting, deep shadows."
+      ]
+    },
+    {
+      "name": "monsters_spiders",
+      "weight": 2,
+      "templates": [
+        "Top-down view of a giant cave spider descending from cobwebbed rafters in a stone dungeon room, candlelight reflecting in many eyes, Dark and Darker style.",
+        "High-angle dungeon scene of multiple smaller cave spiders pouring out from a cracked wall, torch glow on glistening carapaces, gritty dark fantasy mobile composition."
+      ]
+    },
+    {
+      "name": "monsters_skeletons",
+      "weight": 2,
+      "templates": [
+        "Top-down view of an armored skeleton warrior with kite shield and longsword in a torch-lit stone hall, faint ghostly blue eye glow, Dark and Darker enemy mood.",
+        "High-angle scene of a skeleton archer perched on broken stairs drawing a bow, candlelight outlining ribs, painterly dark fantasy texture."
+      ]
+    },
+    {
+      "name": "monsters_boss",
+      "weight": 1,
+      "templates": [
+        "Top-down boss arena scene of a hulking lich on a black stone throne in a candle-lined chamber, swirling dark magic, Dark and Darker boss mood, mobile landscape framing.",
+        "High-angle view of a giant skeletal champion with massive two-handed sword stepping out of a sarcophagus in a torch-lit crypt, dramatic shadows."
+      ]
+    },
+    {
+      "name": "loot_chest",
+      "weight": 2,
+      "templates": [
+        "Top-down view of an opened iron-bound treasure chest in a torch-lit dungeon room, glowing rare longsword and gold coins inside, candle wax pooling on stone, Dark and Darker loot moment.",
+        "High-angle scene of a player crouched looting a barrel and a chest under a wall sconce, glowing item icons hovering, gritty dark fantasy extraction RPG vibe."
+      ]
+    },
+    {
+      "name": "extraction_portal",
+      "weight": 2,
+      "templates": [
+        "Top-down dungeon room with a swirling blue extraction portal glowing inside a stone arch, torchlight along the walls, a player silhouette running toward it carrying a glowing loot bag, Dark and Darker extraction moment, mobile landscape framing.",
+        "High-angle view of an ancient stone gate covered in glowing runes activating as an extraction portal in a crypt, painterly dark fantasy lighting."
+      ]
+    },
+    {
+      "name": "scene_dungeon",
+      "weight": 2,
+      "templates": [
+        "Top-down environment art of a Dark and Darker style dungeon room: cracked stone floor, four torch sconces, broken pillars, scattered bones, iron portcullis on one wall, no characters, mobile landscape framing.",
+        "High-angle dungeon corridor with cobwebs, candle puddles, sarcophagi along the walls, atmospheric torchlight, painterly dark fantasy environment art."
+      ]
+    },
+    {
+      "name": "ui_main_lobby",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape (16:9) main lobby UI mockup for a Dark and Darker style extraction RPG. Center: full-body character portrait of a fighter in plate armor on a stone pedestal lit by torches. Bottom: heavy iron-and-parchment buttons (Play, Stash, Merchants, Squad). Top-left: character name and level on a parchment ribbon. Top-right: gold coin and gem currency widget on iron plates. Background: dim tavern interior with hanging lanterns. Touch-sized buttons but D&D dark fantasy textures. No readable text.",
+        "Mobile main menu UI for a dark fantasy extraction RPG: parchment-and-iron framed UI panels, large character preview on the left (wizard with staff), class swap arrows, big rounded iron Play button on the bottom-right, currency widget at the top, candlelit medieval tavern background."
+      ]
+    },
+    {
+      "name": "ui_map_select",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape UI mockup of a Dark and Darker style map/dungeon select screen. Center: an aged parchment map of three dungeon nodes (Crypts, Goblin Caves, Ice Cavern) with wax seals as icons, current node highlighted with a candle flame. Side: difficulty tier selector on iron plates (Normal / High-Roller). Bottom-right: heavy iron Enter Dungeon button. Background: a wooden table with candles and ink quill. No readable text.",
+        "Mobile dungeon select UI: list of dungeon entries shown as parchment cards with iron borders, each with a torch icon difficulty meter, party slots row at the top showing three character portrait frames, big iron Queue button on the bottom-right."
+      ]
+    },
+    {
+      "name": "ui_inventory_spatial_grid",
+      "weight": 4,
+      "templates": [
+        "Mobile landscape (16:9) UI mockup of a Dark and Darker / Escape from Tarkov style spatial grid inventory. Left: paper-doll character preview of a fighter in armor on a parchment panel with equipment slots (head, chest, legs, boots, gloves, cloak, primary weapon, secondary weapon, ring x2, necklace). Right: large bag grid of small square cells on a dark iron-bordered panel; items occupy multiple cells (longsword 1x4, shield 2x2, helmet 2x2, healing potion 1x1, gold pouch 1x1, bandage 1x1, torch 1x2) drawn as gritty painted item icons with rarity-colored borders. Top: weight / encumbrance bar on iron plate, currency widget. Bottom: tab buttons (Bag / Stash / Loadout). Touch-sized hit areas, candlelight glow. No readable text.",
+        "Tarkov-style spatial grid inventory UI on a mobile landscape screen for a dark fantasy extraction RPG: two grids side by side (player bag on the left, looted container on the right), items occupy multiple grid cells (rifle-length crossbow 1x5, pauldron 2x2, plate chestpiece 3x3, gem 1x1) with rarity color frames, rotate-item icon, sort icon, weight bar, dark iron bordered panels, torchlight ambience.",
+        "Spatial grid stash UI mockup, Dark and Darker mobile adaptation: very large stash grid panel on the right (about 10x6 cells) filled with weapons, armor pieces, potions and ingredients of various sizes, item drag preview with red 'invalid placement' overlay on a partially blocked area, character bag grid on the left, parchment-and-iron frame, candlelit background."
+      ]
+    },
+    {
+      "name": "ui_loot_window",
+      "weight": 3,
+      "templates": [
+        "Mobile landscape UI mockup of a Dark and Darker style looting window: left panel is the opened chest's grid (4x4 cells) containing a longsword, helmet, gold pile, scroll; right panel is the player's bag grid; transfer arrow button between them; weight bar updating; iron-and-parchment frame, torchlight glow on the panels. No readable text.",
+        "Spatial grid loot screen overlay during a dungeon run: dim dungeon scene visible behind the panels, two grid containers (corpse loot and player bag), painterly item icons with rarity borders, take-all iron button, dark fantasy mobile UI."
+      ]
+    },
+    {
+      "name": "ui_combat_hud",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape in-game HUD mockup for a Dark and Darker style extraction RPG. Bottom-left: round virtual joystick rendered as an iron ring on parchment. Bottom-right: stamina action buttons (attack, block, dodge, interact) shown as heavy iron circular buttons with engraved icons, cooldown shown as candle wax filling. Top-left: red HP orb and blue MP orb framed in brass, character portrait. Top-right: minimap drawn as a parchment scrap with hand-inked dungeon walls. Center: the player character (top-down) fighting a skeleton in a torch-lit room behind the UI. Painterly dark fantasy textures.",
+        "Dark fantasy mobile combat HUD over a top-down dungeon scene: torch-shaped buff icon row under the HP orb, weight bar (encumbrance) on the left side, ammo / arrow count icon on the right, kill-feed style tiny iron-plate notifications on the upper-left, gritty Dark and Darker visual language."
+      ]
+    },
+    {
+      "name": "ui_shop_merchant",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape UI mockup of a Dark and Darker style merchant shop screen: left panel shows a painterly portrait of a hooded merchant behind a wooden counter in a dim torch-lit shop; center panel is a grid of item cards with iron borders and rarity color frames (sword, helm, potion, bandage, lockpick); right panel is the selected item detail with stat bars on parchment and a heavy iron Buy button; gold coin widget on the top. No readable text.",
+        "Mobile merchant UI for an extraction RPG: tabbed categories (Weapons / Armor / Consumables / Special) shown as iron tabs at the top, painterly item icons in a grid, repair and sell buttons on the bottom, candlelit medieval shop background."
+      ]
+    },
+    {
+      "name": "ui_squad_party",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape UI mockup of a Dark and Darker style squad / party screen: three character slots arranged horizontally as parchment-and-iron portrait frames (fighter, wizard, rogue) each with class icon, level and gear-score, ready-check torch icon next to each slot, big iron Queue button on the bottom-right, dim tavern background. No readable text.",
+        "Party invite UI overlay: list of friend slots on parchment ribbons with class icons, invite buttons rendered as wax-sealed envelopes, dark fantasy mobile aesthetic."
+      ]
+    },
+    {
+      "name": "ui_character_class_select",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape UI mockup of a Dark and Darker style class selection screen: a row of large class portraits (Fighter, Barbarian, Wizard, Cleric, Rogue, Ranger) on parchment-and-iron panels, selected class highlighted with a torch flame border, full-body preview of the selected class on the right, perks list on parchment with brass icons, big iron Confirm button on the bottom. No readable text.",
+        "Character creation UI for a dark fantasy extraction RPG on mobile landscape: paper-doll preview of a barbarian, class trait icons rendered as brass medallions on parchment, candlelit medieval background."
+      ]
+    },
+    {
+      "name": "ui_system_settings",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape settings UI mockup for a Dark and Darker style game: parchment scroll list of options (sound, music, vibration, graphics, controls, language) shown as iron toggle switches and brass slider knobs, candle wax dripping from the top of the panel, no readable text.",
+        "Pause overlay during a dungeon run: four heavy iron buttons in a row (Resume, Settings, Squad, Abandon Run) with engraved torch / gear / sword / skull icons, semi-transparent dark panel, dungeon scene blurred behind."
+      ]
+    },
+    {
+      "name": "ui_results_extract_success",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape extraction success screen UI for a Dark and Darker style game: large parchment panel reading visually as 'Extracted' (no readable letters, decorative glyphs only) with wax seal stamp, list of looted items shown as icons in iron frames with rarity borders and weight values, gold and XP earned on brass plates, big iron Continue button on the bottom-right, candlelit background.",
+        "Post-run rewards summary UI on mobile landscape: parchment scroll listing item icons taken out of the dungeon, gear-score change displayed as an iron meter, character portrait on the left, dark fantasy mood."
+      ]
+    },
+    {
+      "name": "ui_results_death",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape death screen UI for a Dark and Darker style extraction RPG: dark vignette over a dim dungeon scene, large torn parchment panel with a wax skull seal in the center, list of items lost shown as grayed-out icons in broken iron frames, two heavy iron buttons (Return to Lobby, Watch Killer) on the bottom, candlelight at the edges. No readable text.",
+        "Defeat overlay: cracked iron plate frame around the screen, faint torch embers, gear lost summary list, gritty dark fantasy mobile aesthetic."
+      ]
+    }
+  ]
+}

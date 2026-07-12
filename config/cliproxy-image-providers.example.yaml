@@ -1,0 +1,13 @@
+# Merge this section into CLIProxyAPI config.yaml.
+# Image models remain available while Grok video models stay hidden.
+oauth-excluded-models:
+  xai:
+    - "grok-3-*"
+    - "grok-4.20-*"
+    - "grok-build-*"
+    - "grok-composer-*"
+    - "grok-imagine-video*"
+  antigravity:
+    - gemini-3.5-flash-low
+    - gemini-3-flash-agent
+    - gemini-pro-agent

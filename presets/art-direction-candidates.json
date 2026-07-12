@@ -1,0 +1,53 @@
+{
+  "topic": "art-direction-candidates",
+  "size": "1920x1088",
+  "quality": "high",
+  "model": "gpt-5.5",
+  "image_model": "gpt-image-2",
+  "global_style": "Same scene rendered in different art directions for comparison. Scene: a barbarian hero in a torch-lit stone dungeon room fighting an armored skeleton, top-down / high-angle (about 60 degrees) view, mobile landscape (16:9) framing, clear readable silhouettes, no UI overlay (this is reference art only).",
+  "negative": "no UI elements, no HUD, no text, no watermark, no real brand logos, no nsfw, no chibi unless specified, no AI noise artifacts, clean composition.",
+  "categories": [
+    {
+      "name": "01_painterly_dark_fantasy",
+      "weight": 1,
+      "templates": [
+        "Painterly hand-painted dark fantasy art style, Dark and Darker / Diablo IV concept painting feel. Visible brush strokes, painterly textures on stone and armor, warm flickering torchlight against deep blacks, desaturated palette of charcoal, oxidized brass, blood red, candle amber. Atmospheric god rays, dust particles. Crisp focused composition, no AI noise. The scene: barbarian mid-swing with a great-axe at an armored skeleton, torch-lit stone dungeon room, top-down 60-degree view, mobile landscape framing."
+      ]
+    },
+    {
+      "name": "02_stylized_3d_lowpoly",
+      "weight": 1,
+      "templates": [
+        "Stylized 3D low-poly art style, like Albion Online / Diablo Immortal / Torchlight. Clean simplified geometry, hand-painted texture maps with soft gradients, slightly exaggerated proportions, clear readable silhouettes, vibrant but moody dungeon lighting, polished mobile-ready render, no painterly noise. The scene: barbarian mid-swing with a great-axe at an armored skeleton, torch-lit stone dungeon room, top-down 60-degree view, mobile landscape framing."
+      ]
+    },
+    {
+      "name": "03_gritty_realistic",
+      "weight": 1,
+      "templates": [
+        "Gritty semi-realistic 3D render style, Escape from Tarkov / Mortal Online vibe. Photoreal-ish materials (rusted iron, worn leather, weathered stone), realistic lighting and shadows from torches, subtle volumetric haze, restrained color palette, AAA mobile graphics look. Sharp clean render, no painterly brush strokes, no AI noise. The scene: barbarian mid-swing with a great-axe at an armored skeleton, torch-lit stone dungeon room, top-down 60-degree view, mobile landscape framing."
+      ]
+    },
+    {
+      "name": "04_inked_woodcut",
+      "weight": 1,
+      "templates": [
+        "Hand-drawn ink illustration / woodcut art style, Darkest Dungeon / Inscryption inspired. Heavy black ink outlines, cross-hatching shadows, limited color palette (mostly black, parchment cream, blood red, candle amber), gothic horror feel, flat painterly fills inside crisp inked silhouettes. No 3D render look. The scene: barbarian mid-swing with a great-axe at an armored skeleton, torch-lit stone dungeon room, top-down 60-degree view, mobile landscape framing."
+      ]
+    },
+    {
+      "name": "05_cinematic_concept",
+      "weight": 1,
+      "templates": [
+        "Cinematic concept art painting, Diablo IV / Elden Ring key art mood. Dramatic high-contrast lighting, single hero spotlight from torch fire, painterly atmospheric depth with fog and god rays, rich detail in foreground falling off into darkness, painterly but clean (no AI noise). Premium dark fantasy AAA feel. The scene: barbarian mid-swing with a great-axe at an armored skeleton, torch-lit stone dungeon room, top-down 60-degree view, mobile landscape framing."
+      ]
+    },
+    {
+      "name": "06_celshaded_dark_toon",
+      "weight": 1,
+      "templates": [
+        "Cel-shaded dark toon art style, Genshin Impact / Honkai Star Rail but darker fantasy. Crisp anime-inspired line work, flat shaded color blocks with one or two shadow steps, clean stylized character proportions, atmospheric torchlight rim lighting, dark moody palette (charcoal, deep teal, candle amber), polished mobile game render. No painterly noise. The scene: barbarian mid-swing with a great-axe at an armored skeleton, torch-lit stone dungeon room, top-down 60-degree view, mobile landscape framing."
+      ]
+    }
+  ]
+}

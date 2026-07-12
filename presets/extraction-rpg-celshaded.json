@@ -1,0 +1,222 @@
+{
+  "topic": "extraction-rpg-celshaded",
+  "size": "1920x1088",
+  "quality": "high",
+  "model": "gpt-5.5",
+  "image_model": "gpt-image-2",
+  "global_style": "Cel-shaded dark toon art style — Genshin Impact / Honkai Star Rail / Wuthering Waves but darker dark-fantasy. Crisp anime-inspired line work, flat shaded color blocks with one or two clean shadow steps, subtle rim lighting, polished mobile-game render look. NO painterly brush strokes, NO inked woodcut crosshatching, NO photoreal, NO chibi. Stylized hero proportions (slightly tall and slim, semi-anime), readable silhouettes. Atmospheric torchlight rim lighting, dark moody palette of charcoal black, deep teal-blue shadows, candle amber, restrained blood red, dull steel and brass. Game scenes are top-down / high-angle (about 60 degrees) over a stone dungeon, mobile landscape (16:9) framing, clean composition with clear focal point. UI screens are mobile (16:9) adaptations of Dark and Darker / Tarkov: parchment-and-iron framed panels rendered in the same cel-shaded style, riveted iron borders, wax seals, brass corners, crisp icons.",
+  "negative": "no AI noise artifacts, no painterly brush strokes, no inked woodcut crosshatching, no photoreal render, no chibi or super-deformed cute cartoon, no neon, no real brand logos, no readable text or signage, no watermark, no nsfw, no modern guns, no sci-fi tech, no pixel art.",
+  "categories": [
+    {
+      "name": "gameplay_barbarian",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon scene of a muscular barbarian mid-swing with a massive double-headed great-axe, attacking armored skeletons with kite shields, torch-lit stone room, cracked tiled floor, scattered bones, crisp anime line work, flat color shading.",
+        "High-angle cel-shaded dark toon illustration of a barbarian charging down a stone corridor toward shambling zombies, fur cloak trailing, torchlight rim lighting, deep teal-blue shadows.",
+        "Top-down cel-shaded scene of a barbarian standing over a defeated skeleton beside an iron-bound chest, cracked stones, wall torch glow, clean shaded color blocks."
+      ]
+    },
+    {
+      "name": "gameplay_wizard",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon scene of a robed wizard with a long staff casting an arc of magic missiles at advancing skeletons, faint blue glow, crisp anime line work, dark moody palette.",
+        "High-angle cel-shaded dark toon illustration of a wizard hurling a fireball down a stone corridor at zombies, warm fire rim glow against teal shadows, polished mobile game render.",
+        "Top-down cel-shaded scene of a wizard reading a glowing rune on a stone altar in a torch-lit ritual chamber, clean cel shading."
+      ]
+    },
+    {
+      "name": "gameplay_archer",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon scene of a hooded ranger archer drawing a longbow at a giant cave spider descending from the rafters, torch-lit stone room, anime line work.",
+        "High-angle cel-shaded dark toon illustration of an archer perched on broken stairs loosing an arrow at an armored skeleton across a crypt, candle puddles, flat shaded color blocks."
+      ]
+    },
+    {
+      "name": "gameplay_rogue",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon scene of a hooded rogue crouched in shadow behind a pillar, twin daggers drawn, a skeleton patrolling a torch-lit corridor ahead, deep teal shadows, crisp lines.",
+        "High-angle cel-shaded dark toon illustration of a rogue picking the lock on an iron-bound chest, single wall torch, clean cel shading."
+      ]
+    },
+    {
+      "name": "gameplay_cleric",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon scene of a cleric in plate armor with a holy mace and shield, casting a golden healing light over a wounded fighter, undead enemies recoiling, torch-lit crypt, anime line work.",
+        "High-angle cel-shaded dark toon illustration of a cleric raising a holy symbol that bursts into a radiant cross of light, banishing skeletons in a stone chamber."
+      ]
+    },
+    {
+      "name": "gameplay_druid",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon scene of a druid mid-transformation between human and bear form, vines and leaves swirling, attacking zombies, torch-lit stone room, polished anime render.",
+        "High-angle cel-shaded dark toon illustration of a druid summoning thorny vines from cracks in the dungeon floor to entangle skeletons, clean cel shading."
+      ]
+    },
+    {
+      "name": "gameplay_warlock",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon scene of a warlock in tattered robes channeling a chain of curse-bolts from his palm into multiple zombies, sickly purple glow, anime line work, dark moody palette.",
+        "High-angle cel-shaded dark toon illustration of a warlock summoning a small imp familiar in a rune-circle on the stone floor, candlelight glow, clean shading."
+      ]
+    },
+    {
+      "name": "gameplay_party",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon scene of a three-person party (fighter with shield, cleric with mace, wizard with staff) advancing through a torch-lit stone hall, atmospheric god rays from broken ceiling, anime line work.",
+        "High-angle cel-shaded dark toon illustration of a four-person party (barbarian, archer, rogue, cleric) fighting a wave of skeletons in a square crypt room, scattered bones, torchlight rim."
+      ]
+    },
+    {
+      "name": "monsters_zombies",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down composition of three rotted dungeon zombies shambling through a damp stone corridor, candlelight catching tattered armor, anime line work, dark moody palette.",
+        "Bestiary plate cel-shaded dark toon illustration of a brute zombie with a rusted cleaver in a crypt, single torch lighting, parchment paper border."
+      ]
+    },
+    {
+      "name": "monsters_spiders",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down view of a giant cave spider descending from cobwebbed rafters in a stone dungeon room, candlelight reflecting in many eyes, crisp anime lines.",
+        "High-angle cel-shaded dark toon illustration of multiple smaller cave spiders pouring out from a cracked wall, torch glow on glistening carapaces."
+      ]
+    },
+    {
+      "name": "monsters_skeletons",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down view of an armored skeleton warrior with kite shield and longsword in a torch-lit stone hall, faint ghostly blue eye glow, flat shaded color blocks.",
+        "High-angle cel-shaded dark toon illustration of a skeleton archer perched on broken stairs drawing a bow, candlelight rim, anime line work."
+      ]
+    },
+    {
+      "name": "monsters_boss",
+      "weight": 1,
+      "templates": [
+        "Cel-shaded dark toon top-down boss arena scene of a hulking lich on a black stone throne in a candle-lined chamber, swirling dark magic, dark moody palette, anime line work.",
+        "High-angle cel-shaded dark toon illustration of a giant skeletal champion with a massive two-handed sword stepping out of a sarcophagus in a torch-lit crypt, dramatic rim lighting."
+      ]
+    },
+    {
+      "name": "loot_chest",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down view of an opened iron-bound treasure chest in a torch-lit dungeon room, glowing rare longsword and gold coins inside, candle wax pooling on stone, clean cel shading.",
+        "High-angle cel-shaded dark toon illustration of a player crouched looting a barrel and a chest under a wall sconce, glowing item icons hovering, anime line work."
+      ]
+    },
+    {
+      "name": "extraction_portal",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down dungeon room with a swirling blue extraction portal glowing inside a stone arch, torchlight along the walls, a player silhouette running toward it carrying a glowing loot bag, clean shading.",
+        "High-angle cel-shaded dark toon illustration of an ancient stone gate covered in glowing runes activating as an extraction portal in a crypt, anime line work."
+      ]
+    },
+    {
+      "name": "scene_dungeon",
+      "weight": 2,
+      "templates": [
+        "Cel-shaded dark toon top-down environment art of a stylized dungeon room: cracked stone floor, four torch sconces, broken pillars, scattered bones, iron portcullis, no characters, flat shaded color blocks.",
+        "High-angle cel-shaded dark toon illustration of a dungeon corridor with cobwebs, candle puddles, sarcophagi along the walls, atmospheric torchlight rim, anime line work."
+      ]
+    },
+    {
+      "name": "ui_main_lobby",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape (16:9) main lobby UI mockup for a Dark and Darker style extraction RPG, drawn in a cel-shaded dark toon art style. Center: full-body cel-shaded portrait of a fighter in plate armor on a stone pedestal lit by torches, anime line work. Bottom: heavy iron-and-parchment buttons (Play, Stash, Merchants, Squad) with crisp icons. Top-left: character name and level on a parchment ribbon (decorative glyphs only, no readable text). Top-right: gold coin and gem currency widget on iron plates. Background: dim tavern interior with hanging lanterns, dark teal shadows.",
+        "Cel-shaded dark toon mobile main menu UI: parchment-and-iron framed UI panels, large cel-shaded character preview on the left (wizard with staff), class swap arrows, big rounded iron Play button on the bottom-right, currency widget at the top, candlelit medieval tavern background."
+      ]
+    },
+    {
+      "name": "ui_map_select",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon UI mockup of a Dark and Darker style map/dungeon select screen. Center: an aged parchment map of three dungeon nodes (Crypts, Goblin Caves, Ice Cavern) with wax seals as icons (decorative glyphs only), current node highlighted with a candle flame. Side: difficulty tier selector on iron plates (Normal / High-Roller). Bottom-right: heavy iron Enter Dungeon button. Background: a wooden table with candles and ink quill, anime line work.",
+        "Cel-shaded dark toon mobile dungeon select UI: list of dungeon entries shown as parchment cards with iron borders, each with a torch icon difficulty meter, party slots row at the top showing three character portrait frames, big iron Queue button on the bottom-right."
+      ]
+    },
+    {
+      "name": "ui_inventory_spatial_grid",
+      "weight": 4,
+      "templates": [
+        "Mobile landscape (16:9) UI mockup of a Dark and Darker / Tarkov style spatial grid inventory, drawn in a cel-shaded dark toon art style. Left: paper-doll character preview of a fighter in armor on a parchment panel with equipment slots (head, chest, legs, boots, gloves, cloak, primary weapon, secondary weapon, ring x2, necklace), all rendered as crisp cel-shaded icons. Right: large bag grid of small square cells on a dark iron-bordered panel; items occupy multiple cells (longsword 1x4, shield 2x2, helmet 2x2, healing potion 1x1, gold pouch 1x1, bandage 1x1, torch 1x2) drawn as cel-shaded item icons with rarity-colored borders. Top: weight / encumbrance bar on iron plate, currency widget. Bottom: tab buttons (Bag / Stash / Loadout). No readable text.",
+        "Cel-shaded dark toon spatial grid inventory UI on a mobile landscape screen: two grids side by side (player bag on the left, looted container on the right), items occupy multiple grid cells (crossbow 1x5, pauldron 2x2, plate chestpiece 3x3, gem 1x1) with rarity color frames, rotate-item icon, sort icon, weight bar, dark iron bordered panels, candlelight ambience.",
+        "Cel-shaded dark toon stash UI mockup, Dark and Darker mobile adaptation: very large stash grid panel on the right (about 10x6 cells) filled with weapons, armor pieces, potions and ingredients of various sizes, item drag preview with red 'invalid placement' overlay on a partially blocked area, character bag grid on the left, parchment-and-iron frame, anime line work."
+      ]
+    },
+    {
+      "name": "ui_loot_window",
+      "weight": 3,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon UI mockup of a Dark and Darker style looting window: left panel is the opened chest's grid (4x4 cells) containing a longsword, helmet, gold pile, scroll; right panel is the player's bag grid; transfer arrow button between them; weight bar updating; iron-and-parchment frame, torchlight glow, crisp cel-shaded icons.",
+        "Cel-shaded dark toon spatial grid loot screen overlay during a dungeon run: dim dungeon scene visible behind the panels, two grid containers (corpse loot and player bag), cel-shaded item icons with rarity borders, take-all iron button."
+      ]
+    },
+    {
+      "name": "ui_combat_hud",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon in-game HUD mockup for a Dark and Darker style extraction RPG. Bottom-left: round virtual joystick rendered as an iron ring on parchment. Bottom-right: stamina action buttons (attack, block, dodge, interact) shown as heavy iron circular buttons with engraved cel-shaded icons, cooldown shown as candle wax filling. Top-left: red HP orb and blue MP orb framed in brass, character portrait. Top-right: minimap drawn as a parchment scrap with hand-drawn dungeon walls. Center: the player character (top-down) fighting a skeleton in a torch-lit room behind the UI, anime line work.",
+        "Cel-shaded dark toon mobile combat HUD over a top-down dungeon scene: torch-shaped buff icon row under the HP orb, weight bar (encumbrance) on the left side, ammo / arrow count icon on the right, kill-feed style tiny iron-plate notifications on the upper-left, deep teal-blue shadows."
+      ]
+    },
+    {
+      "name": "ui_shop_merchant",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon UI mockup of a Dark and Darker style merchant shop screen: left panel shows a cel-shaded portrait of a hooded merchant behind a wooden counter in a dim torch-lit shop; center panel is a grid of item cards with iron borders and rarity color frames (sword, helm, potion, bandage, lockpick); right panel is the selected item detail with stat bars on parchment and a heavy iron Buy button; gold coin widget on the top.",
+        "Cel-shaded dark toon mobile merchant UI for an extraction RPG: tabbed categories (Weapons / Armor / Consumables / Special) shown as iron tabs at the top, cel-shaded item icons in a grid, repair and sell buttons on the bottom, candlelit medieval shop background."
+      ]
+    },
+    {
+      "name": "ui_squad_party",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon UI mockup of a Dark and Darker style squad / party screen: three character slots arranged horizontally as parchment-and-iron portrait frames (fighter, wizard, rogue) each with class icon, level and gear-score, ready-check torch icon next to each slot, big iron Queue button on the bottom-right, dim tavern background.",
+        "Cel-shaded dark toon party invite UI overlay: list of friend slots on parchment ribbons with class icons, invite buttons rendered as wax-sealed envelopes."
+      ]
+    },
+    {
+      "name": "ui_character_class_select",
+      "weight": 2,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon UI mockup of a Dark and Darker style class selection screen: a row of large class portraits (Fighter, Barbarian, Wizard, Cleric, Rogue, Ranger, Druid, Warlock) on parchment-and-iron panels, selected class highlighted with a torch flame border, full-body cel-shaded preview of the selected class on the right, perks list on parchment with brass icons, big iron Confirm button on the bottom.",
+        "Cel-shaded dark toon character creation UI for a dark fantasy extraction RPG on mobile landscape: paper-doll preview of a barbarian, class trait icons rendered as brass medallions on parchment, candlelit medieval background, anime line work."
+      ]
+    },
+    {
+      "name": "ui_system_settings",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon settings UI mockup for a Dark and Darker style game: parchment scroll list of options (sound, music, vibration, graphics, controls, language) shown as iron toggle switches and brass slider knobs, candle wax dripping from the top of the panel.",
+        "Cel-shaded dark toon pause overlay during a dungeon run: four heavy iron buttons in a row (Resume, Settings, Squad, Abandon Run) with engraved cel-shaded icons, semi-transparent dark panel, dungeon scene blurred behind."
+      ]
+    },
+    {
+      "name": "ui_results_extract_success",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon extraction success screen UI: large parchment panel with a wax seal stamp (decorative glyphs only, no readable letters), list of looted items shown as cel-shaded icons in iron frames with rarity borders and weight values, gold and XP earned on brass plates, big iron Continue button on the bottom-right, candlelit background.",
+        "Cel-shaded dark toon post-run rewards summary UI on mobile landscape: parchment scroll listing item icons taken out of the dungeon, gear-score change displayed as an iron meter, character portrait on the left, anime line work."
+      ]
+    },
+    {
+      "name": "ui_results_death",
+      "weight": 1,
+      "templates": [
+        "Mobile landscape cel-shaded dark toon death screen UI for a Dark and Darker style extraction RPG: dark vignette over a dim dungeon scene, large torn parchment panel with a wax skull seal in the center, list of items lost shown as grayed-out cel-shaded icons in broken iron frames, two heavy iron buttons (Return to Lobby, Watch Killer) on the bottom, candlelight at the edges.",
+        "Cel-shaded dark toon defeat overlay: cracked iron plate frame around the screen, faint torch embers, gear lost summary list."
+      ]
+    }
+  ]
+}
