@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 `unittest`, PowerShell 7, CLIProxyAPI OpenAI-compatible endpoints, Oh My Pi 18.0.3 YAML model registry.
 
-**Spec:** `docs/superpowers/specs/2026-08-24-grok-integration-design.md`
+**Spec:** `docs/superpowers/specs/2026-08-25-grok-integration-design.md`
 
 ## Global Constraints
 
@@ -182,10 +182,10 @@ Run:
 
 ```powershell
 omp models cliproxy-xai --json
-omp config get modelRoles.default
+python -c "import pathlib,yaml; c=yaml.safe_load(pathlib.Path(r'C:/Users/js/.omp/agent/config.yml').read_text(encoding='utf-8')); assert c['modelRoles']['default']=='cliproxy-xai/grok-4.6:xhigh'"
 ```
 
-Expected: catalog includes `cliproxy-xai/grok-4.6` with `xhigh`; default prints `cliproxy-xai/grok-4.6:xhigh`.
+Expected: catalog includes `cliproxy-xai/grok-4.6` with `xhigh`; the YAML assertion exits successfully.
 
 ### Task 4: Document the Supported Image Models
 
