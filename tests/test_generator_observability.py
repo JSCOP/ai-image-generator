@@ -3,6 +3,9 @@ import base64
 import importlib.util
 import io
 import json
+import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -167,6 +170,58 @@ class GeneratorObservabilityTests(unittest.TestCase):
         self.assertEqual(gen_image.extract_native_image(gemini_body, "gemini"), (b"image-bytes", "image/jpeg"))
         self.assertEqual(gen_image.extract_native_image(openai_body, "openai-images"), (b"image-bytes", "image/png"))
 
+    def test_grok_image_models_use_native_images_endpoint(self):
+        gen_image = load_module("gen_image_grok_under_test", ROOT / "scripts" / "gen_image.py")
+        models = (
+            "grok-imagine-image-2.0",
+            "grok-imagine-image",
+            "grok-imagine-image-quality",
+        )
+        calls = []
+
+        def options(image_model: str, references=None):
+            return gen_image.GenerateImageOptions(
+                prompt="a centered green triangle",
+                output="out.png",
+                model="unused-main",
+                image_model=image_model,
+                size="1024x1024",
+                quality="low",
+                action="generate",
+                events=None,
+                reference_image=list(references or []),
+                base_url="http://127.0.0.1:8317/v1",
+                api_key="test-key",
+                timeout=1,
+                output_format="png",
+                topic="test",
+                topic_slug="test",
+                topic_dir=Path("output/test"),
+            )
+
+        original_call = gen_image._call_json_blocking
+        gen_image._call_json_blocking = lambda url, payload, args: (
+            calls.append((url, payload)) or (b'{"data": []}', 200)
+        )
+        try:
+            for model in models:
+                args = options(model)
+                body, status, url = gen_image.call_native_image_backend(args)
+                self.assertEqual(gen_image.image_backend(model), "openai-images")
+                self.assertEqual(status, 200)
+                self.assertEqual(url, "http://127.0.0.1:8317/v1/images/generations")
+                self.assertEqual(json.loads(body), {"data": []})
+                self.assertEqual(calls[-1][1]["model"], model)
+                self.assertEqual(calls[-1][1]["prompt"], "a centered green triangle")
+                self.assertEqual(calls[-1][1]["n"], 1)
+
+            with self.assertRaisesRegex(RuntimeError, "reference-image editing is not yet supported"):
+                gen_image.call_native_image_backend(options(models[0], ["reference.png"]))
+        finally:
+            gen_image._call_json_blocking = original_call
+
+        self.assertEqual(len(calls), len(models))
+
     def test_provider_padding_and_exact_output_resize(self):
         gen_image = load_module("gen_image_resize_under_test", ROOT / "scripts" / "gen_image.py")
         from PIL import Image
@@ -288,6 +343,136 @@ class GeneratorObservabilityTests(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("invalid action", result["error"])
+    def test_ai_schema_lists_supported_grok_image_models(self):
+        ai_image = load_module("ai_image_schema_under_test", ROOT / "tools" / "ai_image.py")
+        self.assertEqual(
+            ai_image.SCHEMA["image_model"]["examples"],
+            [
+                "gpt-image-2",
+                "gemini-3.1-flash-image",
+                "grok-imagine-image-2.0",
+                "grok-imagine-image-quality",
+                "grok-imagine-image",
+            ],
+        )
+        self.assertEqual(
+            ai_image.EXAMPLES["single_grok"]["image_model"],
+            "grok-imagine-image-2.0",
+        )
+
+    def test_ai_batch_passes_image_model_override(self):
+        ai_image = load_module("ai_image_batch_model_under_test", ROOT / "tools" / "ai_image.py")
+        commands = []
+        original_run = ai_image.subprocess.run
+        ai_image.subprocess.run = lambda cmd, **kwargs: (
+            commands.append(cmd) or ai_image.subprocess.CompletedProcess(cmd, 0, "", "")
+        )
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                preset = Path(tmp) / "preset.json"
+                preset.write_text(
+                    json.dumps(
+                        {
+                            "topic": "batch-provider-test",
+                            "categories": [{"name": "test", "templates": ["diagnostic"]}],
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                result = ai_image.run_batch(
+                    {
+                        "preset": str(preset),
+                        "topic_root": tmp,
+                        "image_model": "grok-imagine-image-2.0",
+                        "dry_run": True,
+                    }
+                )
+        finally:
+            ai_image.subprocess.run = original_run
+
+        self.assertTrue(result["ok"])
+        image_model_index = commands[0].index("--image-model")
+        self.assertEqual(commands[0][image_model_index + 1], "grok-imagine-image-2.0")
+
+    def test_gen_batch_cli_overrides_preset_image_model(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            preset = tmp_path / "preset.json"
+            preset.write_text(
+                json.dumps(
+                    {
+                        "topic": "batch-override-test",
+                        "image_model": "gpt-image-2",
+                        "categories": [{"name": "test", "templates": ["diagnostic"]}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "gen_batch.py"),
+                    str(preset),
+                    "--count",
+                    "1",
+                    "--dry-run",
+                    "--topic-root",
+                    tmp,
+                    "--image-model",
+                    "grok-imagine-image-2.0",
+                ],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                cwd=str(ROOT),
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            prompt_files = list((tmp_path / "runs" / "batch-override-test").glob("*/prompts.jsonl"))
+            self.assertEqual(len(prompt_files), 1)
+            prompt = json.loads(prompt_files[0].read_text(encoding="utf-8").strip())
+            self.assertEqual(prompt["image_model"], "grok-imagine-image-2.0")
+
+    def test_image_menu_passes_selected_grok_model_to_batch_dry_run(self):
+        marker = time.time_ns()
+        topic = f"grok-menu-test-{marker}"
+        preset = ROOT / "presets" / f"000-{topic}.json"
+        run_dir = ROOT / "runs" / topic
+        output_dir = ROOT / "output" / topic
+        preset.write_text(
+            json.dumps(
+                {
+                    "topic": topic,
+                    "image_model": "gpt-image-2",
+                    "categories": [{"name": "test", "templates": ["diagnostic"]}],
+                }
+            ),
+            encoding="utf-8",
+        )
+        env = os.environ.copy()
+        env["CLIPROXY_API_KEY"] = "test-key"
+        env["CLIPROXY_BASE_URL"] = "http://127.0.0.1:8317/v1"
+        try:
+            proc = subprocess.run(
+                ["pwsh", "-NoProfile", "-File", str(ROOT / "tools" / "Image-Menu.ps1")],
+                input="2\n1\n1\n1\nn\ny\n3\nq\n",
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                env=env,
+                cwd=str(ROOT),
+                timeout=30,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            prompt_files = list(run_dir.glob("*/prompts.jsonl"))
+            self.assertEqual(len(prompt_files), 1)
+            prompt = json.loads(prompt_files[0].read_text(encoding="utf-8").strip())
+            self.assertEqual(prompt["image_model"], "grok-imagine-image-2.0")
+        finally:
+            preset.unlink(missing_ok=True)
+            shutil.rmtree(run_dir, ignore_errors=True)
+            shutil.rmtree(output_dir, ignore_errors=True)
 
 if __name__ == "__main__":
     unittest.main()

@@ -96,6 +96,36 @@ function Read-Quality {
     }
 }
 
+function Read-ImageModel($default = 'gpt-image-2') {
+    Write-Host ""
+    Write-Host "이미지 모델:"
+    Write-Host "  [1] gpt-image-2 (기본)"
+    Write-Host "  [2] gemini-3.1-flash-image"
+    Write-Host "  [3] grok-imagine-image-2.0 (Grok 권장)"
+    Write-Host "  [4] grok-imagine-image-quality"
+    Write-Host "  [5] grok-imagine-image"
+    Write-Host "  [6] 직접 입력"
+    $defaultChoice = switch ($default) {
+        'gpt-image-2' { '1' }
+        'gemini-3.1-flash-image' { '2' }
+        'grok-imagine-image-2.0' { '3' }
+        'grok-imagine-image-quality' { '4' }
+        'grok-imagine-image' { '5' }
+        default { '6' }
+    }
+    $c = Read-Host "선택 [$defaultChoice]"
+    if ([string]::IsNullOrWhiteSpace($c)) { return $default }
+    switch ($c) {
+        '1' { return 'gpt-image-2' }
+        '2' { return 'gemini-3.1-flash-image' }
+        '3' { return 'grok-imagine-image-2.0' }
+        '4' { return 'grok-imagine-image-quality' }
+        '5' { return 'grok-imagine-image' }
+        '6' { return Read-Default "모델 ID" $default }
+        default { return $default }
+    }
+}
+
 function Read-MultilinePrompt {
     Write-Host ""
     Write-Host "프롬프트 입력 방식:"
@@ -154,6 +184,7 @@ function Run-Single {
     $count = Read-IntDefault "개수" 1 1 100
     $size  = Read-Size
     $quality = Read-Quality
+    $imageModel = Read-ImageModel
     $prompt = Read-MultilinePrompt
     if ([string]::IsNullOrWhiteSpace($prompt)) {
         Write-Host "프롬프트가 비어 있어 취소합니다." -ForegroundColor Yellow
@@ -167,6 +198,7 @@ function Run-Single {
     Write-Host "  count    = $count"
     Write-Host "  size     = $size"
     Write-Host "  quality  = $quality"
+    Write-Host "  model    = $imageModel"
     Write-Host "  refs     = $($refs.Count) 개"
     $preview = if ($prompt.Length -gt 80) { $prompt.Substring(0,80) + '...' } else { $prompt }
     Write-Host "  prompt   = $preview"
@@ -175,7 +207,7 @@ function Run-Single {
     $okCount = 0; $failCount = 0
     for ($i = 1; $i -le $count; $i++) {
         $name = if ($count -eq 1) { "$topic.png" } else { "${topic}_$($i.ToString('D3')).png" }
-        $argList = @($GenImage, $prompt, '--topic', $topic, '--topic-root', $ProjectRoot, '-o', $name, '--size', $size, '--quality', $quality)
+        $argList = @($GenImage, $prompt, '--topic', $topic, '--topic-root', $ProjectRoot, '-o', $name, '--size', $size, '--quality', $quality, '--image-model', $imageModel)
         foreach ($r in $refs) { $argList += @('--reference-image', $r) }
         Write-Host ""
         Write-Host "[$i/$count] 생성 중: $name" -ForegroundColor DarkGray
@@ -216,8 +248,11 @@ function Run-Batch {
     $conc  = Read-IntDefault "동시 워커 수" 8 1 32
     $resume = Read-YesNo "이어하기 (resume)? (y/n)" "n"
     $dry    = Read-YesNo "dry-run (계획만)? (y/n)" "n"
+    $presetData = Get-Content -Raw -Encoding UTF8 -LiteralPath $preset | ConvertFrom-Json
+    $presetImageModel = if ([string]::IsNullOrWhiteSpace([string]$presetData.image_model)) { 'gpt-image-2' } else { [string]$presetData.image_model }
+    $imageModel = Read-ImageModel $presetImageModel
 
-    $argList = @($GenBatch, $preset, '--count', $count, '--concurrency', $conc, '--topic-root', $ProjectRoot)
+    $argList = @($GenBatch, $preset, '--count', $count, '--concurrency', $conc, '--topic-root', $ProjectRoot, '--image-model', $imageModel)
     if ($resume) { $argList += '--resume' }
     if ($dry)    { $argList += '--dry-run' }
 

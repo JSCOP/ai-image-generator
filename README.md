@@ -44,6 +44,14 @@ Invoke-WebRequest -UseBasicParsing `
 
 에이전트는 `tools/ai_image.py`를 우선 사용합니다. JSON 입력을 받고 JSON 한 줄을 반환하므로 Claude Code / Codex / Hermes에서 결과 경로를 안정적으로 파싱할 수 있습니다.
 
+## 대화형 이미지 생성 메뉴
+
+```powershell
+pwsh -NoProfile -File tools\Image-Menu.ps1
+```
+
+단일/다회 생성과 preset 배치 모두 `gpt-image-2`, `gemini-3.1-flash-image`, Grok 이미지 3개 또는 직접 입력한 모델 ID를 선택할 수 있습니다. Grok 선택 시 `grok-imagine-image-2.0`을 권장합니다.
+
 ## 수동 crop 지정 툴
 
 브라우저에서 이미지 위에 직접 crop 박스를 그리고, 좌표 JSON과 crop PNG를 저장할 수 있습니다.
@@ -142,9 +150,9 @@ open-manual-crop-tool.cmd
 
 - `gpt-image-2` 또는 `gpt-image-1.5`: OpenAI Responses 이미지 도구 경로
 - `gemini-3.1-flash-image`: Gemini native `generateContent` 경로; Antigravity OAuth 사용 가능
-- `grok-imagine-image` 또는 `grok-imagine-image-quality`: xAI `/v1/images/generations` 경로
+- `grok-imagine-image-2.0`(권장), `grok-imagine-image-quality`, `grok-imagine-image`: xAI `/v1/images/generations` 경로
 
-`tools/ai_image.py` JSON에 `image_model`을 지정합니다. Gemini는 참조 이미지를 native inline data로 전달합니다. Grok 참조 이미지 편집은 현재 CLI에서 지원하지 않습니다.
+`tools/ai_image.py` JSON에 `image_model`을 지정합니다. Gemini는 참조 이미지를 native inline data로 전달합니다. Grok 3개 모델은 text-to-image만 지원하며 `reference_images`가 있으면 API 호출 전에 거부합니다.
 
 Gemini native 해상도는 요청한 `size`의 긴 변을 기준으로 `512`, `1K`, `2K`, `4K` 버킷을 자동 선택합니다. 16:9 실측 출력은 각각 약 `688x384`, `1376x768`, `2752x1536`, `5504x3072`이며 `8K`는 지원되지 않습니다. 모델 출력은 요청 픽셀과 정확히 일치하지 않을 수 있습니다.
 
@@ -156,6 +164,19 @@ CLIProxyAPI의 Grok 이미지 노출 설정 예시는 `config/cliproxy-image-pro
   "prompt": "A clean green triangle on white",
   "topic": "gemini-provider-test",
   "image_model": "gemini-3.1-flash-image",
+  "size": "1024x1024",
+  "quality": "low"
+}
+```
+
+Grok 2.0 예시:
+
+```json
+{
+  "mode": "single",
+  "prompt": "A clean green triangle on white, no text or watermark",
+  "topic": "grok-provider-test",
+  "image_model": "grok-imagine-image-2.0",
   "size": "1024x1024",
   "quality": "low"
 }
@@ -186,6 +207,7 @@ output/<topic>/<filename>.png
 - `-o <file>`: 출력 파일명 또는 경로
 - `--size 1920x1080`: 최종 결과 파일의 정확한 크기
 - `--quality low|medium|high`: 품질. 생략 시 `high`
+- `--image-model <id>`: 이미지 provider 모델. Grok 권장값은 `grok-imagine-image-2.0`
 - `--reference-image <path>`: 참조 이미지. 여러 번 지정 가능
 - `--events <path>`: raw SSE 응답 저장
 
@@ -205,9 +227,10 @@ python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume --c
 배치 옵션:
 
 - `--count N`: 생성 개수
-- `--concurrency N`: 동시 워커 수. 여러 이미지를 동시에 요청합니다. `N=4`면 한 번에 최대 4개의 `gen_image.py` 프로세스가 각각 `/v1/responses`를 호출합니다.
+- `--concurrency N`: 동시 워커 수. 여러 이미지를 동시에 요청합니다. `N=4`면 한 번에 최대 4개의 `gen_image.py` 프로세스가 선택한 provider endpoint를 호출합니다.
 - `--seed N`: 카테고리/템플릿 선택 시드
 - `--topic <name>`: preset의 `topic` 덮어쓰기
+- `--image-model <id>`: preset의 `image_model` 덮어쓰기
 - `--topic-root <dir>`: `output/`, `runs/`가 만들어질 부모 경로
 - `--resume`: 이미 존재하는 PNG는 건너뜀
 - `--dry-run`: `prompts.jsonl` 계획만 기록

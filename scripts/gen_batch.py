@@ -37,6 +37,7 @@ Usage:
   python3 scripts/gen_batch.py presets/extraction-rpg.json --count 100 --concurrency 8
   python3 scripts/gen_batch.py presets/extraction-rpg.json --count 5 --dry-run
   python3 scripts/gen_batch.py presets/extraction-rpg.json --count 100 --resume
+  python3 scripts/gen_batch.py presets/extraction-rpg.json --image-model grok-imagine-image-2.0 --dry-run
 """
 from __future__ import annotations
 
@@ -52,7 +53,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -179,6 +180,7 @@ def parse_args() -> argparse.Namespace:
     _ = parser.add_argument("--concurrency", type=int, default=1, help="Parallel workers")
     _ = parser.add_argument("--seed", type=int, default=42)
     _ = parser.add_argument("--topic", default=None, help="Override preset topic (output folder)")
+    _ = parser.add_argument("--image-model", default=None, help="Override the preset image model")
     _ = parser.add_argument("--topic-root", default=str(ROOT), help="Parent folder for output/ and runs/ dirs")
     _ = parser.add_argument("--resume", action="store_true", help="Skip files that already exist")
     _ = parser.add_argument("--dry-run", action="store_true", help="Plan only, no API calls")
@@ -194,6 +196,8 @@ def main() -> int:
         _ = sys.stderr.write(f"Preset not found: {args.preset}\n")
         return 2
     preset = load_preset(args.preset)
+    if args.image_model:
+        preset = replace(preset, image_model=args.image_model)
     topic = (args.topic or preset.topic).strip() or preset.topic
     topic_slug = safe_slug(topic)
     root = Path(args.topic_root).expanduser()

@@ -31,7 +31,7 @@ Spec keys (all in one flat object):
   topic_root        project output root (default project root)
   preset            path to preset JSON  (required when mode=batch)
   jobs              [object]  (required when mode=jobs); each item:
-                      { id, prompt, reference_images?, size?, quality?, action? }
+                      { id, prompt, reference_images?, size?, quality?, action?, model?, image_model? }
                       output -> output/<topic_slug>/<id>.png
   prompt_prefix     string prepended to every job's prompt (mode=jobs)
   prompt_suffix     string appended to every job's prompt (mode=jobs)
@@ -82,7 +82,18 @@ SCHEMA = {
     "size": {"type": "string", "format": "WIDTHxHEIGHT (positive integers)", "default": "1920x1080"},
     "quality": {"type": "string", "enum": ["low", "medium", "high"], "default": "high"},
     "model": {"type": "string", "description": "main Responses model used by gpt-image backends"},
-    "image_model": {"type": "string", "default": "gpt-image-2", "description": "gpt-image-*, gemini-*-image, or grok-imagine-*"},
+    "image_model": {
+        "type": "string",
+        "default": "gpt-image-2",
+        "description": "gpt-image-*, gemini-*-image, or grok-imagine-*",
+        "examples": [
+            "gpt-image-2",
+            "gemini-3.1-flash-image",
+            "grok-imagine-image-2.0",
+            "grok-imagine-image-quality",
+            "grok-imagine-image",
+        ],
+    },
     "action": {"type": "string", "enum": ["auto", "generate", "edit"], "default": "generate", "description": "image tool action; use edit for GPT reference-image restyling"},
     "reference_images": {"type": "array<string>", "description": "image paths", "default": []},
     "topic_root": {"type": "string", "description": "project output root", "default": str(ROOT)},
@@ -105,6 +116,14 @@ EXAMPLES = {
     "single_minimal": {
         "prompt": "고양이가 우주를 유영하는 시네마틱 사진",
         "topic": "cat-in-space",
+    },
+    "single_grok": {
+        "mode": "single",
+        "prompt": "A centered matte green triangle on a clean white background, no text or watermark.",
+        "topic": "grok-image-test",
+        "image_model": "grok-imagine-image-2.0",
+        "size": "1024x1024",
+        "quality": "low",
     },
     "single_full": {
         "mode": "single",
@@ -324,7 +343,7 @@ def run_jobs(spec: dict) -> dict:
         "id": "01_xxx",                # required: unique id (used as filename)
         "prompt": "scene description",  # required (combined with prompt_prefix/suffix)
         "reference_images": [...],      # optional; falls back to spec.reference_images
-        "size": "...", "quality": "...", "action": "edit"  # optional; fall back to spec values
+        "size": "...", "quality": "...", "action": "edit", "image_model": "..."  # optional; fall back to spec values
       }
 
     Spec-level keys:
@@ -333,6 +352,7 @@ def run_jobs(spec: dict) -> dict:
       prompt_suffix      string appended to every job's prompt
       reference_images   default refs if a job omits its own
       size, quality      defaults (size 1920x1080, quality high)
+      image_model        default provider model; each job may override it
       concurrency        parallel workers (default 4)
       job_timeout_sec    per-image wall-clock timeout; <=0 disables
     """
@@ -475,6 +495,7 @@ def run_batch(spec: dict) -> dict:
     if spec.get("dry_run"): cmd.append("--dry-run")
     if spec.get("topic"): cmd += ["--topic", str(spec["topic"])]
     if spec.get("seed") is not None: cmd += ["--seed", str(spec["seed"])]
+    if spec.get("image_model"): cmd += ["--image-model", str(spec["image_model"])]
 
     started = time.time()
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT))
