@@ -359,6 +359,13 @@ class GeneratorObservabilityTests(unittest.TestCase):
             ai_image.EXAMPLES["single_grok"]["image_model"],
             "grok-imagine-image-2.0",
         )
+        self.assertEqual(
+            ai_image.SCHEMA["image_model"]["default"],
+            "grok-imagine-image-2.0",
+        )
+        gen_image = load_module("gen_image_default_under_test", ROOT / "scripts" / "gen_image.py")
+        self.assertEqual(gen_image.DEFAULT_IMAGE_MODEL, "grok-imagine-image-2.0")
+
 
     def test_ai_batch_passes_image_model_override(self):
         ai_image = load_module("ai_image_batch_model_under_test", ROOT / "tools" / "ai_image.py")

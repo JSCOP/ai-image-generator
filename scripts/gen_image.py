@@ -39,7 +39,7 @@ from pathlib import Path
 
 DEFAULT_BASE_URL = "http://localhost:8317/v1"
 DEFAULT_MODEL = "gpt-5.5"
-DEFAULT_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_IMAGE_MODEL = "grok-imagine-image-2.0"
 DEFAULT_TOPIC = "image-request"
 DEFAULT_TOPIC_ROOT = str(Path(__file__).resolve().parent.parent)
 STOPWORDS = {

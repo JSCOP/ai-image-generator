@@ -50,7 +50,7 @@ Invoke-WebRequest -UseBasicParsing `
 pwsh -NoProfile -File tools\Image-Menu.ps1
 ```
 
-단일/다회 생성과 preset 배치 모두 `gpt-image-2`, `gemini-3.1-flash-image`, Grok 이미지 3개 또는 직접 입력한 모델 ID를 선택할 수 있습니다. Grok 선택 시 `grok-imagine-image-2.0`을 권장합니다.
+단일/다회 생성과 preset 배치 모두 `gpt-image-2`, `gemini-3.1-flash-image`, Grok 이미지 3개 또는 직접 입력한 모델 ID를 선택할 수 있습니다. 기본 이미지 모델은 `grok-imagine-image-2.0`입니다.
 
 ## 수동 crop 지정 툴
 
@@ -150,9 +150,9 @@ open-manual-crop-tool.cmd
 
 - `gpt-image-2` 또는 `gpt-image-1.5`: OpenAI Responses 이미지 도구 경로
 - `gemini-3.1-flash-image`: Gemini native `generateContent` 경로; Antigravity OAuth 사용 가능
-- `grok-imagine-image-2.0`(권장), `grok-imagine-image-quality`, `grok-imagine-image`: xAI `/v1/images/generations` 경로
+- `grok-imagine-image-2.0`(기본), `grok-imagine-image-quality`, `grok-imagine-image`: xAI `/v1/images/generations` 경로
 
-`tools/ai_image.py` JSON에 `image_model`을 지정합니다. Gemini는 참조 이미지를 native inline data로 전달합니다. Grok 3개 모델은 text-to-image만 지원하며 `reference_images`가 있으면 API 호출 전에 거부합니다.
+`tools/ai_image.py` JSON에 `image_model`을 지정합니다. 생략 시 `grok-imagine-image-2.0`을 사용합니다. Gemini는 참조 이미지를 native inline data로 전달합니다. Grok 3개 모델은 text-to-image만 지원하며 `reference_images`가 있으면 API 호출 전에 거부합니다.
 
 Gemini native 해상도는 요청한 `size`의 긴 변을 기준으로 `512`, `1K`, `2K`, `4K` 버킷을 자동 선택합니다. 16:9 실측 출력은 각각 약 `688x384`, `1376x768`, `2752x1536`, `5504x3072`이며 `8K`는 지원되지 않습니다. 모델 출력은 요청 픽셀과 정확히 일치하지 않을 수 있습니다.
 
@@ -207,7 +207,7 @@ output/<topic>/<filename>.png
 - `-o <file>`: 출력 파일명 또는 경로
 - `--size 1920x1080`: 최종 결과 파일의 정확한 크기
 - `--quality low|medium|high`: 품질. 생략 시 `high`
-- `--image-model <id>`: 이미지 provider 모델. Grok 권장값은 `grok-imagine-image-2.0`
+- `--image-model <id>`: 이미지 provider 모델. 생략 시 `grok-imagine-image-2.0`
 - `--reference-image <path>`: 참조 이미지. 여러 번 지정 가능
 - `--events <path>`: raw SSE 응답 저장
 
@@ -262,7 +262,7 @@ runs/
   "size": "1920x1080",
   "quality": "high",
   "model": "gpt-5.5",
-  "image_model": "gpt-image-2",
+  "image_model": "grok-imagine-image-2.0",
   "global_style": "전 이미지에 공통으로 붙는 스타일 문장",
   "negative": "전 이미지에 공통으로 붙는 금지 항목",
   "categories": [

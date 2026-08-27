@@ -24,11 +24,12 @@ Do not assume `E:/ai-image-generator`. Do not call `scripts/gen_image.py` direct
 
 ## Providers
 
-- `gpt-image-2`: default and recommended, especially for reference-image editing.
+- Default `image_model` is `grok-imagine-image-2.0`. If `reference_images` are present, use `gemini-3.1-flash-image` or `gpt-image-2` instead; Grok rejects references.
+- `grok-imagine-image-2.0`, `grok-imagine-image-quality`, `grok-imagine-image`: xAI text-to-image models; reference editing is not implemented by this CLI.
+- `gpt-image-2`: recommended for reference-image editing.
 - `gpt-image-1.5`: available alternative.
 - `gemini-3.1-flash-image`: fast Gemini image generation with reference images.
 - `gemini-3.1-pro`: reasoning/vision model, not the image generator.
-- `grok-imagine-*`: use only if `/v1/models` confirms availability; reference editing is not implemented by this CLI.
 
 ## Hard rules
 
@@ -64,6 +65,11 @@ For other projects, prefer `<workspace>/ImageGallery/<request-slug>` when that c
 | GPT reference edit | `image_model: "gpt-image-2"`, `action: "edit"` |
 | New composition | `action: "generate"` |
 | Partial-run recovery | same topic/count plus `resume: true` |
+| Standard size | `1920x1080`; the CLI pads/buckets provider requests and saves the exact requested dimensions |
+| Square size | `1024x1024` or another positive `WIDTHxHEIGHT`; dimensions no longer need to be divisible by 16 |
+| Gemini/Antigravity | `image_model: "gemini-3.1-flash-image"`; required when using `reference_images`; native buckets `512`, `1K`, `2K`, `4K`, then exact-size conversion |
+| Grok/xAI | default `image_model: "grok-imagine-image-2.0"`; text-to-image only; requires available xAI credits |
+| Native image error/history pollution | Stop using native image calls; rerun through `tools/ai_image.py` with file outputs |
 
 `action` accepts `auto`, `generate`, or `edit`. It is supported at the top level for `single` and `jobs`, and each job may override it. Use `edit` for GPT reference restyling where source preservation matters.
 

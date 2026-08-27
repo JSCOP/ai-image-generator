@@ -84,7 +84,7 @@ SCHEMA = {
     "model": {"type": "string", "description": "main Responses model used by gpt-image backends"},
     "image_model": {
         "type": "string",
-        "default": "gpt-image-2",
+        "default": "grok-imagine-image-2.0",
         "description": "gpt-image-*, gemini-*-image, or grok-imagine-*",
         "examples": [
             "gpt-image-2",
