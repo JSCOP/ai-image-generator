@@ -230,7 +230,6 @@ class GeneratorObservabilityTests(unittest.TestCase):
         Image.new("RGB", (2752, 1536), "white").save(source, format="JPEG")
         normalized = gen_image.normalize_image_bytes(
             source.getvalue(),
-            "image/jpeg",
             "png",
             "1920x1080",
         )
@@ -238,6 +237,19 @@ class GeneratorObservabilityTests(unittest.TestCase):
         self.assertEqual(gen_image.provider_request_size("1920x1080"), "1920x1088")
         with Image.open(io.BytesIO(normalized)) as output:
             self.assertEqual(output.size, (1920, 1080))
+            self.assertEqual(output.format, "PNG")
+
+    def test_exact_size_jpeg_payload_is_reencoded_to_requested_png(self):
+        gen_image = load_module("gen_image_format_under_test", ROOT / "scripts" / "gen_image.py")
+        from PIL import Image
+
+        source = io.BytesIO()
+        Image.new("RGB", (1024, 1024), "white").save(source, format="JPEG")
+        normalized = gen_image.normalize_image_bytes(source.getvalue(), "png", "1024x1024")
+
+        self.assertTrue(normalized.startswith(b"\x89PNG\r\n\x1a\n"))
+        with Image.open(io.BytesIO(normalized)) as output:
+            self.assertEqual(output.size, (1024, 1024))
             self.assertEqual(output.format, "PNG")
 
     def test_ai_entrypoint_passes_selected_image_model(self):

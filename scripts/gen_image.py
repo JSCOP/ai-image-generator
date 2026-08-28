@@ -339,12 +339,10 @@ def extract_native_image(body: bytes, backend: str) -> tuple[bytes | None, str |
 
 def normalize_image_bytes(
     image_bytes: bytes,
-    mime_type: str | None,
     output_format: str,
     target_size: str,
 ) -> bytes:
     target_width, target_height = parse_size(target_size)
-    target_mime = "image/jpeg" if output_format == "jpeg" else f"image/{output_format}"
     try:
         from PIL import Image, ImageOps
     except ImportError as exc:
@@ -352,11 +350,11 @@ def normalize_image_bytes(
             "Pillow is required to convert provider output to the exact requested dimensions"
         ) from exc
 
+    save_format = "JPEG" if output_format == "jpeg" else output_format.upper()
+
     with Image.open(io.BytesIO(image_bytes)) as image:
         source_matches = image.size == (target_width, target_height)
-        format_matches = mime_type == target_mime or (
-            output_format == "png" and image_bytes.startswith(b"\x89PNG\r\n\x1a\n")
-        )
+        format_matches = (image.format or "").upper() == save_format
         if source_matches and format_matches:
             return image_bytes
 
@@ -366,7 +364,7 @@ def normalize_image_bytes(
             method=Image.Resampling.LANCZOS,
             centering=(0.5, 0.5),
         )
-        save_format = "JPEG" if output_format == "jpeg" else output_format.upper()
+
         if save_format == "JPEG" and fitted.mode not in ("RGB", "L"):
             fitted = fitted.convert("RGB")
         converted = io.BytesIO()
@@ -582,15 +580,14 @@ def main() -> int:
                 _ = sys.stderr.write("Re-run with --events <path> to inspect the raw response body.\n")
             return 1
         image_bytes = base64.b64decode(image_b64)
-        mime_type = f"image/{args.output_format}"
     else:
-        image_bytes, mime_type = extract_native_image(body_bytes, backend)
+        image_bytes, _ = extract_native_image(body_bytes, backend)
         if not image_bytes:
             _ = sys.stderr.write(f"No image data found in {backend} response.\n")
             return 1
 
     try:
-        image_bytes = normalize_image_bytes(image_bytes, mime_type, args.output_format, args.size)
+        image_bytes = normalize_image_bytes(image_bytes, args.output_format, args.size)
     except (RuntimeError, ValueError) as exc:
         _ = sys.stderr.write(f"{exc}\n")
         return 1
