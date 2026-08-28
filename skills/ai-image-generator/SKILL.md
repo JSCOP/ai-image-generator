@@ -18,6 +18,8 @@ Resolve the root by testing those paths in order and using the first that exists
 
 Do not call `scripts/gen_image.py` directly for agent work; `tools/ai_image.py` provides stable JSON input/output, edit-action forwarding, per-job timeouts, resume support, and batch orchestration.
 
+The repository is the single source of truth. Agent skill folders are directory links into `<repo>/skills/`; never copy this file elsewhere. Machine topology, sync procedure, and verified provider status live in `docs/SSOT.md`.
+
 ## CLIProxyAPI configuration
 
 - CLIProxyAPI runs only on `DESKTOP-SB818KQ`, bound to `0.0.0.0:8317`.
@@ -29,11 +31,10 @@ Do not call `scripts/gen_image.py` directly for agent work; `tools/ai_image.py` 
 
 ## Providers
 
-- Default `image_model` is `grok-imagine-image-2.0`. If `reference_images` are present, use `gemini-3.1-flash-image` or `gpt-image-2` instead; Grok rejects references.
-- `grok-imagine-image-2.0`, `grok-imagine-image-quality`, `grok-imagine-image`: xAI text-to-image models; reference editing is not implemented by this CLI.
-- `gpt-image-2`: recommended for reference-image editing.
-- `gpt-image-1.5`: available alternative.
-- `gemini-3.1-flash-image`: fast Gemini image generation with reference images.
+- Default `image_model` is `grok-imagine-image-2.0`. Grok rejects reference images, so reference work uses `gemini-3.1-flash-image`.
+- `grok-imagine-image-2.0`, `grok-imagine-image-quality`, `grok-imagine-image`: xAI text-to-image. Verified working 2026-08-28. Reference editing is not implemented by this CLI.
+- `gemini-3.1-flash-image`: Gemini native generation with reference images. Verified working 2026-08-28. Use this for every reference-image job.
+- `gpt-image-2`, `gpt-image-1.5`: currently broken upstream. The Responses main model returns malformed text instead of an `image_generation_call`, so the CLI reports "No image_generation_call result found in response." Do not route reference edits here until `docs/SSOT.md` marks them working again.
 - `gemini-3.1-pro`: reasoning/vision model, not the image generator.
 
 ## Hard rules
@@ -67,7 +68,7 @@ For other projects, prefer `<workspace>/ImageGallery/<request-slug>` when that c
 | Explicit different jobs | `mode: "jobs"`, `jobs: [{id, prompt, ...}]` |
 | Preset dataset | `mode: "batch"`, `preset`, `count`, first `dry_run: true` |
 | References | `reference_images: ["absolute/path.png"]` |
-| GPT reference edit | `image_model: "gpt-image-2"`, `action: "edit"` |
+| Reference restyle | `image_model: "gemini-3.1-flash-image"`; `gpt-image-2` + `action: "edit"` only once `docs/SSOT.md` marks GPT working |
 | New composition | `action: "generate"` |
 | Partial-run recovery | same topic/count plus `resume: true` |
 | Standard size | `1920x1080`; the CLI pads/buckets provider requests and saves the exact requested dimensions |
@@ -76,14 +77,14 @@ For other projects, prefer `<workspace>/ImageGallery/<request-slug>` when that c
 | Grok/xAI | default `image_model: "grok-imagine-image-2.0"`; text-to-image only; requires available xAI credits |
 | Native image error/history pollution | Stop using native image calls; rerun through `tools/ai_image.py` with file outputs |
 
-`action` accepts `auto`, `generate`, or `edit`. It is supported at the top level for `single` and `jobs`, and each job may override it. Use `edit` for GPT reference restyling where source preservation matters.
+`action` accepts `auto`, `generate`, or `edit`. It is supported at the top level for `single` and `jobs`, and each job may override it. `edit` only changes the GPT Responses path, so it has no effect while `gpt-image-*` is broken.
 
 ## Exact-structure floorplan workflow
 
 Generative models do not guarantee CAD-coordinate identity. For the best structure retention:
 
 1. Use the structure/blueprint image as the only reference.
-2. Use `gpt-image-2` with `action: "edit"`.
+2. Use `gemini-3.1-flash-image`. Switch to `gpt-image-2` with `action: "edit"` only after `docs/SSOT.md` records it working again.
 3. Describe the desired visual style in text instead of supplying a second style-layout image.
 4. Explicitly lock perimeter, partitions, openings, facility count/order/spacing, circulation, and source rotation.
 5. Generate 1–2 samples first and compare them directly with the source.
@@ -115,8 +116,7 @@ For airport security maps, keep facility interpretation inside existing source f
   "count": 2,
   "size": "1920x1080",
   "quality": "high",
-  "image_model": "gpt-image-2",
-  "action": "edit",
+  "image_model": "gemini-3.1-flash-image",
   "resume": true,
   "concurrency": 2,
   "reference_images": [

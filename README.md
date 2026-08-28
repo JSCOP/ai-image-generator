@@ -2,6 +2,8 @@
 
 CLIProxyAPI 기반 이미지 생성 CLI입니다. Claude Code, Codex, Hermes Agent가 같은 방식으로 사용할 수 있도록 단일 이미지, JSON 입력, preset 배치 생성 흐름을 제공합니다.
 
+머신 토폴로지, 스킬 배포(링크) 규칙, 검증된 이미지 모델 상태는 `docs/SSOT.md`가 정본입니다. 저장소를 pull 한 뒤 `python scripts/sync_skills.py`로 에이전트 스킬 폴더를 저장소에 연결합니다.
+
 ## 기본 원칙
 
 - 사용자가 개수를 명시하지 않으면 1장만 생성합니다. 단, 여러 공간/항목을 나열하며 `한 장씩`, `각각`, `one each`라고 한 경우는 명시 개수로 보고 항목당 1장씩 생성합니다.

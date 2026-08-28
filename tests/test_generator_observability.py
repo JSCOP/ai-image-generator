@@ -532,5 +532,42 @@ class GeneratorObservabilityTests(unittest.TestCase):
             result = json.loads(proc.stdout.strip().splitlines()[-1])
             self.assertTrue(result["ok"], result)
 
+    def test_sync_skills_links_backs_up_and_is_idempotent(self):
+        sync_skills = load_module("sync_skills_under_test", ROOT / "scripts" / "sync_skills.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            skills_dir = tmp_path / "repo" / "skills"
+            (skills_dir / "demo-skill").mkdir(parents=True)
+            (skills_dir / "demo-skill" / "SKILL.md").write_text("canonical", encoding="utf-8")
+
+            linked_root = tmp_path / "agent-a" / "skills"
+            linked_root.mkdir(parents=True)
+            stale = linked_root / "demo-skill"
+            stale.mkdir()
+            (stale / "SKILL.md").write_text("stale copy", encoding="utf-8")
+            absent_root = tmp_path / "agent-b" / "skills"
+
+            roots = [linked_root, absent_root]
+            first = sync_skills.sync(skills_dir, roots, apply=True)
+
+            self.assertEqual(
+                [r["action"] for r in first if r["root"] == str(linked_root)], ["linked"]
+            )
+            self.assertEqual(
+                [r["action"] for r in first if r["root"] == str(absent_root)], ["root-absent"]
+            )
+            self.assertEqual((stale / "SKILL.md").read_text(encoding="utf-8"), "canonical")
+            backups = [p for p in linked_root.iterdir() if p.name.startswith("demo-skill.bak-")]
+            self.assertEqual(len(backups), 1)
+            self.assertEqual((backups[0] / "SKILL.md").read_text(encoding="utf-8"), "stale copy")
+
+            second = sync_skills.sync(skills_dir, roots, apply=False)
+            self.assertEqual(
+                [r["action"] for r in second if r["root"] == str(linked_root)], ["ok"]
+            )
+
+            (skills_dir / "demo-skill" / "SKILL.md").write_text("updated", encoding="utf-8")
+            self.assertEqual((stale / "SKILL.md").read_text(encoding="utf-8"), "updated")
+
 if __name__ == "__main__":
     unittest.main()
