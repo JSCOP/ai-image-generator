@@ -481,5 +481,44 @@ class GeneratorObservabilityTests(unittest.TestCase):
             shutil.rmtree(run_dir, ignore_errors=True)
             shutil.rmtree(output_dir, ignore_errors=True)
 
+    def test_ai_entrypoint_accepts_utf8_bom_spec_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            preset = tmp_path / "preset.json"
+            preset.write_text(
+                json.dumps(
+                    {
+                        "topic": "bom-spec-test",
+                        "categories": [{"name": "test", "templates": ["diagnostic"]}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            spec = tmp_path / "spec.json"
+            spec.write_text(
+                json.dumps(
+                    {
+                        "mode": "batch",
+                        "preset": str(preset),
+                        "topic_root": tmp,
+                        "count": 1,
+                        "dry_run": True,
+                    }
+                ),
+                encoding="utf-8-sig",
+            )
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "tools" / "ai_image.py"), "--spec", str(spec)],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                cwd=str(ROOT),
+                timeout=60,
+            )
+
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            result = json.loads(proc.stdout.strip().splitlines()[-1])
+            self.assertTrue(result["ok"], result)
+
 if __name__ == "__main__":
     unittest.main()

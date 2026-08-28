@@ -544,11 +544,11 @@ def main() -> int:
 
     try:
         if args.spec:
-            spec = json.loads(Path(args.spec).read_text(encoding="utf-8"))
+            spec = json.loads(Path(args.spec).read_text(encoding="utf-8-sig"))
         elif args.inline_json:
             spec = json.loads(args.inline_json)
         else:
-            raw = sys.stdin.read().strip()
+            raw = sys.stdin.read().strip().lstrip("\ufeff")
             if not raw:
                 return _emit({"ok": False, "error": "no spec on stdin and neither --spec nor --json given"}, 1)
             spec = json.loads(raw)
