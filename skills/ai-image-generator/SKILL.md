@@ -7,17 +7,22 @@ description: Use for generating, editing, restyling, upscaling, or batch-creatin
 
 ## Local installation
 
-Always use this repository and entry point:
+Always use the local checkout of the `ai-image-generator` repository and its `tools/ai_image.py` entry point. The checkout path differs per machine:
 
-- Project: `C:/Users/jisung/workspaces/ai-image-generator`
-- Entry point: `C:/Users/jisung/workspaces/ai-image-generator/tools/ai_image.py`
-- Run with `cwd` set to the project root.
+| Machine | Project root |
+|---|---|
+| `DESKTOP-SB818KQ` (Tailscale `100.98.54.122`) | `E:/ai-image-generator` |
+| `JS` (Tailscale `100.67.54.25`) | `C:/Users/jisung/workspaces/ai-image-generator` |
 
-Do not assume `E:/ai-image-generator`. Do not call `scripts/gen_image.py` directly for agent work; `tools/ai_image.py` provides stable JSON input/output, edit-action forwarding, per-job timeouts, resume support, and batch orchestration.
+Resolve the root by testing those paths in order and using the first that exists; never hardcode the other machine's path. Run with `cwd` set to that root.
+
+Do not call `scripts/gen_image.py` directly for agent work; `tools/ai_image.py` provides stable JSON input/output, edit-action forwarding, per-job timeouts, resume support, and batch orchestration.
 
 ## CLIProxyAPI configuration
 
-- `CLIPROXY_BASE_URL=http://100.98.54.122:8317/v1`
+- CLIProxyAPI runs only on `DESKTOP-SB818KQ`, bound to `0.0.0.0:8317`.
+- On `DESKTOP-SB818KQ`: `CLIPROXY_BASE_URL=http://127.0.0.1:8317/v1`.
+- On every other machine: `CLIPROXY_BASE_URL=http://100.98.54.122:8317/v1` over Tailscale.
 - Read `CLIPROXY_API_KEY` from the process or Windows user environment only.
 - Never write the API key into the repository, specs, prompts, logs, or output metadata.
 - Before diagnosing model behavior, verify the authenticated `/v1/models` request succeeds.
