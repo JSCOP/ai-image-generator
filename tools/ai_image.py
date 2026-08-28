@@ -28,11 +28,12 @@ Spec keys (all in one flat object):
   image_model       image provider model (default gpt-image-2)
   reference_images  [string] paths (default [])
   action            "auto" | "generate" | "edit" (default "generate"; GPT reference edits should use "edit")
-  topic_root        project output root (default project root)
+  workspace_root    current conversation/workspace folder (default current working directory)
+  date              gallery date folder, YYYY-MM-DD (default local today)
   preset            path to preset JSON  (required when mode=batch)
   jobs              [object]  (required when mode=jobs); each item:
                       { id, prompt, reference_images?, size?, quality?, action? }
-                      output -> output/<topic_slug>/<id>.png
+                      output -> <workspace>/ImageGallery/<date>/<topic_slug>/<id>.png
   prompt_prefix     string prepended to every job's prompt (mode=jobs)
   prompt_suffix     string appended to every job's prompt (mode=jobs)
   concurrency       int (default 4, max useful ~8; applies to single count, jobs, and batch)
@@ -61,14 +62,17 @@ import argparse
 import json
 import os
 import re
-import sys
+import shutil
 import time
+import sys
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date as local_date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+INPUT_ROOT = ROOT / "inputs"
 GEN_IMAGE = ROOT / "scripts" / "gen_image.py"
 GEN_BATCH = ROOT / "scripts" / "gen_batch.py"
 DEFAULT_TOPIC = "image-request"
@@ -85,7 +89,8 @@ SCHEMA = {
     "image_model": {"type": "string", "default": "gpt-image-2", "description": "gpt-image-*, gemini-*-image, or grok-imagine-*"},
     "action": {"type": "string", "enum": ["auto", "generate", "edit"], "default": "generate", "description": "image tool action; use edit for GPT reference-image restyling"},
     "reference_images": {"type": "array<string>", "description": "image paths", "default": []},
-    "topic_root": {"type": "string", "description": "project output root", "default": str(ROOT)},
+    "workspace_root": {"type": "string", "description": "current conversation/workspace folder", "default": "current working directory"},
+    "date": {"type": "string", "format": "YYYY-MM-DD", "description": "ImageGallery date folder", "default": "local today"},
     "preset": {"type": "string", "required_when": "mode=batch", "description": "path to preset JSON"},
     "jobs": {
         "type": "array<object>",
@@ -114,7 +119,7 @@ EXAMPLES = {
         "size": "1920x1088",
         "quality": "high",
         "action": "edit",
-        "reference_images": ["E:/ai-image-generator/output/extraction-rpg-dad/ui_combat_hud/extraction-rpg-dad_000001.png"],
+        "reference_images": ["C:/Users/jisung/workspaces/ai-image-generator/inputs/2026-07-13/extraction-rpg-dad/references/ui_combat_hud.png"],
     },
     "batch_resume": {
         "mode": "batch",
@@ -159,6 +164,53 @@ def _resolve_under_root(value: str | Path | None, default: Path = ROOT) -> Path:
     if path.is_absolute():
         return path
     return (ROOT / path).resolve()
+
+
+def _resolve_workspace_root(spec: dict) -> Path:
+    value = spec.get("workspace_root")
+    path = Path(value) if value else Path.cwd()
+    return path.resolve()
+
+
+def _resolve_gallery_date(spec: dict) -> str:
+    value = str(spec.get("date") or local_date.today().isoformat())
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ValueError("spec.date must use YYYY-MM-DD")
+    return value
+
+
+def _request_paths(spec: dict, topic_slug: str) -> tuple[Path, Path]:
+    gallery_date = _resolve_gallery_date(spec)
+    workspace_root = _resolve_workspace_root(spec)
+    output_dir = workspace_root / "ImageGallery" / gallery_date / topic_slug
+    input_dir = INPUT_ROOT / gallery_date / topic_slug
+    return output_dir, input_dir
+
+
+def _archive_references(paths: list[Path], input_dir: Path, namespace: str = "") -> list[Path]:
+    archived: list[Path] = []
+    refs_dir = input_dir / "references"
+    for index, source in enumerate(paths, 1):
+        if not source.is_file():
+            raise FileNotFoundError(f"reference image not found: {source}")
+        refs_dir.mkdir(parents=True, exist_ok=True)
+        prefix = f"{_safe_topic_slug(namespace)}_" if namespace else ""
+        target = refs_dir / f"{prefix}{index:02d}_{source.name}"
+        if source.resolve() != target.resolve():
+            shutil.copy2(source, target)
+        archived.append(target.resolve())
+    return archived
+
+
+def _write_request_manifest(spec: dict, input_dir: Path, references: list[Path]) -> None:
+    input_dir.mkdir(parents=True, exist_ok=True)
+    manifest = dict(spec)
+    manifest.pop("workspace_root", None)
+    manifest["reference_images"] = [str(path) for path in references]
+    (input_dir / "request.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
 
 
 def _emit(obj: dict, exit_code: int) -> int:
@@ -241,8 +293,11 @@ def run_single(spec: dict) -> dict:
     concurrency = max(1, int(spec.get("concurrency", 4)))
     resume = bool(spec.get("resume"))
     refs = [_resolve_under_root(r) for r in list(spec.get("reference_images") or [])]
-    topic_root = _resolve_under_root(spec.get("topic_root"))
-    output_dir = topic_root / "output" / topic_slug
+    try:
+        output_dir, input_dir = _request_paths(spec, topic_slug)
+        refs = _archive_references(refs, input_dir)
+    except (ValueError, FileNotFoundError) as exc:
+        return {"ok": False, "error": str(exc)}
     try:
         timeout_sec = _resolve_job_timeout(spec)
     except (TypeError, ValueError):
@@ -256,10 +311,10 @@ def run_single(spec: dict) -> dict:
     err = _validate_action(action)
     if err:
         return {"ok": False, "error": err}
-    for r in refs:
-        if not r.is_file():
-            return {"ok": False, "error": f"reference image not found: {r}"}
+    if output_dir.exists() and not resume and any(output_dir.iterdir()):
+        return {"ok": False, "error": f"output directory already contains files; use resume or a new topic: {output_dir}"}
     output_dir.mkdir(parents=True, exist_ok=True)
+    _write_request_manifest(spec, input_dir, refs)
 
     started = time.time()
     outputs: list[str] = []
@@ -278,8 +333,8 @@ def run_single(spec: dict) -> dict:
         image_started = time.time()
         cmd = [
             sys.executable, str(GEN_IMAGE), prompt,
-            "--topic", topic, "--topic-root", str(topic_root),
-            "-o", name, "--size", size, "--quality", quality,
+            "--topic", topic,
+            "-o", out_path, "--size", size, "--quality", quality,
         ]
         cmd += ["--action", action]
         if timeout_sec is not None:
@@ -328,7 +383,7 @@ def run_jobs(spec: dict) -> dict:
       }
 
     Spec-level keys:
-      topic              parent topic; output goes under output/<topic_slug>/<id>.png
+      topic              parent topic; output goes under ImageGallery/<date>/<topic_slug>/<id>.png
       prompt_prefix      string prepended to every job's prompt (shared preamble)
       prompt_suffix      string appended to every job's prompt
       reference_images   default refs if a job omits its own
@@ -348,8 +403,10 @@ def run_jobs(spec: dict) -> dict:
     resume = bool(spec.get("resume"))
     prefix = (spec.get("prompt_prefix") or "").strip()
     suffix = (spec.get("prompt_suffix") or "").strip()
-    topic_root = _resolve_under_root(spec.get("topic_root"))
-    output_dir = topic_root / "output" / parent_slug
+    try:
+        output_dir, input_dir = _request_paths(spec, parent_slug)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
     concurrency = max(1, int(spec.get("concurrency", 4)))
     try:
         timeout_sec = _resolve_job_timeout(spec)
@@ -365,7 +422,31 @@ def run_jobs(spec: dict) -> dict:
         body = (j.get("prompt") or "").strip()
         if not body and not (prefix or suffix):
             return {"ok": False, "error": f"jobs[{idx}].prompt is required"}
+    normalized_jobs: list[dict] = []
+    try:
+        archived_defaults = _archive_references(
+            [_resolve_under_root(r) for r in default_refs], input_dir, "default"
+        )
+        for idx, job in enumerate(jobs):
+            normalized = dict(job)
+            raw_refs = normalized.get("reference_images")
+            if raw_refs is not None:
+                archived = _archive_references(
+                    [_resolve_under_root(r) for r in list(raw_refs)],
+                    input_dir,
+                    str(normalized.get("id") or f"job_{idx + 1:03d}"),
+                )
+                normalized["reference_images"] = [str(path) for path in archived]
+            normalized_jobs.append(normalized)
+    except FileNotFoundError as exc:
+        return {"ok": False, "error": str(exc)}
+    default_refs = [str(path) for path in archived_defaults]
+    manifest = dict(spec)
+    manifest["jobs"] = normalized_jobs
+    _write_request_manifest(manifest, input_dir, archived_defaults)
     if not dry_run:
+        if output_dir.exists() and not resume and any(output_dir.iterdir()):
+            return {"ok": False, "error": f"output directory already contains files; use resume or a new topic: {output_dir}"}
         output_dir.mkdir(parents=True, exist_ok=True)
 
     started = time.time()
@@ -395,9 +476,7 @@ def run_jobs(spec: dict) -> dict:
         err = _validate_action(action)
         if err:
             return idx, {"ok": False, "id": job_id, "error": err}
-        for r in refs:
-            if not r.is_file():
-                return idx, {"ok": False, "id": job_id, "error": f"reference image not found: {r}"}
+        refs = [_resolve_under_root(r) for r in refs_paths]
 
         name = f"{job_slug}.png"
         out_path = str((output_dir / name).resolve())
@@ -411,8 +490,8 @@ def run_jobs(spec: dict) -> dict:
         job_started = time.time()
         cmd = [
             sys.executable, str(GEN_IMAGE), prompt,
-            "--topic", parent_topic, "--topic-root", str(topic_root),
-            "-o", name, "--size", size, "--quality", quality,
+            "--topic", parent_topic,
+            "-o", out_path, "--size", size, "--quality", quality,
         ]
         cmd += ["--action", action]
         if timeout_sec is not None:
@@ -430,6 +509,8 @@ def run_jobs(spec: dict) -> dict:
         error = last[:300] or f"rc={rc}"
         _emit_progress({"event": "job_failed", "mode": "jobs", "id": job_id, "index": idx, "output": out_path, "elapsed_sec": round(time.time() - job_started, 2), "reason": error})
         return idx, {"ok": False, "id": job_id, "error": error}
+
+    jobs = normalized_jobs
 
     with ThreadPoolExecutor(max_workers=concurrency) as pool:
         futs = [pool.submit(_one, i, j) for i, j in enumerate(jobs)]
@@ -462,39 +543,40 @@ def run_batch(spec: dict) -> dict:
         preset_path = (ROOT / preset_path).resolve()
     if not preset_path.is_file():
         return {"ok": False, "error": f"preset not found: {preset_path}"}
+    try:
+        preset_data = json.loads(preset_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return {"ok": False, "error": f"cannot read preset: {exc}"}
+    topic = str(spec.get("topic") or preset_data.get("topic") or preset_path.stem)
 
     count = int(spec.get("count", 10))
     conc = int(spec.get("concurrency", 4))
 
-    topic_root = _resolve_under_root(spec.get("topic_root"))
+    try:
+        output_dir, input_dir = _request_paths(spec, _safe_topic_slug(topic))
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
 
     cmd = [sys.executable, str(GEN_BATCH), str(preset_path),
            "--count", str(count), "--concurrency", str(conc),
-           "--topic-root", str(topic_root)]
+           "--output-dir", str(output_dir), "--input-dir", str(input_dir)]
     if spec.get("resume"): cmd.append("--resume")
     if spec.get("dry_run"): cmd.append("--dry-run")
-    if spec.get("topic"): cmd += ["--topic", str(spec["topic"])]
+    if spec.get("topic"): cmd += ["--topic", topic]
     if spec.get("seed") is not None: cmd += ["--seed", str(spec["seed"])]
 
     started = time.time()
     proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", cwd=str(ROOT))
 
-    topic = spec.get("topic")
-    if not topic:
-        try:
-            topic = json.loads(preset_path.read_text(encoding="utf-8")).get("topic")
-        except Exception:
-            topic = None
-    topic_slug = _safe_topic_slug(topic) if topic else None
-    output_dir = (topic_root / "output" / topic_slug).resolve() if topic_slug else None
-    run_root = (topic_root / "runs" / topic_slug).resolve() if topic_slug else None
+    topic_slug = _safe_topic_slug(topic)
+    output_dir = output_dir.resolve()
 
     return {
         "ok": proc.returncode == 0,
         "mode": "batch",
         "topic_dir": str(output_dir) if output_dir else None,
         "output_dir": str(output_dir) if output_dir else None,
-        "run_root": str(run_root) if run_root else None,
+        "input_dir": str(input_dir.resolve()) if topic_slug else None,
         "stdout_tail": (proc.stdout or "").splitlines()[-20:],
         "stderr_tail": (proc.stderr or "").splitlines()[-20:],
         "elapsed_sec": round(time.time() - started, 2),

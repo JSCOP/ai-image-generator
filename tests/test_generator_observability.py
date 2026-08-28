@@ -27,6 +27,7 @@ class GeneratorObservabilityTests(unittest.TestCase):
         ai_image = load_module("ai_image_under_test", ROOT / "tools" / "ai_image.py")
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
+            ai_image.INPUT_ROOT = tmp_path / "inputs"
             fake_script = tmp_path / "fake_gen_image.py"
             fake_script.write_text(
                 "import sys\n"
@@ -41,7 +42,8 @@ class GeneratorObservabilityTests(unittest.TestCase):
                 result = ai_image.run_jobs(
                     {
                         "topic": "observability-test",
-                        "topic_root": str(tmp_path),
+                        "workspace_root": str(tmp_path),
+                        "date": "2026-07-13",
                         "jobs": [{"id": "01_quick", "prompt": "quick"}],
                         "concurrency": 1,
                     }
@@ -58,6 +60,7 @@ class GeneratorObservabilityTests(unittest.TestCase):
         ai_image = load_module("ai_image_timeout_under_test", ROOT / "tools" / "ai_image.py")
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
+            ai_image.INPUT_ROOT = tmp_path / "inputs"
             fake_script = tmp_path / "fake_slow_gen_image.py"
             fake_script.write_text(
                 "import time\n"
@@ -73,7 +76,8 @@ class GeneratorObservabilityTests(unittest.TestCase):
                 result = ai_image.run_jobs(
                     {
                         "topic": "timeout-test",
-                        "topic_root": str(tmp_path),
+                        "workspace_root": str(tmp_path),
+                        "date": "2026-07-13",
                         "jobs": [{"id": "01_slow", "prompt": "slow"}],
                         "concurrency": 1,
                         "job_timeout_sec": 0.1,
@@ -103,7 +107,6 @@ class GeneratorObservabilityTests(unittest.TestCase):
                 size="1024x1024",
                 quality="low",
                 action="generate",
-                events=None,
                 reference_image=[],
                 base_url="http://127.0.0.1:9/v1",
                 api_key=None,
@@ -134,7 +137,6 @@ class GeneratorObservabilityTests(unittest.TestCase):
                 size="1920x1088",
                 quality="high",
                 action="generate",
-                events=None,
                 reference_image=[str(reference)],
                 base_url="http://127.0.0.1:8317/v1",
                 api_key="test-key",
@@ -192,11 +194,13 @@ class GeneratorObservabilityTests(unittest.TestCase):
         ai_image._run_child = lambda cmd, timeout: (commands.append(cmd) or (0, "ok"))
         try:
             with tempfile.TemporaryDirectory() as tmp:
+                ai_image.INPUT_ROOT = Path(tmp) / "inputs"
                 result = ai_image.run_single(
                     {
                         "prompt": "diagnostic",
                         "topic": "provider-test",
-                        "topic_root": tmp,
+                        "workspace_root": tmp,
+                        "date": "2026-07-13",
                         "image_model": "gemini-3.1-flash-image",
                         "count": 1,
                     }
@@ -215,11 +219,13 @@ class GeneratorObservabilityTests(unittest.TestCase):
         ai_image._run_child = lambda cmd, timeout: (commands.append(cmd) or (0, "ok"))
         try:
             with tempfile.TemporaryDirectory() as tmp:
+                ai_image.INPUT_ROOT = Path(tmp) / "inputs"
                 result = ai_image.run_single(
                     {
                         "prompt": "preserve source geometry",
                         "topic": "edit-action-test",
-                        "topic_root": tmp,
+                        "workspace_root": tmp,
+                        "date": "2026-07-13",
                         "action": "edit",
                     }
                 )
@@ -237,10 +243,12 @@ class GeneratorObservabilityTests(unittest.TestCase):
         ai_image._run_child = lambda cmd, timeout: (commands.append(cmd) or (0, "ok"))
         try:
             with tempfile.TemporaryDirectory() as tmp:
+                ai_image.INPUT_ROOT = Path(tmp) / "inputs"
                 result = ai_image.run_jobs(
                     {
                         "topic": "job-edit-action-test",
-                        "topic_root": tmp,
+                        "workspace_root": tmp,
+                        "date": "2026-07-13",
                         "action": "generate",
                         "jobs": [{"id": "01_edit", "prompt": "edit", "action": "edit"}],
                         "concurrency": 1,
@@ -259,7 +267,8 @@ class GeneratorObservabilityTests(unittest.TestCase):
         ai_image._run_child = lambda cmd, timeout: (commands.append(cmd) or (0, "ok"))
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                output_dir = Path(tmp) / "output" / "resume-test"
+                ai_image.INPUT_ROOT = Path(tmp) / "inputs"
+                output_dir = Path(tmp) / "ImageGallery" / "2026-07-13" / "resume-test"
                 output_dir.mkdir(parents=True)
                 existing = output_dir / "resume-test_001.png"
                 existing.write_bytes(b"existing")
@@ -267,7 +276,8 @@ class GeneratorObservabilityTests(unittest.TestCase):
                     {
                         "prompt": "diagnostic",
                         "topic": "resume-test",
-                        "topic_root": tmp,
+                        "workspace_root": tmp,
+                        "date": "2026-07-13",
                         "count": 2,
                         "resume": True,
                         "concurrency": 1,
@@ -281,6 +291,78 @@ class GeneratorObservabilityTests(unittest.TestCase):
         self.assertEqual(len(commands), 1)
         self.assertTrue(result["outputs"][0].endswith("resume-test_001.png"))
 
+
+    def test_single_uses_dated_gallery_and_centralizes_inputs(self):
+        ai_image = load_module("ai_image_layout_under_test", ROOT / "tools" / "ai_image.py")
+        original_run_child = ai_image._run_child
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                ai_image.INPUT_ROOT = tmp_path / "generator-inputs"
+                reference = tmp_path / "reference.png"
+                reference.write_bytes(b"reference")
+
+                def fake_run(cmd, timeout):
+                    output = Path(cmd[cmd.index("-o") + 1])
+                    output.parent.mkdir(parents=True, exist_ok=True)
+                    output.write_bytes(b"image")
+                    return 0, "ok"
+
+                ai_image._run_child = fake_run
+                result = ai_image.run_single(
+                    {
+                        "prompt": "layout contract",
+                        "topic": "저장 구조 테스트",
+                        "workspace_root": str(tmp_path / "conversation"),
+                        "date": "2026-07-13",
+                        "reference_images": [str(reference)],
+                    }
+                )
+
+                output_dir = tmp_path / "conversation" / "ImageGallery" / "2026-07-13" / "저장_구조_테스트"
+                input_dir = tmp_path / "generator-inputs" / "2026-07-13" / "저장_구조_테스트"
+                self.assertTrue(result["ok"])
+                self.assertEqual(Path(result["output_dir"]), output_dir)
+                self.assertEqual([path.suffix for path in output_dir.iterdir()], [".png"])
+                self.assertTrue((input_dir / "request.json").is_file())
+                self.assertEqual(len(list((input_dir / "references").iterdir())), 1)
+        finally:
+            ai_image._run_child = original_run_child
+
+    def test_batch_dry_run_uses_preset_title_without_gallery_side_files(self):
+        ai_image = load_module("ai_image_batch_layout_under_test", ROOT / "tools" / "ai_image.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            ai_image.INPUT_ROOT = tmp_path / "generator-inputs"
+            preset = tmp_path / "preset.json"
+            preset.write_text(
+                json.dumps(
+                    {
+                        "topic": "배치 제목",
+                        "categories": [{"name": "cat", "templates": ["cat prompt"]}],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            result = ai_image.run_batch(
+                {
+                    "mode": "batch",
+                    "preset": str(preset),
+                    "workspace_root": str(tmp_path / "conversation"),
+                    "date": "2026-07-13",
+                    "count": 1,
+                    "dry_run": True,
+                }
+            )
+
+            output_dir = tmp_path / "conversation" / "ImageGallery" / "2026-07-13" / "배치_제목"
+            input_file = tmp_path / "generator-inputs" / "2026-07-13" / "배치_제목" / "request.jsonl"
+            self.assertTrue(result["ok"])
+            self.assertEqual(Path(result["output_dir"]), output_dir)
+            self.assertFalse(output_dir.exists())
+            self.assertEqual(len(input_file.read_text(encoding="utf-8").splitlines()), 1)
 
     def test_ai_entrypoint_rejects_invalid_action(self):
         ai_image = load_module("ai_image_invalid_action_under_test", ROOT / "tools" / "ai_image.py")

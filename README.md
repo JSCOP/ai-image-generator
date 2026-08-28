@@ -161,74 +161,51 @@ CLIProxyAPI의 Grok 이미지 노출 설정 예시는 `config/cliproxy-image-pro
 }
 ```
 
-## 직접 CLI 사용
+## 이미지 생성 CLI 사용
 
-### 단일 이미지
-
-```powershell
-python scripts\gen_image.py `
-  "고양이가 우주를 유영하는 시네마틱 사진" `
-  --topic cat-in-space `
-  -o cat.png `
-  --size 1920x1080 `
-  --quality high
-```
-
-저장 위치:
-
-```text
-output/<topic>/<filename>.png
-```
-
-주요 옵션:
-
-- `--topic <name>`: `output/<topic>` 폴더 이름. 생략 시 prompt에서 자동 추출
-- `-o <file>`: 출력 파일명 또는 경로
-- `--size 1920x1080`: 최종 결과 파일의 정확한 크기
-- `--quality low|medium|high`: 품질. 생략 시 `high`
-- `--reference-image <path>`: 참조 이미지. 여러 번 지정 가능
-- `--events <path>`: raw SSE 응답 저장
-
-### JSON preset 배치
+항상 `tools/ai_image.py`를 사용합니다. 명령은 이 저장소 루트에서 실행하되, `workspace_root`에는 현재 대화가 작업 중인 폴더를 지정합니다.
 
 ```powershell
-# 계획만 확인, API 호출 없음
-python scripts\gen_batch.py presets\extraction-rpg.json --count 10 --dry-run
-
-# 실제 생성
-python scripts\gen_batch.py presets\extraction-rpg.json --count 10 --concurrency 4
-
-# 이어서 생성
-python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume --concurrency 8
+$spec = @'
+{
+  "mode": "single",
+  "prompt": "고양이가 우주를 유영하는 시네마틱 사진",
+  "topic": "cat-in-space",
+  "workspace_root": "E:/abc",
+  "date": "2026-07-13",
+  "count": 1,
+  "size": "1920x1080",
+  "quality": "high"
+}
+'@
+python tools\ai_image.py --json $spec
 ```
 
-배치 옵션:
-
-- `--count N`: 생성 개수
-- `--concurrency N`: 동시 워커 수. 여러 이미지를 동시에 요청합니다. `N=4`면 한 번에 최대 4개의 `gen_image.py` 프로세스가 각각 `/v1/responses`를 호출합니다.
-- `--seed N`: 카테고리/템플릿 선택 시드
-- `--topic <name>`: preset의 `topic` 덮어쓰기
-- `--topic-root <dir>`: `output/`, `runs/`가 만들어질 부모 경로
-- `--resume`: 이미 존재하는 PNG는 건너뜀
-- `--dry-run`: `prompts.jsonl` 계획만 기록
-- `--max-failures N`: 누적 실패 시 중단
-
-출력 구조:
+최종 이미지 저장 구조:
 
 ```text
-output/
-  <topic>/
-    <category>/<topic>_NNNNNN.png
-runs/
-  <topic>/<YYYYMMDD_HHMMSS>/
-    prompts.jsonl
-    metadata.jsonl
-    failures.jsonl
-    events/*.sse
+<workspace_root>/ImageGallery/<YYYY-MM-DD>/<topic>/*.png
 ```
 
-`tools/ai_image.py`에서도 `concurrency`는 같은 의미입니다. `mode=single`에서 `count=8, concurrency=4`면 8장을 만들되 동시에 최대 4장만 생성합니다. `mode=jobs`에서는 job 배열을 최대 N개씩 병렬 처리하고, `mode=batch`에서는 `scripts/gen_batch.py --concurrency N`으로 그대로 전달합니다.
+제목 폴더에는 이미지만 저장됩니다. 프롬프트, 요청 설정, 참조 이미지 등 재현용 입력은 생성기 저장소 안에 별도로 보관됩니다.
 
+```text
+C:/Users/jisung/workspaces/ai-image-generator/inputs/<YYYY-MM-DD>/<topic>/
+  request.json        # single/jobs 요청
+  request.jsonl       # batch 요청
+  references/*        # 복사된 참조 입력
+```
+
+주요 필드:
+
+- `workspace_root`: 현재 대화/작업 폴더
+- `date`: 날짜 폴더 `YYYY-MM-DD`; 생략 시 로컬 오늘 날짜
+- `topic`: 이미지 생성 제목 및 제목 폴더명
+- `resume`: 기존 이미지를 덮어쓰지 않고 누락된 이미지만 생성
+- `reference_images`: 참조 이미지 경로; 실행 전에 중앙 입력 폴더로 복사됨
+- `concurrency`: 동시 생성 수
+
+`mode: "batch"`는 먼저 `dry_run: true`로 계획을 기록하고 확인한 뒤 실제 실행합니다. 기존 제목 폴더에 파일이 있으면 기본적으로 중단되며, 이어서 생성할 때만 `resume: true`를 사용합니다.
 ## 새 데이터셋 preset 만들기
 
 `presets/<dataset-name>.json` 파일 하나만 추가합니다.
@@ -266,65 +243,27 @@ runs/
 2. 선택된 카테고리의 `templates` 중 하나를 고릅니다.
 3. `global_style`과 `negative`를 합쳐 최종 prompt를 만듭니다.
 
-## T2IN 공항 샘플 재생성
+## 저장된 입력으로 재생성
 
-기존 공항 샘플 작업 입력은 아래 저장소에 있습니다.
-
-```text
-E:\CityAI\t2in\t2in-ai-imagesample-generation
-```
-
-확인할 파일:
+재현용 요청은 생성기 저장소의 날짜/제목 폴더에 있습니다.
 
 ```text
-runs/airport-topview-1920x1080/prompts.jsonl
-runs/airport-topview-hazards-1920x1080/prompts.jsonl
-scripts/generate_airport_dataset.py
+C:/Users/jisung/workspaces/ai-image-generator/inputs/<YYYY-MM-DD>/<topic>/request.json
+C:/Users/jisung/workspaces/ai-image-generator/inputs/<YYYY-MM-DD>/<topic>/request.jsonl
 ```
 
-한 장만 재생성할 때는 `prompts.jsonl`에서 원하는 row의 `prompt`, `reference_images`, `output_path`를 확인한 뒤 `scripts/gen_image.py`로 실행합니다.
+단일 및 jobs 요청은 `request.json`을 확인하고 동일한 `workspace_root`, `date`, `topic`에 `resume: true`를 추가해 `tools/ai_image.py`로 실행합니다. Batch 요청은 `request.jsonl`의 prompt와 output 경로를 기준으로 누락된 항목만 재생성합니다. `scripts/gen_image.py`를 직접 호출하거나 이벤트·로그 파일을 별도로 남기지 않습니다.
 
-예:
+최종 제목 폴더에는 이미지 외 파일이 없어야 합니다.
 
-```powershell
-$row = Get-Content "E:\CityAI\t2in\t2in-ai-imagesample-generation\runs\airport-topview-1920x1080\prompts.jsonl" `
-  -TotalCount 1 | ConvertFrom-Json
+## Oh My Pi 스킬 설치 위치
 
-$argsList = @(
-  "scripts\gen_image.py",
-  $row.prompt,
-  "-o", "E:\ai-image-generator\output\airport-topview-t2in-normal\체크인카운터\airport_topview_000001.png",
-  "--model", "gpt-5.4",
-  "--image-model", "gpt-image-2",
-  "--size", $row.size,
-  "--quality", $row.quality,
-  "--action", "generate",
-  "--events", "E:\ai-image-generator\runs\airport-topview-t2in-single\airport_topview_000001.sse"
-)
-
-foreach ($ref in $row.reference_images) {
-  $argsList += @("--reference-image", $ref)
-}
-
-python @argsList
-```
-
-## 에이전트 스킬 설치 위치
-
-같은 `ai-image-generator` 스킬을 아래 위치에 설치합니다.
+프로젝트 스킬과 Oh My Pi 설치 스킬을 동일하게 유지합니다.
 
 ```text
-Codex:      C:\Users\js\.codex\skills\ai-image-generator
-Claude:     C:\Users\js\.claude\skills\ai-image-generator
-Hermes:     C:\Users\js\.hermes\skills\media\ai-image-generator
+프로젝트: C:/Users/jisung/workspaces/ai-image-generator/skills/ai-image-generator/SKILL.md
+Oh My Pi: C:/Users/jisung/.pi/agent/skills/ai-image-generator/SKILL.md
 ```
-
-에이전트에게 요청할 때:
-
-```text
-Use $ai-image-generator to create one airport top-view image from the T2IN reference prompt.
-```
-
 ## 운영 주의사항
 
 - 생성 중단 요청을 받으면 프로세스만 중단하고 기존 산출물은 삭제하지 않습니다.

@@ -41,7 +41,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import datetime as dt
 import hashlib
 import json
 import os
@@ -50,7 +49,6 @@ import re
 import subprocess
 import sys
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
@@ -148,7 +146,6 @@ def run_gen_image(
     gen_script: Path,
     prompt: str,
     output_path: Path,
-    events_path: Path,
     preset: Preset,
     topic: str,
     timeout: int,
@@ -164,7 +161,6 @@ def run_gen_image(
         "--size", preset.size,
         "--quality", preset.quality,
         "--action", "generate",
-        "--events", str(events_path),
     ]
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
 
@@ -179,7 +175,8 @@ def parse_args() -> argparse.Namespace:
     _ = parser.add_argument("--concurrency", type=int, default=1, help="Parallel workers")
     _ = parser.add_argument("--seed", type=int, default=42)
     _ = parser.add_argument("--topic", default=None, help="Override preset topic (output folder)")
-    _ = parser.add_argument("--topic-root", default=str(ROOT), help="Parent folder for output/ and runs/ dirs")
+    _ = parser.add_argument("--output-dir", required=True, help="Final ImageGallery date/title folder")
+    _ = parser.add_argument("--input-dir", required=True, help="Central ai-image-generator input record folder")
     _ = parser.add_argument("--resume", action="store_true", help="Skip files that already exist")
     _ = parser.add_argument("--dry-run", action="store_true", help="Plan only, no API calls")
     _ = parser.add_argument("--max-failures", type=int, default=20)
@@ -196,27 +193,27 @@ def main() -> int:
     preset = load_preset(args.preset)
     topic = (args.topic or preset.topic).strip() or preset.topic
     topic_slug = safe_slug(topic)
-    root = Path(args.topic_root).expanduser()
-    if not root.is_absolute():
-        root = (Path.cwd() / root).resolve()
-    out_dir = root / "output" / topic_slug
-    run_dir = root / "runs" / topic_slug / dt.datetime.now().strftime("%Y%m%d_%H%M%S")
-    events_dir = run_dir / "events"
-    metadata_path = run_dir / "metadata.jsonl"
-    failures_path = run_dir / "failures.jsonl"
-    prompts_path = run_dir / "prompts.jsonl"
+    out_dir = Path(args.output_dir).expanduser().resolve()
+    input_dir = Path(args.input_dir).expanduser().resolve()
+    prompts_path = input_dir / "request.jsonl"
     gen_script = Path(args.gen_script)
     if not gen_script.is_file():
         _ = sys.stderr.write(f"gen_image.py not found: {gen_script}\n")
         return 2
 
-    out_dir.mkdir(parents=True, exist_ok=True)
-    events_dir.mkdir(parents=True, exist_ok=True)
+    if out_dir.exists() and not args.resume and any(out_dir.iterdir()):
+        _ = sys.stderr.write(f"Output directory already contains files; use --resume or a new topic: {out_dir}\n")
+        return 2
+    if not args.dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    input_dir.mkdir(parents=True, exist_ok=True)
+    if prompts_path.exists():
+        prompts_path.unlink()
 
     print(f"Preset: {args.preset}")
     print(f"Topic: {topic} ({topic_slug})")
     print(f"Output: {out_dir}")
-    print(f"Run: {run_dir}")
+    print(f"Inputs: {input_dir}")
     print(f"Count: {args.count}  Concurrency: {args.concurrency}  Quality: {preset.quality}")
     print(f"Categories: {[(c.name, c.weight) for c in preset.categories]}")
 
@@ -232,8 +229,7 @@ def main() -> int:
         cat = weighted_category(preset.categories, rng)
         prompt = build_prompt(preset, cat, rng)
         image_id = f"{topic_slug}_{index:06d}"
-        output_path = out_dir / safe_slug(cat.name) / f"{image_id}.png"
-        events_path = events_dir / f"{image_id}.sse"
+        output_path = out_dir / f"{safe_slug(cat.name)}_{image_id}.png"
 
         plan = {
             "id": image_id,
@@ -261,39 +257,24 @@ def main() -> int:
 
         print(f"[generate] {image_id} ({cat.name})")
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        started = dt.datetime.now(dt.timezone.utc).isoformat()
         try:
-            proc = run_gen_image(gen_script, prompt, output_path, events_path, preset, topic, args.per_image_timeout)
+            proc = run_gen_image(gen_script, prompt, output_path, preset, topic, args.per_image_timeout)
         except subprocess.TimeoutExpired:
             with write_lock:
                 counters["failures"] += 1
-                append_jsonl(failures_path, {**plan, "status": "timeout", "started_at": started})
                 stop_now = counters["failures"] >= args.max_failures
             print(f"[failed] {image_id}: timeout", file=sys.stderr)
             if stop_now:
                 stop_event.set()
             return
-        finished = dt.datetime.now(dt.timezone.utc).isoformat()
 
         if proc.returncode == 0 and output_path.is_file():
             with write_lock:
                 counters["completed"] += 1
-                append_jsonl(metadata_path, {
-                    **plan, "status": "ok",
-                    "started_at": started, "finished_at": finished,
-                    "stdout": proc.stdout.strip(),
-                })
             print(f"[ok] {image_id} -> {output_path}")
         else:
             with write_lock:
                 counters["failures"] += 1
-                append_jsonl(failures_path, {
-                    **plan, "status": "failed",
-                    "started_at": started, "finished_at": finished,
-                    "returncode": proc.returncode,
-                    "stdout": proc.stdout[-2000:],
-                    "stderr": proc.stderr[-2000:],
-                })
                 stop_now = counters["failures"] >= args.max_failures
             print(f"[failed] {image_id}: {proc.stderr[-500:]}", file=sys.stderr)
             if stop_now:
@@ -313,7 +294,6 @@ def main() -> int:
                     print(f"[worker-error] {exc}", file=sys.stderr)
 
     print(f"\nCompleted: {counters['completed']}, failures: {counters['failures']}")
-    print(f"Run dir: {run_dir}")
     return 0 if counters["failures"] == 0 else 1
 
 

@@ -7,7 +7,7 @@ one HTTP proxy instead of shelling out to `codex responses`.
 
 Default output layout:
 
-    output/<topic>/<filename>.png
+    <workspace>/ImageGallery/<YYYY-MM-DD>/<topic>/<filename>.png
 
 Environment:
     CLIPROXY_BASE_URL   Base URL. Default: http://localhost:8317/v1
@@ -34,6 +34,7 @@ import threading
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import date as local_date
 from pathlib import Path
 
 
@@ -41,7 +42,7 @@ DEFAULT_BASE_URL = "http://localhost:8317/v1"
 DEFAULT_MODEL = "gpt-5.5"
 DEFAULT_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_TOPIC = "image-request"
-DEFAULT_TOPIC_ROOT = str(Path(__file__).resolve().parent.parent)
+DEFAULT_WORKSPACE_ROOT = str(Path.cwd())
 STOPWORDS = {
     "the",
     "and",
@@ -73,7 +74,6 @@ class GenerateImageOptions:
     size: str
     quality: str
     action: str
-    events: str | None
     reference_image: list[str]
     base_url: str
     api_key: str | None
@@ -130,10 +130,12 @@ def resolve_api_key(value: str | None) -> str | None:
     return os.environ.get("CLIPROXY_API_KEY") or os.environ.get("OPENAI_API_KEY")
 
 
-def resolve_topic(prompt: str, topic: str | None, topic_root: str) -> tuple[str, str, Path]:
+def resolve_topic(prompt: str, topic: str | None, workspace_root: str, gallery_date: str) -> tuple[str, str, Path]:
     resolved_topic = topic.strip() if topic and topic.strip() else infer_topic_from_prompt(prompt)
     topic_slug = safe_topic_slug(resolved_topic)
-    return resolved_topic, topic_slug, Path(topic_root) / "output" / topic_slug
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", gallery_date):
+        raise ValueError("date must use YYYY-MM-DD")
+    return resolved_topic, topic_slug, Path(workspace_root) / "ImageGallery" / gallery_date / topic_slug
 
 
 def resolve_output_path(output: str | None, topic_dir: Path, output_format: str) -> Path:
@@ -496,18 +498,18 @@ def call_cliproxy(args: GenerateImageOptions) -> tuple[bytes, int]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate an image through CLIProxyAPI and save it under output/<topic>/."
+        description="Generate an image into <workspace>/ImageGallery/<date>/<topic>/."
     )
     _ = parser.add_argument("prompt", help="Image prompt")
-    _ = parser.add_argument("-o", "--output", default=None, help="Output image path. Bare filenames are saved under output/<topic>/.")
-    _ = parser.add_argument("--topic", default=None, help="Topic folder name. Defaults to an inferred prompt topic.")
-    _ = parser.add_argument("--topic-root", default=DEFAULT_TOPIC_ROOT, help="Root directory that contains topic folders")
+    _ = parser.add_argument("-o", "--output", default=None, help="Output image path. Bare filenames use the dated topic folder.")
+    _ = parser.add_argument("--topic", default=None, help="Image generation title. Defaults to an inferred prompt topic.")
+    _ = parser.add_argument("--workspace-root", default=DEFAULT_WORKSPACE_ROOT, help="Current conversation/workspace folder")
+    _ = parser.add_argument("--date", default=local_date.today().isoformat(), help="ImageGallery date folder, YYYY-MM-DD")
     _ = parser.add_argument("--model", default=os.environ.get("CLIPROXY_MAIN_MODE") or os.environ.get("CLIPROXY_MAIN_MODEL") or DEFAULT_MODEL, help="Mainline model used to call the tool")
     _ = parser.add_argument("--image-model", default=os.environ.get("CLIPROXY_IMAGE_MODEL", DEFAULT_IMAGE_MODEL), help="Image generation tool model")
     _ = parser.add_argument("--size", default="1920x1080", help="Exact output size; provider requests are padded or bucketed automatically")
     _ = parser.add_argument("--quality", default="high", help="Image quality: low, medium, high")
     _ = parser.add_argument("--action", choices=("auto", "generate", "edit"), default="generate", help="Image tool action")
-    _ = parser.add_argument("--events", help="Optional path to save the raw CLIProxyAPI response body")
     _ = parser.add_argument("--reference-image", action="append", default=[], help="Optional reference image path. Can be passed more than once.")
     _ = parser.add_argument("--base-url", default=None, help="CLIProxyAPI base URL (e.g. http://localhost:8317/v1)")
     _ = parser.add_argument("--api-key", default=None, help="CLIProxyAPI API key. Falls back to env CLIPROXY_API_KEY/OPENAI_API_KEY.")
@@ -518,7 +520,8 @@ def main() -> int:
     topic, topic_slug, topic_dir = resolve_topic(
         namespace.prompt,
         namespace.topic,
-        namespace.topic_root,
+        namespace.workspace_root,
+        namespace.date,
     )
     output_path = resolve_output_path(namespace.output, topic_dir, namespace.output_format)
 
@@ -530,7 +533,6 @@ def main() -> int:
         size=namespace.size,
         quality=namespace.quality,
         action=namespace.action,
-        events=namespace.events,
         reference_image=list(namespace.reference_image),
         base_url=resolve_base_url(namespace.base_url),
         api_key=resolve_api_key(namespace.api_key),
@@ -557,10 +559,6 @@ def main() -> int:
         _ = sys.stderr.write(f"{exc}\n")
         return 1
 
-    if args.events:
-        events_path = Path(args.events)
-        events_path.parent.mkdir(parents=True, exist_ok=True)
-        _ = events_path.write_bytes(body_bytes)
 
     if status != 200:
         _ = sys.stderr.write(
@@ -578,8 +576,7 @@ def main() -> int:
         image_b64 = extract_image_from_events(events)
         if not image_b64:
             _ = sys.stderr.write("No image_generation_call result found in response.\n")
-            if not args.events:
-                _ = sys.stderr.write("Re-run with --events <path> to inspect the raw response body.\n")
+            _ = sys.stderr.write("Inspect the proxy response through the service logs if diagnostics are required.\n")
             return 1
         image_bytes = base64.b64decode(image_b64)
         mime_type = f"image/{args.output_format}"
