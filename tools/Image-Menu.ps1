@@ -7,6 +7,31 @@ $GenImage = Join-Path $ProjectRoot 'scripts\gen_image.py'
 $GenBatch = Join-Path $ProjectRoot 'scripts\gen_batch.py'
 $PresetDir = Join-Path $ProjectRoot 'presets'
 
+function Resolve-PythonCommand {
+    $candidates = @()
+    if ($env:AI_IMAGE_PYTHON) { $candidates += , @($env:AI_IMAGE_PYTHON) }
+    $candidates += , @('python')
+    $candidates += , @('py', '-3')
+    foreach ($candidate in $candidates) {
+        $exe = [string]$candidate[0]
+        if (-not (Get-Command $exe -ErrorAction SilentlyContinue)) { continue }
+        $prefix = @($candidate | Select-Object -Skip 1)
+        try {
+            & $exe @prefix '-c' 'import sys' *> $null
+        } catch {
+            continue
+        }
+        if ($LASTEXITCODE -eq 0) {
+            return [pscustomobject]@{ Exe = $exe; Prefix = $prefix }
+        }
+    }
+    throw 'No working Python 3 interpreter found. Set AI_IMAGE_PYTHON to a Python 3 executable.'
+}
+
+$PythonCommand = Resolve-PythonCommand
+$PythonExe = $PythonCommand.Exe
+$PythonArgs = $PythonCommand.Prefix
+
 function Convert-SafeSlug($value) {
     $raw = if ($null -eq $value) { '' } else { $value.Trim() }
     $raw = [regex]::Replace($raw, '[^\p{L}\p{Nd}_\s\.-]+', '_')
@@ -211,7 +236,7 @@ function Run-Single {
         foreach ($r in $refs) { $argList += @('--reference-image', $r) }
         Write-Host ""
         Write-Host "[$i/$count] 생성 중: $name" -ForegroundColor DarkGray
-        & python @argList
+        & $PythonExe @PythonArgs @argList
         if ($LASTEXITCODE -eq 0) {
             $okCount++
         } else {
@@ -257,8 +282,8 @@ function Run-Batch {
     if ($dry)    { $argList += '--dry-run' }
 
     Write-Host ""
-    Write-Host "실행: python $($argList -join ' ')" -ForegroundColor DarkGray
-    & python @argList
+    Write-Host "실행: $PythonExe $(($PythonArgs + $argList) -join ' ')" -ForegroundColor DarkGray
+    & $PythonExe @PythonArgs @argList
 }
 
 function Show-MainMenu {
