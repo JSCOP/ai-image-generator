@@ -546,9 +546,10 @@ class GeneratorObservabilityTests(unittest.TestCase):
             stale.mkdir()
             (stale / "SKILL.md").write_text("stale copy", encoding="utf-8")
             absent_root = tmp_path / "agent-b" / "skills"
+            backup_dir = tmp_path / "backups"
 
             roots = [linked_root, absent_root]
-            first = sync_skills.sync(skills_dir, roots, apply=True)
+            first = sync_skills.sync(skills_dir, roots, apply=True, backup_dir=backup_dir)
 
             self.assertEqual(
                 [r["action"] for r in first if r["root"] == str(linked_root)], ["linked"]
@@ -557,11 +558,12 @@ class GeneratorObservabilityTests(unittest.TestCase):
                 [r["action"] for r in first if r["root"] == str(absent_root)], ["root-absent"]
             )
             self.assertEqual((stale / "SKILL.md").read_text(encoding="utf-8"), "canonical")
-            backups = [p for p in linked_root.iterdir() if p.name.startswith("demo-skill.bak-")]
+            self.assertEqual([p.name for p in linked_root.iterdir()], ["demo-skill"])
+            backups = list(backup_dir.iterdir())
             self.assertEqual(len(backups), 1)
             self.assertEqual((backups[0] / "SKILL.md").read_text(encoding="utf-8"), "stale copy")
 
-            second = sync_skills.sync(skills_dir, roots, apply=False)
+            second = sync_skills.sync(skills_dir, roots, apply=False, backup_dir=backup_dir)
             self.assertEqual(
                 [r["action"] for r in second if r["root"] == str(linked_root)], ["ok"]
             )

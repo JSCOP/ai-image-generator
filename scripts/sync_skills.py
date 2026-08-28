@@ -15,9 +15,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import stat
 import subprocess
-import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -70,18 +71,26 @@ def make_link(link: Path, target: Path) -> None:
     os.symlink(target, link, target_is_directory=True)
 
 
+def default_backup_dir() -> Path:
+    return Path(tempfile.gettempdir()) / "ai-image-generator-skill-backups"
+
+
 def sync(
     skills_dir: Path,
     skill_roots: list[Path],
     apply: bool = True,
+    backup_dir: Path | None = None,
 ) -> list[dict[str, str]]:
     """Point every existing agent skill root at `skills_dir`.
 
     Only roots that already exist are touched; a missing agent directory means
-    that agent is not installed on this machine.
+    that agent is not installed on this machine. Displaced directories move
+    outside the skill root, because agents scan every subdirectory of a skill
+    root and a leftover backup would register as a second copy of the skill.
     """
     sources = sorted(p for p in skills_dir.iterdir() if p.is_dir()) if skills_dir.is_dir() else []
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backups = backup_dir or default_backup_dir()
     results: list[dict[str, str]] = []
 
     for root in skill_roots:
@@ -103,9 +112,11 @@ def sync(
                 link.unlink()
                 detail = f"relinked from {target}"
             elif state in {"dir", "file"}:
-                backup = root / f"{source.name}.bak-{stamp}"
+                slug = re.sub(r"[^A-Za-z0-9]+", "-", str(root)).strip("-")
+                backup = backups / f"{slug}-{source.name}-{stamp}"
+                backup.parent.mkdir(parents=True, exist_ok=True)
                 link.rename(backup)
-                detail = f"backup {backup.name}"
+                detail = f"backup {backup}"
             make_link(link, source.resolve())
             results.append({"root": str(root), "skill": source.name, "action": "linked", "detail": detail})
 
