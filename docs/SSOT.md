@@ -29,18 +29,18 @@ python scripts/sync_skills.py --check  # 상태만 확인. 어긋나면 exit 1
 
 ## 사용 가능한 이미지 모델
 
-CLIProxyAPI `/v1/models` 기준 이미지 모델은 6개이며, 실제 생성까지 확인된 것은 4개입니다. (검증일 2026-08-28)
+CLIProxyAPI `/v1/models` 기준 이미지 모델은 6개이며, 실제 생성까지 확인된 것은 5개입니다. (검증일 2026-09-04)
 
 | 모델 | 경로 | 참조 이미지 | 상태 |
 |---|---|---|---|
 | `grok-imagine-image-2.0` | xAI `/v1/images/generations` | 불가 | 정상 (기본값) |
 | `grok-imagine-image-quality` | xAI `/v1/images/generations` | 불가 | 정상 |
 | `grok-imagine-image` | xAI `/v1/images/generations` | 불가 | 정상 |
-| `gemini-3.1-flash-image` | Gemini native `generateContent` | 가능 | 정상. 참조 이미지 작업의 기본 선택 |
-| `gpt-image-2` | OpenAI Responses 이미지 도구 | 가능 | 실패. 메인 모델이 `image_generation_call` 대신 깨진 텍스트를 반환 |
-| `gpt-image-1.5` | OpenAI Responses 이미지 도구 | 가능 | 실패. 위와 동일 |
+| `gemini-3.1-flash-image` | Gemini native `generateContent` | 가능 | 정상. 2026-08-28 검증 |
+| `gpt-image-2` | OpenAI `/v1/images/generations`, `/v1/images/edits` | 가능 | 정상. 공식 최신 모델, generation/edit 2026-09-04 검증 (`gpt-image-2-2026-04-21`) |
+| `gpt-image-1.5` | OpenAI `/v1/images/generations`, `/v1/images/edits` | 가능 | 직접 API 경로 지원, 최근 실생성 미검증 |
 
-Grok 모델은 `reference_images`가 있으면 API 호출 전에 거부합니다. `gpt-image-*` 실패는 이 CLI가 아니라 상류 Responses 경로 문제이므로, 복구 전까지 참조 이미지 작업은 `gemini-3.1-flash-image`를 사용합니다.
+Grok 모델은 `reference_images`가 있으면 API 호출 전에 거부합니다. `gpt-image-2`는 Responses 이미지 도구를 거치지 않고 전용 Image API로 호출하며, 참조 편집에는 `reference_images`와 `action: "edit"`를 사용합니다.
 
 Gemini native 해상도는 요청 `size`의 긴 변으로 `512`/`1K`/`2K`/`4K` 버킷을 고르고, 최종 파일은 요청한 정확한 픽셀로 저장됩니다.
 

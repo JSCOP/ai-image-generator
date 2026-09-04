@@ -124,10 +124,28 @@ def resolve_base_url(value: str | None) -> str:
     return base
 
 
+def _windows_user_environment(name: str) -> str | None:
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Environment") as environment:
+            value = winreg.QueryValueEx(environment, name)[0]
+    except (ImportError, FileNotFoundError, OSError):
+        return None
+    return value if isinstance(value, str) and value else None
+
+
 def resolve_api_key(value: str | None) -> str | None:
     if value:
         return value
-    return os.environ.get("CLIPROXY_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    return (
+        os.environ.get("CLIPROXY_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+        or _windows_user_environment("CLIPROXY_API_KEY")
+        or _windows_user_environment("OPENAI_API_KEY")
+    )
 
 
 def resolve_topic(prompt: str, topic: str | None, topic_root: str) -> tuple[str, str, Path]:
@@ -205,7 +223,7 @@ def image_backend(image_model: str) -> str:
     model = image_model.lower()
     if model.startswith("gemini-") and "image" in model:
         return "gemini"
-    if model.startswith("grok-imagine-"):
+    if model.startswith(("grok-imagine-", "gpt-image-")):
         return "openai-images"
     return "responses"
 
@@ -270,18 +288,31 @@ def build_gemini_payload(args: GenerateImageOptions) -> dict[str, object]:
 
 
 def build_openai_images_payload(args: GenerateImageOptions) -> dict[str, object]:
-    if args.reference_image:
+    is_gpt_image = args.image_model.lower().startswith("gpt-image-")
+    if args.reference_image and not is_gpt_image:
         raise RuntimeError(
             f"{args.image_model} reference-image editing is not yet supported by this CLI; use a Gemini image model or gpt-image model"
         )
-    return {
+    if is_gpt_image and args.action == "edit" and not args.reference_image:
+        raise RuntimeError("GPT image edits require at least one reference image")
+
+    payload: dict[str, object] = {
         "model": args.image_model,
         "prompt": args.prompt,
         "n": 1,
         "size": provider_request_size(args.size),
         "quality": args.quality,
-        "response_format": "b64_json",
     }
+    if is_gpt_image:
+        payload["output_format"] = args.output_format
+        if args.reference_image:
+            payload["images"] = [
+                {"image_url": image_to_data_url(Path(image_path))}
+                for image_path in args.reference_image
+            ]
+    else:
+        payload["response_format"] = "b64_json"
+    return payload
 
 
 def _call_json_blocking(url: str, payload: dict[str, object], args: GenerateImageOptions) -> tuple[bytes, int]:
@@ -311,7 +342,12 @@ def call_native_image_backend(args: GenerateImageOptions) -> tuple[bytes, int, s
         url = f"{_root_base_url(args.base_url)}/v1beta/models/{args.image_model}:generateContent"
         payload = build_gemini_payload(args)
     elif backend == "openai-images":
-        url = f"{args.base_url}/images/generations"
+        endpoint = (
+            "edits"
+            if args.image_model.lower().startswith("gpt-image-") and args.reference_image
+            else "generations"
+        )
+        url = f"{args.base_url}/images/{endpoint}"
         payload = build_openai_images_payload(args)
     else:
         raise RuntimeError(f"No native image backend for {args.image_model}")
@@ -508,7 +544,7 @@ def main() -> int:
     _ = parser.add_argument("--events", help="Optional path to save the raw CLIProxyAPI response body")
     _ = parser.add_argument("--reference-image", action="append", default=[], help="Optional reference image path. Can be passed more than once.")
     _ = parser.add_argument("--base-url", default=None, help="CLIProxyAPI base URL (e.g. http://localhost:8317/v1)")
-    _ = parser.add_argument("--api-key", default=None, help="CLIProxyAPI API key. Falls back to env CLIPROXY_API_KEY/OPENAI_API_KEY.")
+    _ = parser.add_argument("--api-key", default=None, help="CLIProxyAPI API key. Falls back to process or Windows user environment CLIPROXY_API_KEY/OPENAI_API_KEY.")
     _ = parser.add_argument("--timeout", type=float, default=float(os.environ.get("CLIPROXY_TIMEOUT", "600")), help="HTTP timeout seconds")
     _ = parser.add_argument("--output-format", default="png", choices=("png", "jpeg", "webp"), help="Image output format requested from upstream")
     namespace = parser.parse_args()

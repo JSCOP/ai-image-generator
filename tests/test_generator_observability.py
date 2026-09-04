@@ -222,6 +222,61 @@ class GeneratorObservabilityTests(unittest.TestCase):
 
         self.assertEqual(len(calls), len(models))
 
+    def test_gpt_image_2_uses_direct_generation_and_edit_endpoints(self):
+        gen_image = load_module("gen_image_gpt_under_test", ROOT / "scripts" / "gen_image.py")
+        calls = []
+
+        def options(references=None, action="generate"):
+            return gen_image.GenerateImageOptions(
+                prompt="a centered blue square",
+                output="out.png",
+                model="unused-main",
+                image_model="gpt-image-2",
+                size="1024x1024",
+                quality="low",
+                action=action,
+                events=None,
+                reference_image=list(references or []),
+                base_url="http://127.0.0.1:8317/v1",
+                api_key="test-key",
+                timeout=1,
+                output_format="png",
+                topic="test",
+                topic_slug="test",
+                topic_dir=Path("output/test"),
+            )
+
+        original_call = gen_image._call_json_blocking
+        gen_image._call_json_blocking = lambda url, payload, args: (
+            calls.append((url, payload)) or (b'{"data": []}', 200)
+        )
+        try:
+            body, status, url = gen_image.call_native_image_backend(options())
+            self.assertEqual(gen_image.image_backend("gpt-image-2"), "openai-images")
+            self.assertEqual(status, 200)
+            self.assertEqual(json.loads(body), {"data": []})
+            self.assertEqual(url, "http://127.0.0.1:8317/v1/images/generations")
+            self.assertEqual(calls[-1][1]["output_format"], "png")
+            self.assertNotIn("response_format", calls[-1][1])
+
+            with tempfile.TemporaryDirectory() as tmp:
+                reference = Path(tmp) / "reference.png"
+                reference.write_bytes(b"\x89PNG\r\n\x1a\nreference")
+                _, status, url = gen_image.call_native_image_backend(
+                    options([str(reference)], action="edit")
+                )
+            self.assertEqual(status, 200)
+            self.assertEqual(url, "http://127.0.0.1:8317/v1/images/edits")
+            self.assertEqual(len(calls[-1][1]["images"]), 1)
+            self.assertTrue(
+                calls[-1][1]["images"][0]["image_url"].startswith("data:image/png;base64,")
+            )
+        finally:
+            gen_image._call_json_blocking = original_call
+
+        with self.assertRaisesRegex(RuntimeError, "require at least one reference image"):
+            gen_image.call_native_image_backend(options(action="edit"))
+
     def test_provider_padding_and_exact_output_resize(self):
         gen_image = load_module("gen_image_resize_under_test", ROOT / "scripts" / "gen_image.py")
         from PIL import Image

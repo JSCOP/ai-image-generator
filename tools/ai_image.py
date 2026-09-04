@@ -24,8 +24,8 @@ Spec keys (all in one flat object):
   count             int     (default 1)
   size              "WIDTHxHEIGHT", positive integers (default "1920x1080")
   quality           "low" | "medium" | "high"  (default "high")
-  model             main Responses model for gpt-image backends (default from environment)
-  image_model       image provider model (default gpt-image-2)
+  model             main Responses model for the legacy hosted image tool fallback
+  image_model       image provider model (default grok-imagine-image-2.0)
   reference_images  [string] paths (default [])
   action            "auto" | "generate" | "edit" (default "generate"; GPT reference edits should use "edit")
   topic_root        project output root (default project root)
@@ -81,7 +81,7 @@ SCHEMA = {
     "count": {"type": "integer", "default": 1, "min": 1},
     "size": {"type": "string", "format": "WIDTHxHEIGHT (positive integers)", "default": "1920x1080"},
     "quality": {"type": "string", "enum": ["low", "medium", "high"], "default": "high"},
-    "model": {"type": "string", "description": "main Responses model used by gpt-image backends"},
+    "model": {"type": "string", "description": "main Responses model for the legacy hosted image tool fallback"},
     "image_model": {
         "type": "string",
         "default": "grok-imagine-image-2.0",
