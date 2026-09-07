@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.venv/
 
 # Credentials and local configuration
 .env
@@ -11,6 +12,7 @@ __pycache__/
 !.env.example
 auths/
 config.yaml
+config/image-studio.local.json
 *.key
 *.pem
 

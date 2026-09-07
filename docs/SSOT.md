@@ -3,7 +3,7 @@
 이 저장소가 이미지 생성 도구/스킬/운영 규칙의 유일한 정본입니다. 어떤 머신에서도 파일을 따로 복사하지 않고, `git pull` 하나로 모든 에이전트가 같은 내용을 봅니다.
 
 - 정본 원격: `https://github.com/JSCOP/ai-image-generator` (`main`)
-- 정본 파일: `skills/ai-image-generator/SKILL.md`, `tools/ai_image.py`, `scripts/*`, `presets/*`, 이 문서
+- 정본 파일: `skills/ai-image-generator/SKILL.md`, `tools/ai_image.py`, `tools/image_studio.py`, `tools/image_studio_web/*`, `open-image-studio.*`, `scripts/*`, `presets/*`, 이 문서
 - 금지: 에이전트 스킬 폴더에 `SKILL.md`를 복사해 두는 것. 링크만 사용합니다.
 
 ## 머신
@@ -13,7 +13,9 @@
 | `DESKTOP-SB818KQ` | `100.98.54.122` | `E:/ai-image-generator` | `python` | 이 머신에서 구동 (`0.0.0.0:8317`) |
 | `JS` | `100.67.54.25` | `C:/Users/jisung/workspaces/ai-image-generator` | `py` (PATH의 `python`은 깨진 hermes venv) | 없음. 위 머신을 호출 |
 
-`CLIPROXY_BASE_URL`은 CLIProxyAPI 호스트에서 `http://127.0.0.1:8317/v1`, 그 외 머신에서 `http://100.98.54.122:8317/v1`. `CLIPROXY_API_KEY`는 Windows 사용자 환경변수에서만 읽고 저장소에 절대 기록하지 않습니다.
+`CLIPROXY_BASE_URL`은 CLIProxyAPI 호스트에서 `http://127.0.0.1:8317/v1`, 그 외 머신에서 `http://100.98.54.122:8317/v1`. 에이전트/CLI는 `CLIPROXY_API_KEY`를 프로세스 또는 Windows 사용자 환경변수에서 읽고 저장소에 절대 기록하지 않습니다.
+
+사람이 직접 쓰는 웹 화면은 `open-image-studio.cmd`로 실행합니다. Python 3.11+와 Pillow 외에 에이전트가 필요하지 않습니다. 화면의 연결 설정은 프록시 주소만 Git 제외 파일 `config/image-studio.local.json`에 저장하며, 입력한 API 키는 서버 세션 메모리에만 보관합니다. 다른 PC에서도 clone 후 같은 런처를 사용하되, 그 PC에서 접근 가능한 프록시 주소와 인증키를 설정해야 합니다. 시작프로그램 등록·해제와 사용법은 `README.md`의 로컬 이미지 스튜디오 절을 따릅니다.
 
 ## 스킬 배포
 
@@ -62,7 +64,7 @@ git merge --ff-only refs/remotes/origin/main
 ## 검증
 
 ```powershell
-python -m unittest tests.test_generator_observability   # 원격에서는 py
+python -m unittest discover -s tests -v   # 원격에서는 py, 웹 런처 환경에서는 .venv\Scripts\python.exe
 python scripts/sync_skills.py --check
 ```
 

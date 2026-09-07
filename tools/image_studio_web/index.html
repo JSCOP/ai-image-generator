@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>로컬 이미지 스튜디오</title>
+  <link rel="stylesheet" href="app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="title-wrap">
+        <h1>로컬 이미지 스튜디오</h1>
+        <p class="subtitle">localhost 전용 &middot; 127.0.0.1 &middot; 한 번에 한 장 생성</p>
+      </div>
+      <div class="server-pill" id="serverStatus" role="status" aria-live="polite">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="serverStatusText">서버 확인 중&hellip;</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="banner" id="serverBanner" hidden>
+    <div class="banner-inner">
+      <p id="serverBannerText" role="alert">서버와 연결이 끊겼습니다.</p>
+      <button type="button" id="bannerRefreshBtn" class="btn btn-small">새로고침</button>
+    </div>
+  </div>
+
+  <main class="layout">
+    <!-- 왼쪽: 작성 패널 -->
+    <section class="composer" aria-label="이미지 생성 설정">
+      <section class="card conn-card" aria-label="연결 설정">
+        <details id="connDetails" open>
+          <summary class="conn-summary"><span class="summary-title">연결 설정</span> <span class="muted-normal" id="connSummaryStatus"></span></summary>
+        <p class="hint" id="connHint">저장된 설정을 먼저 불러옵니다. API 키는 서버 세션에만 보관되며, 새로고침해도 서버에 유지됩니다. 브라우저&middot;디스크&middot;초안에는 저장하지 않습니다.</p>
+        <div class="field">
+          <label for="connBaseUrl">CLIProxy 주소 (Base URL)</label>
+          <input type="url" id="connBaseUrl" name="base_url" autocomplete="off"
+                 placeholder="http://127.0.0.1:8317/v1" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="connApiKey">API 키 (세션 전용)</label>
+          <input type="password" id="connApiKey" name="api_key" autocomplete="off"
+                 placeholder="비워 두면 기존 키 유지" />
+          <p class="hint" id="keyHint">키 상태 확인 중&hellip;</p>
+        </div>
+        <div class="row-actions">
+          <button type="button" id="connTestBtn" class="btn btn-secondary">연결 확인</button>
+          <span class="conn-status" id="connStatus" role="status" aria-live="polite"></span>
+        </div>
+        <p class="conn-error" id="connError" role="alert" hidden></p>
+        <div class="avail-wrap">
+          <h3>사용 가능 모델 상태 <span class="muted-normal">(카탈로그 선택과 별개)</span></h3>
+          <p class="hint">연결 확인 후에 표시됩니다. 아직 확인 전이면 &ldquo;미확인&rdquo;으로 표시됩니다.</p>
+          <ul class="avail-list" id="connAvailable"></ul>
+        </div>
+        <div class="shutdown-wrap">
+          <h3>서버 관리</h3>
+          <div class="row-actions">
+            <button type="button" id="shutdownBtn" class="btn btn-danger">서버 종료</button>
+            <span class="conn-status" id="shutdownStatus" role="status" aria-live="polite"></span>
+          </div>
+          <p class="hint">로컬 서버만 멈춥니다. 생성된 이미지는 삭제되지 않습니다. 종료 후에는 <code>open-image-studio.cmd</code>를 다시 실행하세요.</p>
+        </div>
+        </details>
+      </section>
+
+      <form id="genForm" novalidate>
+        <section class="card" aria-labelledby="modelTitle">
+          <h2 id="modelTitle">모델 &middot; 해상도 &middot; 품질</h2>
+          <div class="field">
+            <label for="modelSelect">이미지 모델</label>
+            <select id="modelSelect"></select>
+            <p class="hint model-note" id="modelNote"></p>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="sizeSelect">해상도 (최종 저장 크기)</label>
+              <select id="sizeSelect"></select>
+            </div>
+            <div class="field">
+              <label for="qualitySelect">품질</label>
+              <select id="qualitySelect"></select>
+            </div>
+          </div>
+          <p class="hint" id="sizeHelp">최종 파일은 요청한 해상도로 정확히 저장됩니다(필요시 자르기/리샘플링). 모델의 네이티브 출력 크기와 다를 수 있습니다.</p>
+          <p class="hint" id="qualityNote">품질 옵션의 해석은 제공자마다 다르며 결과물을 보장하지 않습니다.</p>
+        </section>
+
+        <section class="card" aria-labelledby="promptTitle">
+          <h2 id="promptTitle">프롬프트</h2>
+          <div class="field">
+            <label for="prompt">메인 프롬프트 <span class="req">*</span></label>
+            <textarea id="prompt" rows="5" placeholder="예: 이른 아침 안개 낀 항만 야드, 탑뷰 도식, 플랫 2D 벡터 스타일"></textarea>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="positive">Positive <span class="muted-normal">(포함 요소)</span></label>
+              <textarea id="positive" rows="6" placeholder="붙여넣은 태그 목록 가능, 쉼표 구분"></textarea>
+            </div>
+            <div class="field">
+              <label for="negative">Negative <span class="muted-normal">(회피 요소)</span></label>
+              <textarea id="negative" rows="6" placeholder="예: blurry, watermark, extra fingers"></textarea>
+            </div>
+          </div>
+          <p class="hint">메인 프롬프트 또는 Positive 중 하나는 반드시 입력하세요. Negative는 피하고 싶은 요소를 적는 칸입니다.</p>
+          <details class="help">
+            <summary>작성 안내</summary>
+            <p class="hint">Negative는 뒤에 덧붙는 회피 지시입니다. 가중치 표기는 그대로 전달되며 반영되지 않을 수 있습니다.</p>
+            <p class="hint">샘플러&middot;스텝&middot;가이던스 설정은 없습니다.</p>
+          </details>
+        </section>
+
+        <section class="card" aria-labelledby="refTitle">
+          <h2 id="refTitle">참조 이미지 <span class="muted-normal" id="refLimitLabel">(최대 4장 &middot; 장당 10MB)</span></h2>
+          <div class="dropzone" id="dropZone" tabindex="0" role="button" aria-label="참조 이미지 추가: 클릭하거나 파일을 끌어다 놓으세요">
+            <p class="drop-main">클릭하거나 파일을 여기로 끌어다 놓으세요</p>
+            <p class="hint">이미지 파일만 가능합니다.</p>
+            <input type="file" id="refInput" accept="image/*" multiple hidden />
+          </div>
+          <ul class="ref-previews" id="refPreviews" aria-label="첨부된 참조 이미지"></ul>
+          <p class="hint" id="refHint">모델을 바꿔도 첨부된 참조는 절대 자동 삭제하지 않습니다. 지원하지 않는 모델에서는 생성 버튼이 막히고 안내가 표시됩니다.</p>
+          <p class="warn" id="refWarning" role="alert" hidden></p>
+        </section>
+
+        <div class="actions">
+          <button type="submit" id="generateBtn" class="btn btn-primary">한 장 생성</button>
+          <p class="draft-note">입력 초안(텍스트&middot;모델 설정)은 이 브라우저에만 저장됩니다. API 키는 저장하지 않습니다.</p>
+          <p class="form-status" id="formStatus" role="status" aria-live="polite"></p>
+          <p class="form-error" id="formError" role="alert" tabindex="-1" hidden></p>
+        </div>
+      </form>
+    </section>
+
+    <!-- 오른쪽: 결과/작업 공간 -->
+    <section class="workspace" aria-label="결과 및 작업 기록">
+      <section class="card current" aria-labelledby="curTitle">
+        <div class="current-head">
+          <h2 id="curTitle">현재 결과</h2>
+          <span class="badge" id="curStatus">대기</span>
+        </div>
+        <p class="hint" id="curElapsed" aria-live="polite"></p>
+        <p class="hint mono" id="curMeta"></p>
+        <p class="hint" id="curProgress"></p>
+        <p class="error-text" id="curError" role="alert" hidden></p>
+        <div class="result-images" id="resultImages"></div>
+        <div class="empty" id="resultEmpty">
+          <p>아직 선택된 결과가 없습니다.</p>
+          <p class="hint">왼쪽에서 프롬프트를 입력하고 [한 장 생성]을 누르세요. 생성된 이미지는 여기에 크게 표시됩니다.</p>
+        </div>
+        <div class="cur-prompts" id="curPrompts" hidden>
+          <h3>사용된 프롬프트</h3>
+          <dl>
+            <div>
+              <dt>메인</dt>
+              <dd id="curPromptText"></dd>
+            </div>
+            <div>
+              <dt>Positive</dt>
+              <dd id="curPositiveText"></dd>
+            </div>
+            <div>
+              <dt>Negative</dt>
+              <dd id="curNegativeText"></dd>
+            </div>
+          </dl>
+          <div class="row-actions">
+            <button type="button" id="reuseBtn" class="btn btn-secondary">이 설정 다시 쓰기</button>
+          </div>
+          <p class="hint" id="reuseNote">다시 쓰기는 텍스트&middot;모델&middot;해상도&middot;품질만 복사합니다. 저장된 참조 파일은 불러오지 않으므로 필요하면 직접 다시 첨부하세요.</p>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="histTitle">
+        <div class="history-head">
+          <h2 id="histTitle">최근 작업</h2>
+          <button type="button" id="refreshJobsBtn" class="btn btn-small">목록 새로고침</button>
+        </div>
+        <p class="hint">페이지를 새로고침해도 서버에 저장된 작업 기록이 다시 표시됩니다. 생성 중 새로고침하면 진행 확인만 이어가고, 자동 재생성하지 않습니다.</p>
+        <p class="hint">저장 위치: <code id="outputDir" class="mono">확인 중&hellip;</code></p>
+        <ul class="history-list" id="historyList"></ul>
+        <div class="empty" id="historyEmpty" hidden>
+          <p>아직 생성 기록이 없습니다.</p>
+        </div>
+      </section>
+
+      <section class="card foot-note" aria-label="안내">
+        <details class="help">
+          <summary>안내</summary>
+        <ul>
+          <li>최종 크기가 다르면 서버가 자르기/리샘플링으로 맞춥니다. 결과 카드의 &ldquo;최종&rdquo; 치수가 실제 파일 크기입니다.</li>
+          <li>중단/새로고침 후에도 성공한 이미지는 작업별로 보존되며, 오류 메시지는 해당 작업에 함께 표시됩니다.</li>
+          <li>서버 콘솔의 Ctrl+C로 종료합니다. 결과 파일은 저장 위치에 그대로 남습니다.</li>
+        </ul>
+        </details>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

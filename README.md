@@ -1,8 +1,76 @@
 # ai-image-generator
 
-CLIProxyAPI 기반 이미지 생성 CLI입니다. Claude Code, Codex, Hermes Agent가 같은 방식으로 사용할 수 있도록 단일 이미지, JSON 입력, preset 배치 생성 흐름을 제공합니다.
+CLIProxyAPI 기반 이미지 생성 도구입니다. **로컬 이미지 스튜디오**에서 사람이 직접 프롬프트를 입력할 수 있으며, 에이전트용 CLI·JSON 입력·preset 배치 생성도 함께 제공합니다.
 
-머신 토폴로지, 스킬 배포(링크) 규칙, 검증된 이미지 모델 상태는 `docs/SSOT.md`가 정본입니다. 저장소를 pull 한 뒤 `python scripts/sync_skills.py`로 에이전트 스킬 폴더를 저장소에 연결합니다.
+머신 토폴로지, 스킬 배포(링크) 규칙, 검증된 이미지 모델 상태는 `docs/SSOT.md`가 정본입니다. 에이전트 연동이 필요한 경우에만 `python scripts/sync_skills.py`로 스킬 폴더를 연결합니다. 웹 화면에는 에이전트 설치가 필요하지 않습니다.
+
+## 로컬 이미지 스튜디오 — 더블클릭 실행
+
+Windows에서 **`open-image-studio.cmd`를 더블클릭**합니다. 처음 실행할 때 이 폴더에 `.venv`와 Pillow를 설치하고, 이후에는 `http://127.0.0.1:8766/`을 엽니다. Python 3.11 이상이 필요하며, `py -3` 또는 `python`을 자동으로 확인합니다.
+
+1. **연결 설정**에 사용 가능한 CLIProxyAPI 주소와 키를 입력하고 **연결 확인**을 누릅니다. 기존 환경변수에 키가 있으면 자동으로 연결을 확인합니다.
+2. **모델·해상도·품질**을 고르고 메인 프롬프트 또는 Positive를 입력합니다.
+3. 필요하면 Negative와 참조 이미지를 추가한 뒤 **한 장 생성**을 누릅니다.
+4. 결과를 미리 보거나 다운로드합니다. 실제 파일과 기록은 `output/studio/<작업 ID>/`에 보존됩니다.
+
+같은 폴더에서 다시 실행하면 기존 서버를 재사용합니다. 새로고침은 진행 상태만 다시 가져오며, 생성 요청을 자동으로 재전송하지 않습니다. 한 번에 한 작업만 실행하므로 생성 버튼 연속 클릭으로 요청이 쌓이지 않습니다.
+
+### 모델·프롬프트·참조 이미지
+
+- **ChatGPT 계열:** `gpt-image-2`, `gpt-image-1.5`. 참조가 있으면 이미지 편집 API를 사용합니다.
+- **Gemini:** `gemini-3.1-flash-image`. 참조 이미지를 포함한 생성이 가능합니다.
+- **Grok:** `grok-imagine-image-2.0`, `grok-imagine-image-quality`, `grok-imagine-image`. 현재 생성 경로에서는 참조 이미지를 지원하지 않습니다.
+- 카탈로그에 있는 모델과 현재 계정에서 사용 가능한 모델은 다릅니다. **연결 확인**은 실제 `/models` 목록을 표시하며, 목록에 없는 모델은 생성할 수 없습니다. 할당량·크레딧·제공자 상태에 따라 실생성은 실패할 수 있습니다.
+- Positive/Negative에는 쉼표 태그나 긴 목록을 그대로 붙여넣을 수 있습니다. 전송 문장은 `메인 프롬프트` + `Positive` + `Avoid: Negative` 순서입니다. 별도 네거티브 API가 아니라 텍스트 지시이며, `0.3::tag`, `(tag:1.2)` 같은 가중치의 적용은 보장하지 않습니다.
+- Stable Diffusion 계열의 스텝·가이던스·샘플러 설정은 이 제공자 API에서 지원하지 않으므로 표시하지 않습니다.
+- 참조는 PNG/JPEG/WebP, 최대 4장, 장당 10MB, 한 변 8192px·총 5천만 픽셀 이하입니다. 파일 선택·끌어놓기·미리보기·개별 제거를 지원합니다. 모델 변경 시 참조를 몰래 제거하지 않으며, Grok과 참조를 함께 선택하면 생성을 막습니다.
+- 해상도는 1024×1024, 1536×1024, 1024×1536, 1920×1080, 1080×1920, 2048×2048, 3840×2160 중 선택합니다. **최종 저장 크기**이며, 네이티브 출력에 필요한 중앙 크롭·리샘플링이 적용됩니다. 품질 옵션은 제공자마다 해석이 다릅니다.
+
+### 바탕화면·시작프로그램·종료
+
+프로젝트 폴더에서 필요한 명령만 한 번 실행합니다. 자동 등록이나 관리자 권한 요구는 없습니다.
+
+```powershell
+.\open-image-studio.cmd -ShortcutAction Desktop       # 바탕화면 바로가기
+.\open-image-studio.cmd -ShortcutAction Startup       # 현재 사용자 로그인 시 자동 시작
+.\open-image-studio.cmd -ShortcutAction RemoveStartup # 이 폴더의 자동 시작만 해제
+.\open-image-studio.cmd -Stop                         # 실행 중인 이 폴더의 서버 종료
+```
+
+로그인 자동 시작은 브라우저를 띄우지 않고 서버만 숨김 실행합니다. 이후 바탕화면 바로가기나 `open-image-studio.cmd`로 화면을 엽니다. **연결 설정 → 서버 종료** 또는 일반 실행 콘솔의 `Ctrl+C`로도 종료할 수 있습니다. 생성 중에는 화면/`-Stop` 종료가 거부되며, 자동 시작 해제는 이미 실행 중인 서버를 멈추지 않습니다.
+
+포트 충돌 시 `.\open-image-studio.cmd -Port 8776`처럼 다른 포트를 지정합니다. 바로가기 등록·종료에도 같은 `-Port`를 사용하세요. 폴더를 옮기기 전 기존 자동 시작을 해제하고 새 위치에서 다시 등록합니다.
+
+### 다른 PC에서 clone해서 사용
+
+```powershell
+git clone https://github.com/JSCOP/ai-image-generator.git
+cd ai-image-generator
+.\open-image-studio.cmd
+```
+
+- 각 PC에 Python 3.11 이상과 접근 가능한 **CLIProxyAPI 서버·제공자 인증/할당량**이 필요합니다. 이 저장소가 프록시나 제공자 계정을 자동으로 설치·복제하지는 않습니다.
+- 프록시가 같은 PC에 없다면 연결 설정에서 실제 프록시 주소를 입력합니다. 원격 연결은 신뢰할 수 있는 HTTPS 또는 Tailscale 같은 사설망을 사용하세요. ChatGPT/Gemini 웹 구독만으로 API 사용 권한이 자동 제공되는 것은 아닙니다.
+- 주소만 `config/image-studio.local.json`에 저장합니다. 주소 우선순위는 이 로컬 설정 → 프로세스/Windows 사용자 `CLIPROXY_BASE_URL` → `http://localhost:8317/v1`입니다.
+- 화면에 입력한 키는 **서버 메모리에서만** 유지되고 서버 종료 시 사라집니다. 매번 입력하지 않으려면 Windows 사용자 환경변수 `CLIPROXY_API_KEY`를 설정한 뒤 실행합니다. 키를 코드·명령 기록·Git에 넣지 마세요.
+- 초안의 텍스트·모델 설정은 해당 브라우저에 저장됩니다. 결과·작업 프롬프트·참조 원본은 해당 PC의 `output/studio/`에 저장되며 Git에 포함되지 않습니다. 기록의 **이 설정 다시 쓰기**는 텍스트 설정만 가져오므로 참조 파일은 다시 첨부합니다.
+- `.venv`, 로컬 연결 설정, 결과, 참조 원본, 키는 clone에 포함되지 않습니다. 에이전트 스킬 설정·Node.js·Electron 빌드는 필요 없습니다.
+- 서버는 `127.0.0.1`에만 바인딩합니다. 로컬 단일 사용자용이며 외부 공개 웹 서비스로 배포하지 마세요.
+
+Python으로 직접 실행할 수도 있습니다(Windows 외 환경의 수동 실행 경로).
+
+```sh
+python -m pip install -r requirements.txt
+python tools/image_studio.py --open
+```
+
+### 웹 스튜디오 검증
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+로컬 HTTP 경계, 참조 입력 거부, 세션 연결 설정을 통한 실제 생성 CLI 실행, 결과 다운로드, 오류의 키 비노출을 검증합니다. 테스트는 로컬 제공자 fixture를 사용하며 외부 이미지 생성 비용을 발생시키지 않습니다.
 
 ## 기본 원칙
 
@@ -356,4 +424,4 @@ Use $ai-image-generator to create one airport top-view image from the T2IN refer
 - 대량 생성은 사용자가 명시한 개수만큼만 실행합니다.
 - 실패 재시도는 `--resume`을 사용해 이미 만들어진 PNG를 건너뜁니다.
 - `--concurrency`를 너무 높이면 로컬 CLIProxyAPI 계정 수, upstream rate limit, CPU/메모리, 네트워크 대기 때문에 실패율이 올라갈 수 있습니다. 안정성 우선이면 3~4, 빠른 대량 생성이면 6~8부터 확인합니다.
-- API key는 환경 변수로만 설정하고 파일에 커밋하지 않습니다.
+- API key는 환경변수 또는 웹 스튜디오의 서버 세션에만 두고 파일에 커밋하지 않습니다.
