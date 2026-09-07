@@ -66,7 +66,6 @@
   var curStatus = $('curStatus');
   var curElapsed = $('curElapsed');
   var curMeta = $('curMeta');
-  var curProgress = $('curProgress');
   var curError = $('curError');
   var resultImages = $('resultImages');
   var resultEmpty = $('resultEmpty');
@@ -250,7 +249,7 @@
     if (!keepQuality && qualitySelect.value && quals.indexOf(qualitySelect.value) >= 0) qualCur = qualitySelect.value;
     else if (!keepQuality && defQuality && quals.indexOf(defQuality) >= 0) qualCur = defQuality;
     fillSelect(sizeSelect, sizes, sizeCur, function (v) { return modelSizeLabel(m, v); });
-    fillSelect(qualitySelect, quals, qualCur, null);
+    fillSelect(qualitySelect, quals, qualCur, function (v) { return v === 'high' ? '고품질' : v === 'medium' ? '표준' : '낮음'; });
   }
   function renderModelNote() {
     var m = state.modelsById[modelSelect.value];
@@ -266,7 +265,7 @@
     var c = state.limits.reference_count;
     var b = state.limits.reference_bytes;
     setText(refLimitLabel, '(최대 ' + c + '장 · 장당 ' + fmtBytes(b) + ')');
-    setText(refHint, '모델을 바꿔도 첨부된 참조는 절대 자동 삭제하지 않습니다. 지원하지 않는 모델에서는 생성 버튼이 막히고 안내가 표시됩니다. (최대 ' + c + '장 · 장당 ' + fmtBytes(b) + ')');
+    setText(refHint, 'Grok은 참조 이미지를 지원하지 않습니다. 모델을 바꿔도 첨부한 파일은 유지됩니다.');
   }
   function renderAvailable() {
     while (connAvailable.firstChild) connAvailable.removeChild(connAvailable.firstChild);
@@ -544,7 +543,7 @@
       var top = document.createElement('span');
       top.className = 'hist-top';
       var idSpan = document.createElement('span');
-      setText(idSpan, String(job.id).slice(0, 8) + ' · ' + fmtTime(job.created_at));
+      setText(idSpan, fmtTime(job.created_at));
       var st = document.createElement('span');
       st.className = 'st st-' + (job.status || 'unknown');
       setText(st, statusLabel(job.status));
@@ -585,7 +584,6 @@
       curStatus.setAttribute('data-status', '');
       setText(curElapsed, '');
       setText(curMeta, '');
-      setText(curProgress, '');
       hide(curError);
       clearImages();
       show(resultEmpty);
@@ -601,7 +599,6 @@
     if (job.quality) metaParts.push(job.quality);
     if (typeof job.reference_count === 'number') metaParts.push('참조 ' + job.reference_count + '장');
     setText(curMeta, metaParts.join(' · '));
-    setText(curProgress, job.progress && job.progress.stage ? statusLabel(job.progress.stage) : '');
     if (job.error) {
       var errText = typeof job.error === 'string' ? job.error : String(job.error);
       if (Array.isArray(job.images) && job.images.length) {
@@ -678,8 +675,7 @@
     var ms = jobCreatedMs(job);
     if (!isNaN(ms)) {
       var s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-      var extra = (typeof job.elapsed_sec === 'number') ? ' (서버 기록 ' + job.elapsed_sec + '초)' : '';
-      setText(curElapsed, '경과 ' + s + '초 · ' + statusLabel(job.status) + extra + ' — 퍼센트 표시 없이 실제 경과만 안내합니다.');
+      setText(curElapsed, '생성 중 · ' + s + '초 경과');
     } else if (typeof job.elapsed_sec === 'number') {
       setText(curElapsed, '경과 약 ' + job.elapsed_sec + '초 · ' + statusLabel(job.status));
     } else {
@@ -991,6 +987,11 @@
 
   // ---------- 이벤트 ----------
   function bind() {
+    $('editorToggle').addEventListener('click', function () {
+      var expanded = $('studioLayout').classList.toggle('editor-wide');
+      this.setAttribute('aria-pressed', String(expanded));
+      setText(this, expanded ? '결과와 나란히 보기' : '입력칸 넓게 보기');
+    });
     bannerRefreshBtn.addEventListener('click', function () { window.location.reload(); });
     connTestBtn.addEventListener('click', testConnection);
     if (shutdownBtn) shutdownBtn.addEventListener('click', shutdownServer);
