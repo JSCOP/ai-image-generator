@@ -335,10 +335,6 @@ class RegionCropTool:
                         "crop_size": [crop.width, crop.height],
                         "upscaled": str(up_path) if up_path else None,
                     })
-        if outputs:
-            sheet = self.write_contact_sheet(outputs)
-            for item in outputs:
-                item["contact_sheet"] = sheet
         return outputs
 
     def write_contact_sheet(self, outputs: list[dict[str, Any]]) -> str:
@@ -445,7 +441,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8766)
     parser.add_argument("--open", action="store_true")
     parser.add_argument("--suffix", default="-manual-region-crop")
-    parser.add_argument("--upscale", type=int, default=2)
+    parser.add_argument("--upscale", type=int, default=1)
     return parser.parse_args()
 
 

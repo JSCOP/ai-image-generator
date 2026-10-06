@@ -24,6 +24,9 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from gallery import topic_dirs
+
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -832,7 +835,7 @@ class CropTool:
         self.patterns = patterns
         self.suffix = suffix
         self.upscale = max(1, upscale)
-        self.import_dir = self.output_dir / "ui-selected-images"
+        self.import_dir = self.boxes_path.parent / "refs"
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.boxes_path.parent.mkdir(parents=True, exist_ok=True)
         self.images = self._load_images()
@@ -1017,10 +1020,6 @@ class CropTool:
             out = self.crop_one(entry, box)
             if out:
                 outputs.append(out)
-        if outputs:
-            sheet = self.write_contact_sheet(outputs)
-            for item in outputs:
-                item["contact_sheet"] = sheet
         return outputs
 
     def crop_one(self, entry: ImageEntry, box: dict[str, int]) -> dict[str, Any] | None:
@@ -1220,7 +1219,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--port", type=int, default=8765, help="HTTP port. Default: 8765")
     parser.add_argument("--open", action="store_true", help="Open the browser automatically.")
     parser.add_argument("--suffix", default="-manual-control-crop", help="Output filename suffix.")
-    parser.add_argument("--upscale", type=int, default=2, help="Also write deterministic Nx upscaled crops.")
+    parser.add_argument("--upscale", type=int, default=1, help="Also write deterministic Nx upscaled crops when >1.")
     return parser.parse_args()
 
 
@@ -1230,8 +1229,9 @@ def main() -> int:
     if not images_dir.exists() or not images_dir.is_dir():
         print(f"Image directory does not exist: {images_dir}", file=sys.stderr)
         return 2
-    output_dir = Path(args.output).resolve() if args.output else images_dir / "manual-crops"
-    boxes_path = Path(args.boxes).resolve() if args.boxes else output_dir / "manual-crop-boxes.json"
+    default_output, records = topic_dirs(Path.cwd(), "manual-crops")
+    output_dir = Path(args.output).resolve() if args.output else default_output
+    boxes_path = Path(args.boxes).resolve() if args.boxes else records / "manual-crop-boxes.json"
     tool = CropTool(
         images_dir=images_dir,
         output_dir=output_dir,

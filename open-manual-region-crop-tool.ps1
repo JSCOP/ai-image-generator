@@ -1,7 +1,7 @@
 param(
   [string]$Images = "D:\Eagle\CityAI.library\images\MQEVG3G8GDG8U.info\Clipboard - 2026-06-15 16.08.16.png",
-  [string]$Output = "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\checkin-counter-manual-region-crops-v1\output\manual-region-crops",
-  [string]$Boxes = "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\checkin-counter-manual-region-crops-v1\manual-region-crop-boxes.json",
+  [string]$Output = "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\output\checkin-counter-manual-region-crops-v1\manual-region-crops",
+  [string]$Boxes = "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\metadata\checkin-counter-manual-region-crops-v1\manual-region-crop-boxes.json",
   [string]$Regions = "A,B,C,D,E,F,G,H,J,K,L,M,N",
   [int]$Port = 8766,
   [string[]]$Pattern = @(),

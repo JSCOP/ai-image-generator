@@ -1,8 +1,9 @@
-# Interactive image generation menu for ai-image-generator.
+﻿# Interactive image generation menu for ai-image-generator.
 # Usage: pwsh tools\Image-Menu.ps1
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+$WorkspaceRoot = (Get-Location).Path
 $GenImage = Join-Path $ProjectRoot 'scripts\gen_image.py'
 $GenBatch = Join-Path $ProjectRoot 'scripts\gen_batch.py'
 $PresetDir = Join-Path $ProjectRoot 'presets'
@@ -47,7 +48,9 @@ function Write-Title($t) {
 }
 
 function Ensure-Env {
-    if (-not $env:CLIPROXY_BASE_URL) { $env:CLIPROXY_BASE_URL = 'http://localhost:8317/v1' }
+    $resolvedBase = & $PythonExe @PythonArgs -c "import sys; sys.path.insert(0, sys.argv[1]); import gen_image; print(gen_image.resolve_base_url(None))" (Join-Path $ProjectRoot 'scripts')
+    if ($LASTEXITCODE -ne 0) { throw 'Could not resolve CLIProxyAPI address.' }
+    $env:CLIPROXY_BASE_URL = ([string]$resolvedBase).Trim()
     while (-not $env:CLIPROXY_API_KEY) {
         Write-Host "CLIPROXY_API_KEY 환경변수가 비어 있습니다." -ForegroundColor Yellow
         $k = Read-Host "API 키 입력"
@@ -124,29 +127,38 @@ function Read-Quality {
 function Read-ImageModel($default = 'grok-imagine-image-2.0') {
     Write-Host ""
     Write-Host "이미지 모델:"
-    Write-Host "  [1] gpt-image-2"
-    Write-Host "  [2] gemini-3.1-flash-image"
-    Write-Host "  [3] grok-imagine-image-2.0 (기본)"
-    Write-Host "  [4] grok-imagine-image-quality"
-    Write-Host "  [5] grok-imagine-image"
-    Write-Host "  [6] 직접 입력"
+    Write-Host "  [1] gpt-image-2.5 (최신 GPT)"
+    Write-Host "  [2] gpt-image-2.5-flare"
+    Write-Host "  [3] gpt-image-2.5-sunburst"
+    Write-Host "  [4] gpt-image-2"
+    Write-Host "  [5] gemini-3.1-flash-image"
+    Write-Host "  [6] grok-imagine-image-2.0 (기본)"
+    Write-Host "  [7] grok-imagine-image-quality"
+    Write-Host "  [8] grok-imagine-image"
+    Write-Host "  [9] 직접 입력"
     $defaultChoice = switch ($default) {
-        'gpt-image-2' { '1' }
-        'gemini-3.1-flash-image' { '2' }
-        'grok-imagine-image-2.0' { '3' }
-        'grok-imagine-image-quality' { '4' }
-        'grok-imagine-image' { '5' }
-        default { '6' }
+        'gpt-image-2.5' { '1' }
+        'gpt-image-2.5-flare' { '2' }
+        'gpt-image-2.5-sunburst' { '3' }
+        'gpt-image-2' { '4' }
+        'gemini-3.1-flash-image' { '5' }
+        'grok-imagine-image-2.0' { '6' }
+        'grok-imagine-image-quality' { '7' }
+        'grok-imagine-image' { '8' }
+        default { '9' }
     }
     $c = Read-Host "선택 [$defaultChoice]"
     if ([string]::IsNullOrWhiteSpace($c)) { return $default }
     switch ($c) {
-        '1' { return 'gpt-image-2' }
-        '2' { return 'gemini-3.1-flash-image' }
-        '3' { return 'grok-imagine-image-2.0' }
-        '4' { return 'grok-imagine-image-quality' }
-        '5' { return 'grok-imagine-image' }
-        '6' { return Read-Default "모델 ID" $default }
+        '1' { return 'gpt-image-2.5' }
+        '2' { return 'gpt-image-2.5-flare' }
+        '3' { return 'gpt-image-2.5-sunburst' }
+        '4' { return 'gpt-image-2' }
+        '5' { return 'gemini-3.1-flash-image' }
+        '6' { return 'grok-imagine-image-2.0' }
+        '7' { return 'grok-imagine-image-quality' }
+        '8' { return 'grok-imagine-image' }
+        '9' { return Read-Default "모델 ID" $default }
         default { return $default }
     }
 }
@@ -232,7 +244,7 @@ function Run-Single {
     $okCount = 0; $failCount = 0
     for ($i = 1; $i -le $count; $i++) {
         $name = if ($count -eq 1) { "$topic.png" } else { "${topic}_$($i.ToString('D3')).png" }
-        $argList = @($GenImage, $prompt, '--topic', $topic, '--topic-root', $ProjectRoot, '-o', $name, '--size', $size, '--quality', $quality, '--image-model', $imageModel)
+        $argList = @($GenImage, $prompt, '--topic', $topic, '--topic-root', $WorkspaceRoot, '-o', $name, '--size', $size, '--quality', $quality, '--image-model', $imageModel)
         foreach ($r in $refs) { $argList += @('--reference-image', $r) }
         Write-Host ""
         Write-Host "[$i/$count] 생성 중: $name" -ForegroundColor DarkGray
@@ -248,7 +260,8 @@ function Run-Single {
         }
     }
     $topicSlug = Convert-SafeSlug $topic
-    $outDir = Join-Path $ProjectRoot "output\$topicSlug"
+    $GalleryRoot = if ((Split-Path -Leaf $WorkspaceRoot) -ieq 'ImageGallery') { $WorkspaceRoot } else { Join-Path $WorkspaceRoot 'ImageGallery' }
+    $outDir = Join-Path $GalleryRoot "output\$topicSlug"
     Write-Host ""
     Write-Host "완료: 성공 $okCount, 실패 $failCount" -ForegroundColor Green
     Write-Host "출력: $outDir"
@@ -277,7 +290,7 @@ function Run-Batch {
     $presetImageModel = if ([string]::IsNullOrWhiteSpace([string]$presetData.image_model)) { 'grok-imagine-image-2.0' } else { [string]$presetData.image_model }
     $imageModel = Read-ImageModel $presetImageModel
 
-    $argList = @($GenBatch, $preset, '--count', $count, '--concurrency', $conc, '--topic-root', $ProjectRoot, '--image-model', $imageModel)
+    $argList = @($GenBatch, $preset, '--count', $count, '--concurrency', $conc, '--topic-root', $WorkspaceRoot, '--image-model', $imageModel)
     if ($resume) { $argList += '--resume' }
     if ($dry)    { $argList += '--dry-run' }
 

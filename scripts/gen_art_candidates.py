@@ -3,7 +3,7 @@
 
 Reads presets/art-direction-candidates.json, then for each category calls
 scripts/gen_image.py with the first template + global_style + negative.
-Output: output/art-direction-candidates/<category>/<category>.png
+Output: ImageGallery/output/art-direction-candidates/<category>.png
 """
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from gallery import topic_dirs
 
 ROOT = Path(__file__).resolve().parent.parent
 PRESET = ROOT / "presets" / "art-direction-candidates.json"
 GEN = ROOT / "scripts" / "gen_image.py"
-OUT_ROOT = ROOT / "output" / "art-direction-candidates"
-EVENTS_ROOT = ROOT / "runs" / "art-direction-candidates" / "events"
+OUT_ROOT = topic_dirs(ROOT, "art-direction-candidates")[0]
 QUALITY = os.environ.get("QUALITY", "high")
 CONCURRENCY = int(os.environ.get("CONCURRENCY", "6"))
 
@@ -33,19 +33,18 @@ def build_prompt(tpl: str, style: str, negative: str) -> str:
 
 
 def run_one(name: str, prompt: str, size: str, model: str, image_model: str) -> tuple[str, int, str]:
-    out_path = OUT_ROOT / name / f"{name}.png"
+    out_path = OUT_ROOT / f"{name}.png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    EVENTS_ROOT.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable, str(GEN), prompt,
         "-o", str(out_path),
         "--topic", "art-direction-candidates",
+        "--topic-root", str(ROOT),
         "--model", model,
         "--image-model", image_model,
         "--size", size,
         "--quality", QUALITY,
         "--action", "generate",
-        "--events", str(EVENTS_ROOT / f"{name}.sse"),
     ]
     print(f"[start] {name}", flush=True)
     proc = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=900)

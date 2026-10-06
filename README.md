@@ -1,8 +1,37 @@
 # ai-image-generator
 
-CLIProxyAPI 기반 이미지 생성 도구입니다. **로컬 이미지 스튜디오**에서 사람이 직접 프롬프트를 입력할 수 있으며, 에이전트용 CLI·JSON 입력·preset 배치 생성도 함께 제공합니다.
+CLIProxyAPI 기반 이미지 생성 도구입니다. 로컬 웹 Studio, 에이전트용 CLI/스킬, 선택적 MCP 서버를 제공합니다.
 
-머신 토폴로지, 스킬 배포(링크) 규칙, 검증된 이미지 모델 상태는 `docs/SSOT.md`가 정본입니다. 에이전트 연동이 필요한 경우에만 `python scripts/sync_skills.py`로 스킬 폴더를 연결합니다. 웹 화면에는 에이전트 설치가 필요하지 않습니다.
+## 다른 PC에 설치하기
+
+Git과 Python 3.11+가 있는 Windows PowerShell에서:
+
+```powershell
+git clone https://github.com/JSCOP/ai-image-generator.git
+cd ai-image-generator
+py -3 scripts/setup.py --agent codex
+py -3 scripts/setup.py --agent codex --check
+.\open-image-studio.cmd
+```
+
+Claude Code는 `--agent claude`, 둘 다 쓰면 `--agent codex --agent claude`, 웹/CLI만 쓰면 `--agent`를 생략합니다. MCP 의존성은 `--mcp`를 추가합니다. 설치 경로는 자유이며 스킬은 실제 clone을 가리키는 링크로 등록됩니다.
+
+**[INSTALL.md — 프록시 연결, 스킬 설치·업데이트, MCP, 오류 해결, AI에게 줄 설치 요청문](INSTALL.md)** 을 따라 설정하세요. 실제 생성에는 별도의 CLIProxyAPI 서버 주소·키·제공자 인증/크레딧이 필요합니다. 설치 검증은 이미지 생성 API를 호출하지 않습니다.
+
+## MCP 서버
+
+생성/편집/배치·이미지 조회/가공 기능은 `tools/mcp_server.py`의 표준 MCP stdio 서버로 사용할 수 있습니다. 수동 브라우저 UI와 바로가기 관리는 별도입니다. 기존 환경을 유지한 채 MCP 의존성을 추가합니다.
+
+```powershell
+py -3 scripts/setup.py --mcp
+.\.venv\Scripts\python.exe tools\mcp_server.py --help
+```
+
+클라이언트 설정 예시는 [`mcp.json.example`](mcp.json.example)이며 현재 PC의 clone/.venv 절대 경로로 바꿉니다. 클라이언트가 stdio 서버를 실행합니다. 실행 시 `CLIPROXY_BASE_URL`과 `CLIPROXY_API_KEY` 환경변수를 읽습니다. 기본 파일 접근은 저장소 내부이며, 출력 프로젝트나 참조 이미지가 다른 위치에 있으면 `--allow-root "D:\refs"`를 추가합니다. 한 state 디렉터리에는 서버 하나만 실행합니다.
+
+MCP 사용 순서는 `plan_generation` → `start_generation` → `get_job`이며, 계획 단계에서는 API를 호출하지 않습니다. `single`, 서로 다른 `jobs`, preset `batch`를 지원하고, `cancel_job`, `resume_job`, `image_preview`, `crop_image`, `resize_image`, `contact_sheet`, 프리셋·Studio 기록 조회도 제공합니다. 결과는 출력 파일의 존재와 요청 크기를 확인한 뒤 성공으로 보고합니다. API 키는 MCP 응답·상태 파일·로그에 저장하지 않습니다. 자세한 구현 범위와 검증은 [`docs/MCP_IMPLEMENTATION.md`](docs/MCP_IMPLEMENTATION.md)에 있습니다.
+
+기존 머신 토폴로지, 스킬 배포(링크) 규칙, 검증된 이미지 모델 상태는 `docs/SSOT.md`가 정본입니다. 신규 PC 설치는 `INSTALL.md`를 따릅니다. 웹 화면에는 에이전트 설치가 필요하지 않습니다.
 
 ## 로컬 이미지 스튜디오 — 더블클릭 실행
 
@@ -11,7 +40,7 @@ Windows에서 **`open-image-studio.cmd`를 더블클릭**합니다. 처음 실�
 1. **연결 설정**에 사용 가능한 CLIProxyAPI 주소와 키를 입력하고 **연결 확인**을 누릅니다. 기존 환경변수에 키가 있으면 자동으로 연결을 확인합니다.
 2. **모델·해상도·품질**을 고르고 메인 프롬프트 또는 Positive를 입력합니다.
 3. 필요하면 Negative와 참조 이미지를 추가한 뒤 **한 장 생성**을 누릅니다.
-4. 결과를 미리 보거나 다운로드합니다. 실제 파일과 기록은 `output/studio/<작업 ID>/`에 보존됩니다.
+4. 결과를 미리 보거나 다운로드합니다. 실제 파일과 기록은 `ImageGallery/output/<작업 ID>/ (이미지), ImageGallery/metadata/<작업 ID>/ (기록·참조)`에 보존됩니다.
 
 긴 태그는 **입력칸 넓게 보기**로 작성 영역을 화면 너비까지 확장할 수 있습니다. 다시 접어도 입력 내용과 첨부 파일은 유지됩니다. 결과 카드의 **생성 정보 · 사용한 프롬프트**, 참조 이미지, 상세 안내는 필요할 때 펼쳐 봅니다.
 
@@ -19,7 +48,7 @@ Windows에서 **`open-image-studio.cmd`를 더블클릭**합니다. 처음 실�
 
 ### 모델·프롬프트·참조 이미지
 
-- **ChatGPT 계열:** `gpt-image-2`, `gpt-image-1.5`. 참조가 있으면 이미지 편집 API를 사용합니다.
+- **ChatGPT 계열:** `gpt-image-2.5`(최신), `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2`, `gpt-image-1.5`. 참조가 있으면 이미지 편집 API를 사용합니다.
 - **Gemini:** `gemini-3.1-flash-image`. 참조 이미지를 포함한 생성이 가능합니다.
 - **Grok:** `grok-imagine-image-2.0`, `grok-imagine-image-quality`, `grok-imagine-image`. 현재 생성 경로에서는 참조 이미지를 지원하지 않습니다.
 - 카탈로그에 있는 모델과 현재 계정에서 사용 가능한 모델은 다릅니다. **연결 확인**은 실제 `/models` 목록을 표시하며, 목록에 없는 모델은 생성할 수 없습니다. 할당량·크레딧·제공자 상태에 따라 실생성은 실패할 수 있습니다.
@@ -53,9 +82,9 @@ cd ai-image-generator
 
 - 각 PC에 Python 3.11 이상과 접근 가능한 **CLIProxyAPI 서버·제공자 인증/할당량**이 필요합니다. 이 저장소가 프록시나 제공자 계정을 자동으로 설치·복제하지는 않습니다.
 - 프록시가 같은 PC에 없다면 연결 설정에서 실제 프록시 주소를 입력합니다. 원격 연결은 신뢰할 수 있는 HTTPS 또는 Tailscale 같은 사설망을 사용하세요. ChatGPT/Gemini 웹 구독만으로 API 사용 권한이 자동 제공되는 것은 아닙니다.
-- 주소만 `config/image-studio.local.json`에 저장합니다. 주소 우선순위는 이 로컬 설정 → 프로세스/Windows 사용자 `CLIPROXY_BASE_URL` → `http://localhost:8317/v1`입니다.
+- 주소만 `config/image-studio.local.json`에 저장합니다. 주소 우선순위는 이 로컬 설정 → 프로세스/Windows 사용자 `CLIPROXY_BASE_URL` → 기존 머신별 기본값(`docs/SSOT.md`)입니다. 새 PC에서는 실제 주소를 명시하세요.
 - 화면에 입력한 키는 **서버 메모리에서만** 유지되고 서버 종료 시 사라집니다. 매번 입력하지 않으려면 Windows 사용자 환경변수 `CLIPROXY_API_KEY`를 설정한 뒤 실행합니다. 키를 코드·명령 기록·Git에 넣지 마세요.
-- 초안의 텍스트·모델 설정은 해당 브라우저에 저장됩니다. 결과·작업 프롬프트·참조 원본은 해당 PC의 `output/studio/`에 저장되며 Git에 포함되지 않습니다. 기록의 **이 설정 다시 쓰기**는 텍스트 설정만 가져오므로 참조 파일은 다시 첨부합니다.
+- 초안의 텍스트·모델 설정은 해당 브라우저에 저장됩니다. 결과·작업 프롬프트·참조 원본은 해당 PC의 `ImageGallery/`에 저장되며 Git에 포함되지 않습니다. 기록의 **이 설정 다시 쓰기**는 텍스트 설정만 가져오므로 참조 파일은 다시 첨부합니다.
 - `.venv`, 로컬 연결 설정, 결과, 참조 원본, 키는 clone에 포함되지 않습니다. 에이전트 스킬 설정·Node.js·Electron 빌드는 필요 없습니다.
 - 서버는 `127.0.0.1`에만 바인딩합니다. 로컬 단일 사용자용이며 외부 공개 웹 서비스로 배포하지 마세요.
 
@@ -116,17 +145,19 @@ Invoke-WebRequest -UseBasicParsing `
 
 에이전트는 `tools/ai_image.py`를 우선 사용합니다. JSON 입력을 받고 JSON 한 줄을 반환하므로 Claude Code / Codex / Hermes에서 결과 경로를 안정적으로 파싱할 수 있습니다.
 
+스킬의 첫 이미지 요청에서는 `python tools/ai_image.py --list-models`로 실제 프록시의 이미지 모델 목록과 참조 지원 여부를 확인하고, 질문 도구로 사용할 정확한 ID를 선택받습니다. `gpt-image-2.5`, `-flare`, `-sunburst`는 별도 선택입니다. 이미 지정/선택한 모델은 그대로 사용하며, "알아서"라고 맡긴 경우에는 적합한 모델을 고릅니다. 선택 기록은 대화 안에서만 유지하고 파일은 만들지 않습니다.
+
 ## 대화형 이미지 생성 메뉴
 
 ```powershell
 pwsh -NoProfile -File tools\Image-Menu.ps1
 ```
 
-단일/다회 생성과 preset 배치 모두 공식 최신 모델 `gpt-image-2`, `gemini-3.1-flash-image`, Grok 이미지 3개 또는 직접 입력한 모델 ID를 선택할 수 있습니다. 기본 이미지 모델은 `grok-imagine-image-2.0`입니다.
+단일/다회 생성과 preset 배치 모두 최신 GPT 모델 `gpt-image-2.5`(flare/sunburst 변형 포함), `gpt-image-2`, `gemini-3.1-flash-image`, Grok 이미지 3개 또는 직접 입력한 모델 ID를 선택할 수 있습니다. 기본 이미지 모델은 `grok-imagine-image-2.0`입니다.
 
 ## 수동 crop 지정 툴
 
-브라우저에서 이미지 위에 직접 crop 박스를 그리고, 좌표 JSON과 crop PNG를 저장할 수 있습니다.
+브라우저에서 이미지 위에 직접 crop 박스를 그리고, crop PNG는 output에, 좌표 JSON은 metadata에 저장할 수 있습니다.
 
 빠른 실행:
 
@@ -151,15 +182,15 @@ open-manual-crop-tool.cmd
   -Pattern "*.png"
 ```
 
-저장 버튼을 누르면 `manual-crop-boxes.json`, crop PNG, 2x deterministic upscale PNG, contact sheet가 함께 생성됩니다.
+저장 버튼을 누르면 `manual-crop-boxes.json`, crop PNG와 좌표 기록이 생성됩니다. 확대는 --upscale로 요청한 경우에만 만듭니다.
 
 전체 도면 한 장에서 A/B/C처럼 여러 이름 있는 구역을 직접 그릴 때:
 
 ```powershell
 .\open-manual-region-crop-tool.ps1 `
   -Images "D:\Eagle\CityAI.library\images\MQEVG3G8GDG8U.info\Clipboard - 2026-06-15 16.08.16.png" `
-  -Output "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\checkin-counter-manual-region-crops-v1\output\manual-region-crops" `
-  -Boxes "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\checkin-counter-manual-region-crops-v1\manual-region-crop-boxes.json" `
+  -Output "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\output\checkin-counter-manual-region-crops-v1\manual-region-crops" `
+  -Boxes "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\metadata\checkin-counter-manual-region-crops-v1\manual-region-crop-boxes.json" `
   -Regions "A,B,C,D,E,F,G,H,J,K,L,M,N"
 ```
 
@@ -212,19 +243,19 @@ open-manual-crop-tool.cmd
 {
   "ok": true,
   "mode": "single",
-  "outputs": ["E:\\ai-image-generator\\output\\airport-topview-test\\airport-topview-test.png"],
+  "outputs": ["E:\\ai-image-generator\\ImageGallery\\output\\airport-topview-test\\airport-topview-test.png"],
   "failures": [],
-  "output_dir": "E:\\ai-image-generator\\output\\airport-topview-test"
+  "output_dir": "E:\\ai-image-generator\\ImageGallery\\output\\airport-topview-test"
 }
 ```
 
 이미지 provider/model 선택:
 
-- `gpt-image-2` 또는 `gpt-image-1.5`: OpenAI `/v1/images/generations` 경로. 참조 이미지가 있으면 `/v1/images/edits` 경로
+- `gpt-image-2.5`(및 `-flare`, `-sunburst`), `gpt-image-2`, `gpt-image-1.5`: OpenAI `/v1/images/generations` 경로. 참조 이미지가 있으면 `/v1/images/edits` 경로
 - `gemini-3.1-flash-image`: Gemini native `generateContent` 경로; Antigravity OAuth 사용 가능
 - `grok-imagine-image-2.0`(기본), `grok-imagine-image-quality`, `grok-imagine-image`: xAI `/v1/images/generations` 경로
 
-`tools/ai_image.py` JSON에 `image_model`을 지정합니다. 생략 시 `grok-imagine-image-2.0`을 사용합니다. `gpt-image-2` 참조 편집은 `reference_images`와 `action: "edit"`를 함께 지정합니다. Gemini는 참조 이미지를 native inline data로 전달합니다. Grok 3개 모델은 text-to-image만 지원하며 `reference_images`가 있으면 API 호출 전에 거부합니다.
+`tools/ai_image.py` JSON에 `image_model`을 지정합니다. 생략 시 `grok-imagine-image-2.0`을 사용합니다. `gpt-image-2.5` 등 `gpt-image-*` 참조 편집은 `reference_images`와 `action: "edit"`를 함께 지정합니다. Gemini는 참조 이미지를 native inline data로 전달합니다. Grok 3개 모델은 text-to-image만 지원하며 `reference_images`가 있으면 API 호출 전에 거부합니다.
 
 Gemini native 해상도는 요청한 `size`의 긴 변을 기준으로 `512`, `1K`, `2K`, `4K` 버킷을 자동 선택합니다. 16:9 실측 출력은 각각 약 `688x384`, `1376x768`, `2752x1536`, `5504x3072`이며 `8K`는 지원되지 않습니다. 모델 출력은 요청 픽셀과 정확히 일치하지 않을 수 있습니다.
 
@@ -270,18 +301,18 @@ python scripts\gen_image.py `
 저장 위치:
 
 ```text
-output/<topic>/<filename>.png
+ImageGallery/output/<topic>/<filename>.png
 ```
 
 주요 옵션:
 
-- `--topic <name>`: `output/<topic>` 폴더 이름. 생략 시 prompt에서 자동 추출
+- `--topic <name>`: `ImageGallery/output/<topic>` 폴더 이름. 생략 시 prompt에서 자동 추출
 - `-o <file>`: 출력 파일명 또는 경로
 - `--size 1920x1080`: 최종 결과 파일의 정확한 크기
 - `--quality low|medium|high`: 품질. 생략 시 `high`
 - `--image-model <id>`: 이미지 provider 모델. 생략 시 `grok-imagine-image-2.0`
 - `--reference-image <path>`: 참조 이미지. 여러 번 지정 가능
-- `--events <path>`: raw SSE 응답 저장
+- `--events <path>`: 요청한 경우에만 원본 API 응답 저장 (metadata 쪽 경로 사용)
 
 ### JSON preset 배치
 
@@ -303,24 +334,26 @@ python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume --c
 - `--seed N`: 카테고리/템플릿 선택 시드
 - `--topic <name>`: preset의 `topic` 덮어쓰기
 - `--image-model <id>`: preset의 `image_model` 덮어쓰기
-- `--topic-root <dir>`: `output/`, `runs/`가 만들어질 부모 경로
+- `--topic-root <dir>`: 작업 공간 또는 ImageGallery 경로
 - `--resume`: 이미 존재하는 PNG는 건너뜀
-- `--dry-run`: `prompts.jsonl` 계획만 기록
+- `--dry-run`: 계획 JSON만 출력하며 파일·API 요청을 만들지 않음
 - `--max-failures N`: 누적 실패 시 중단
 
-출력 구조:
+출력 구조 (단일·jobs·프리셋 배치 공통):
 
 ```text
-output/
-  <topic>/
-    <category>/<topic>_NNNNNN.png
-runs/
-  <topic>/<YYYYMMDD_HHMMSS>/
-    prompts.jsonl
-    metadata.jsonl
-    failures.jsonl
-    events/*.sse
+<workspace>/ImageGallery/
+  output/<topic>/<filename>.png
+  metadata/<topic>/<filename>.png.json
 ```
+
+기록 JSON에는 실제 프롬프트, 요청한 정확한 `image_model`, 크기, 품질, 작업 종류, 참조 경로, 결과 경로가 들어갑니다. 제공자가 모델 ID를 응답하면 `response_model`도 같은 JSON에 기록합니다. 응답에 없으면 내부 변형 모델은 확인되지 않은 상태입니다. 원본 응답·중복 프롬프트 파일·실행 로그는 기본 생성하지 않습니다. `topic_root` 생략 시 호출한 현재 폴더가 작업 공간입니다. 에이전트는 공용 도구를 실행할 때 사용자의 목적지 프로젝트/작업 공간을 명시해야 합니다. 새 프로젝트를 만들라고 요청한 경우 `<새 프로젝트>/ImageGallery/`가 저장 위치이며 부모 작업 공간의 갤러리를 사용하지 않습니다.
+
+```json
+{"mode":"single","prompt":"귀여운 고양이","topic":"cute-cat","topic_root":"E:/workspaces/test"}
+```
+
+기존 자료 정리: `python tools/organize_gallery.py --workspace <workspace>`로 계획을 확인한 뒤 `--apply`를 붙입니다. 이미지는 output, 기록과 그 밖의 기존 파일은 metadata로 이동하며 이름 충돌 시 별도 이름으로 보존합니다. 빈 원본 폴더만 제거합니다.
 
 `tools/ai_image.py`에서도 `concurrency`는 같은 의미입니다. `mode=single`에서 `count=8, concurrency=4`면 8장을 만들되 동시에 최대 4장만 생성합니다. `mode=jobs`에서는 job 배열을 최대 N개씩 병렬 처리하고, `mode=batch`에서는 `scripts/gen_batch.py --concurrency N`으로 그대로 전달합니다.
 
@@ -388,13 +421,13 @@ $row = Get-Content "E:\CityAI\t2in\t2in-ai-imagesample-generation\runs\airport-t
 $argsList = @(
   "scripts\gen_image.py",
   $row.prompt,
-  "-o", "E:\ai-image-generator\output\airport-topview-t2in-normal\체크인카운터\airport_topview_000001.png",
+  "-o", "E:\ai-image-generator\ImageGallery\output\airport-topview-t2in-normal\체크인카운터\airport_topview_000001.png",
   "--model", "gpt-5.4",
   "--image-model", "gpt-image-2",
   "--size", $row.size,
   "--quality", $row.quality,
   "--action", "generate",
-  "--events", "E:\ai-image-generator\runs\airport-topview-t2in-single\airport_topview_000001.sse"
+  "--events", "E:\ai-image-generator\ImageGallery\metadata\airport-topview-t2in-single\airport_topview_000001.sse"
 )
 
 foreach ($ref in $row.reference_images) {
@@ -406,15 +439,15 @@ python @argsList
 
 ## 에이전트 스킬 설치 위치
 
-같은 `ai-image-generator` 스킬을 아래 위치에 설치합니다.
+선택한 에이전트의 스킬 루트에 정본 폴더 링크를 설치합니다. `~`는 각 PC의 사용자 홈입니다.
 
 ```text
-Codex:      C:\Users\js\.codex\skills\ai-image-generator
-Claude:     C:\Users\js\.claude\skills\ai-image-generator
-Hermes:     C:\Users\js\.hermes\skills\media\ai-image-generator
+Codex:      ~/.agents/skills/ai-image-generator
+Claude:     ~/.claude/skills/ai-image-generator
+OMP:        ~/.omp/agent/skills/ai-image-generator
 ```
 
-에이전트에게 요청할 때:
+`py -3 scripts/setup.py --agent codex`처럼 설치합니다. 기존 `~/.codex/skills` 호환 경로, 커스텀 루트, 링크 점검과 업데이트는 [INSTALL.md](INSTALL.md)에 있습니다. 에이전트에게 요청할 때:
 
 ```text
 Use $ai-image-generator to create one airport top-view image from the T2IN reference prompt.

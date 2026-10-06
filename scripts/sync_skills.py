@@ -7,6 +7,7 @@ The repository is the single source of truth. Agent skill folders such as
 
 Usage:
     python scripts/sync_skills.py            # link, backing up real directories
+    python scripts/sync_skills.py --agent codex  # create a fresh user's skill root
     python scripts/sync_skills.py --check    # report only, exit 1 when out of sync
     python scripts/sync_skills.py --json     # machine-readable report
 """
@@ -16,9 +17,9 @@ import argparse
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
-import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -37,6 +38,15 @@ def default_skill_roots(home: Path | None = None) -> list[Path]:
         base / ".codex" / "skills",
         base / ".agents" / "skills",
     ]
+
+
+def agent_skill_root(agent: str, home: Path | None = None) -> Path:
+    base = home or Path.home()
+    return {
+        "codex": base / ".agents" / "skills",
+        "claude": base / ".claude" / "skills",
+        "omp": base / ".omp" / "agent" / "skills",
+    }[agent]
 
 
 def link_state(path: Path) -> tuple[str, Path | None]:
@@ -72,7 +82,7 @@ def make_link(link: Path, target: Path) -> None:
 
 
 def default_backup_dir() -> Path:
-    return Path(tempfile.gettempdir()) / "ai-image-generator-skill-backups"
+    return Path.home() / ".ai-image-generator" / "skill-backups"
 
 
 def sync(
@@ -80,23 +90,30 @@ def sync(
     skill_roots: list[Path],
     apply: bool = True,
     backup_dir: Path | None = None,
+    create_missing: bool = False,
 ) -> list[dict[str, str]]:
     """Point every existing agent skill root at `skills_dir`.
 
-    Only roots that already exist are touched; a missing agent directory means
-    that agent is not installed on this machine. Displaced directories move
+    Existing roots are touched by default; explicitly selected agents can create
+    their roots with create_missing. Displaced directories move
     outside the skill root, because agents scan every subdirectory of a skill
     root and a leftover backup would register as a second copy of the skill.
     """
-    sources = sorted(p for p in skills_dir.iterdir() if p.is_dir()) if skills_dir.is_dir() else []
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    sources = sorted(p for p in skills_dir.iterdir() if p.is_dir() and (p / "SKILL.md").is_file()) if skills_dir.is_dir() else []
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     backups = backup_dir or default_backup_dir()
+    backups = backups.expanduser().resolve()
+    if any(backups.is_relative_to(root.resolve()) for root in skill_roots):
+        raise ValueError("Keep skill backups outside every selected agent skill root")
     results: list[dict[str, str]] = []
 
     for root in skill_roots:
         if not root.is_dir():
-            results.append({"root": str(root), "skill": "", "action": "root-absent", "detail": ""})
-            continue
+            if create_missing and apply:
+                root.mkdir(parents=True, exist_ok=True)
+            else:
+                results.append({"root": str(root), "skill": "", "action": "stale" if create_missing else "root-absent", "detail": "root missing"})
+                continue
         for source in sources:
             link = root / source.name
             state, target = link_state(link)
@@ -109,13 +126,22 @@ def sync(
 
             detail = ""
             if state == "link":
-                link.unlink()
+                if os.name == "nt" and os.lstat(link).st_reparse_tag == MOUNT_POINT_TAG:
+                    link.rmdir()  # Remove only the junction, preserving its target.
+                else:
+                    link.unlink()
                 detail = f"relinked from {target}"
             elif state in {"dir", "file"}:
+                if source.resolve().is_relative_to(link.resolve()):
+                    raise ValueError(f"Refusing to move the source checkout: {link}")
                 slug = re.sub(r"[^A-Za-z0-9]+", "-", str(root)).strip("-")
                 backup = backups / f"{slug}-{source.name}-{stamp}"
                 backup.parent.mkdir(parents=True, exist_ok=True)
-                link.rename(backup)
+                # Both absolute paths are within the selected root/backup directory.
+                # shutil.move also preserves old skills when drives differ.
+                if not link.absolute().is_relative_to(root.absolute()) or not backup.resolve().is_relative_to(backups):
+                    raise ValueError("Skill backup paths escaped the selected directories")
+                shutil.move(str(link), str(backup))
                 detail = f"backup {backup}"
             make_link(link, source.resolve())
             results.append({"root": str(root), "skill": source.name, "action": "linked", "detail": detail})
@@ -127,9 +153,15 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     _ = ap.add_argument("--check", action="store_true", help="report only; exit 1 when a link is missing or stale")
     _ = ap.add_argument("--json", dest="as_json", action="store_true", help="print a JSON report")
+    ap.add_argument("--agent", action="append", choices=["codex", "claude", "omp"], help="select an agent and create its skill root; repeatable")
+    ap.add_argument("--root", action="append", type=Path, help="explicit custom skill root; repeatable (creates it unless --check)")
     args = ap.parse_args()
 
-    results = sync(SKILLS_DIR, default_skill_roots(), apply=not args.check)
+    roots = [agent_skill_root(agent) for agent in (args.agent or [])]
+    roots.extend(path.expanduser().resolve() for path in (args.root or []))
+    explicit = bool(roots)
+    roots = list(dict.fromkeys(roots)) if explicit else default_skill_roots()
+    results = sync(SKILLS_DIR, roots, apply=not args.check, create_missing=explicit)
     stale = [r for r in results if r["action"] == "stale"]
 
     if args.as_json:
@@ -140,7 +172,8 @@ def main() -> int:
             skill = r["skill"] or "-"
             print(f"  {r['action']:<12} {skill:<24} {r['root']} {r['detail']}")
 
-    return 1 if stale else 0
+    usable = any(r["action"] in {"ok", "linked"} for r in results)
+    return 1 if stale or not usable else 0
 
 
 if __name__ == "__main__":

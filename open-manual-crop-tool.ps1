@@ -11,23 +11,23 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 if (-not $Images) {
-  $DefaultT2In = "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\checkin-counter-full-crop\output\zone-crops-wide"
+  $DefaultT2In = "E:\CityAI\IncheonProject\t2in-dev\ImageGallery\output\checkin-counter-full-crop\zone-crops-wide"
   if (Test-Path -LiteralPath $DefaultT2In) {
     $Images = $DefaultT2In
     if ($Pattern.Count -eq 0) {
       $Pattern = @("ck-*-wide-crop.png")
     }
   } else {
-    $Images = Join-Path $Root "refs"
+    $Images = Join-Path $Root "ImageGallery\metadata\_references"
   }
 }
 
 if (-not $Output) {
-  $Output = Join-Path $Images "manual-crops"
+  $Output = Join-Path $Root "ImageGallery\output\manual-crops"
 }
 
 if (-not $Boxes) {
-  $Boxes = Join-Path $Output "manual-crop-boxes.json"
+  $Boxes = Join-Path $Root "ImageGallery\metadata\manual-crops\manual-crop-boxes.json"
 }
 
 $ArgsList = @(

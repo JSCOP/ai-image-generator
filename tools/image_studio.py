@@ -58,12 +58,13 @@ from PIL import Image
 APP = "ai-image-studio"
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8766
-DEFAULT_BASE_URL = "http://localhost:8317/v1"
+DEFAULT_BASE_URL = gen_image.default_base_url()
 CONFIG_REL = Path("config") / "image-studio.local.json"
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_DIR = ROOT / "tools" / "image_studio_web"
-OUTPUT_ROOT = ROOT / "output" / "studio"
+OUTPUT_ROOT = ROOT / "ImageGallery" / "output"
+METADATA_ROOT = ROOT / "ImageGallery" / "metadata"
 CONFIG_PATH = ROOT / CONFIG_REL
 AI_IMAGE = ROOT / "tools" / "ai_image.py"
 
@@ -98,13 +99,40 @@ NEGATIVE_NOTE = "negative는 프롬프트 끝에 'Avoid: ...' 한 줄로 그대�
 
 MODELS: list[dict[str, Any]] = [
     {
-        "id": "gpt-image-2",
-        "label": "GPT Image 2 (최신)",
+        "id": "gpt-image-2.5",
+        "label": "GPT Image 2.5 (최신)",
         "provider": "OpenAI",
         "reference_images": True,
         "qualities": list(QUALITIES),
         "sizes": [{"value": v, "label": SIZE_LABELS[v]} for v in SIZES],
-        "note": "공식 최신 모델. 참조가 있으면 자동으로 edit 호출. " + FINAL_SIZE_NOTE,
+        "note": "최신 GPT 이미지 모델. 참조가 있으면 자동으로 edit 호출. " + FINAL_SIZE_NOTE,
+    },
+    {
+        "id": "gpt-image-2.5-flare",
+        "label": "GPT Image 2.5 Flare",
+        "provider": "OpenAI",
+        "reference_images": True,
+        "qualities": list(QUALITIES),
+        "sizes": [{"value": v, "label": SIZE_LABELS[v]} for v in SIZES],
+        "note": "GPT Image 2.5 변형. 참조가 있으면 자동으로 edit 호출. " + FINAL_SIZE_NOTE,
+    },
+    {
+        "id": "gpt-image-2.5-sunburst",
+        "label": "GPT Image 2.5 Sunburst",
+        "provider": "OpenAI",
+        "reference_images": True,
+        "qualities": list(QUALITIES),
+        "sizes": [{"value": v, "label": SIZE_LABELS[v]} for v in SIZES],
+        "note": "GPT Image 2.5 변형. 참조가 있으면 자동으로 edit 호출. " + FINAL_SIZE_NOTE,
+    },
+    {
+        "id": "gpt-image-2",
+        "label": "GPT Image 2",
+        "provider": "OpenAI",
+        "reference_images": True,
+        "qualities": list(QUALITIES),
+        "sizes": [{"value": v, "label": SIZE_LABELS[v]} for v in SIZES],
+        "note": "이전 세대 모델. 참조가 있으면 자동으로 edit 호출. " + FINAL_SIZE_NOTE,
     },
     {
         "id": "gpt-image-1.5",
@@ -157,7 +185,7 @@ MODELS: list[dict[str, Any]] = [
 ]
 MODEL_IDS = {m["id"] for m in MODELS}
 MODEL_SUPPORTS_REF = {m["id"]: bool(m["reference_images"]) for m in MODELS}
-GPT_EDIT_MODELS = {"gpt-image-2", "gpt-image-1.5"}
+GPT_EDIT_MODELS = {m["id"] for m in MODELS if m["id"].startswith("gpt-image-")}
 
 # --- 제한 ---
 MAX_BODY = 64 * 1024 * 1024  # POST JSON 전체 상한
@@ -231,7 +259,7 @@ def normalize_base_url(value: Any) -> str:
     base = f"{parts.scheme}://{netloc}{parts.path.rstrip('/')}"
     if not base.endswith("/v1"):
         base = f"{base}/v1"
-    return base
+    return gen_image.resolve_base_url(base)
 
 
 def load_base_url() -> str:
@@ -360,6 +388,10 @@ def job_dir(job_id: str) -> Path:
     return OUTPUT_ROOT / job_id
 
 
+def record_dir(job_id: str) -> Path:
+    return METADATA_ROOT / job_id
+
+
 def public_job(rec: dict[str, Any]) -> dict[str, Any]:
     with _LOCK:
         started = _STARTS.get(rec["id"])
@@ -388,7 +420,7 @@ def public_job(rec: dict[str, Any]) -> dict[str, Any]:
 
 def save_job(rec: dict[str, Any]) -> None:
     payload = {k: v for k, v in rec.items() if not k.startswith("_")}
-    _atomic_write_text(job_dir(rec["id"]) / "job.json", json.dumps(payload, ensure_ascii=False, indent=2))
+    _atomic_write_text(record_dir(rec["id"]) / "job.json", json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 def update_job(job_id: str, **fields: Any) -> None:
@@ -412,7 +444,7 @@ def active_job_id() -> str | None:
 def load_history() -> None:
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     loaded: list[dict[str, Any]] = []
-    for path in sorted(OUTPUT_ROOT.glob("*/job.json")):
+    for path in sorted(METADATA_ROOT.glob("*/job.json")):
         if not JOB_ID_RE.fullmatch(path.parent.name):
             continue
         try:
@@ -486,21 +518,25 @@ def run_generation(job_id: str) -> None:
 
 def _execute(job_id: str, rec: dict[str, Any], started: float) -> None:
     directory = job_dir(job_id)
-    refs = sorted((directory / "refs").glob("ref-*")) if (directory / "refs").is_dir() else []
+    refs_directory = record_dir(job_id) / "refs"
+    refs = sorted(refs_directory.glob("ref-*")) if refs_directory.is_dir() else []
     ref_paths = [str(p.resolve()) for p in refs if p.is_file()]
     composed = compose_prompt(rec["prompt"], rec["positive"], rec["negative"])
     action = "edit" if (ref_paths and rec["image_model"] in GPT_EDIT_MODELS) else "generate"
+    update_job(job_id, action=action, reference_images=ref_paths,
+               composed_prompt=composed, output=str(directory / "image.png"))
     timeout_sec = job_timeout()
     spec = {
         "mode": "single",
         "prompt": composed,
-        "topic": "image",
+        "topic": job_id,
         "size": rec["size"],
         "quality": rec["quality"],
         "image_model": rec["image_model"],
         "action": action,
         "reference_images": ref_paths,
-        "topic_root": str(directory.resolve()),
+        "topic_root": str(ROOT),
+        "record_metadata": False,
         "job_timeout_sec": timeout_sec,
     }
     with _LOCK:
@@ -562,9 +598,6 @@ def _execute(job_id: str, rec: dict[str, Any], started: float) -> None:
             dest = directory / "image.png"
             if source.resolve() != dest.resolve():
                 shutil.move(str(source), str(dest))
-            nested = directory / "output"
-            if nested.is_dir():
-                shutil.rmtree(nested, ignore_errors=True)
             with Image.open(dest) as im:
                 width, height = im.size
             update_job(
@@ -578,6 +611,7 @@ def _execute(job_id: str, rec: dict[str, Any], started: float) -> None:
                     "height": height,
                 }],
                 progress={"stage": "succeeded"},
+                composed_prompt=composed,
             )
         except Exception:
             update_job(
@@ -1082,10 +1116,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         job_id = uuid.uuid4().hex
-        directory = job_dir(job_id)
+        directory = record_dir(job_id)
         try:
             refs_dir = directory / "refs"
-            refs_dir.mkdir(parents=True, exist_ok=True)
+            if decoded:
+                refs_dir.mkdir(parents=True, exist_ok=True)
             for i, (suffix, raw) in enumerate(decoded):
                 (refs_dir / f"ref-{i}{suffix}").write_bytes(raw)
         except OSError:
@@ -1101,6 +1136,7 @@ class Handler(BaseHTTPRequestHandler):
             "prompt": prompt.strip(),
             "positive": positive.strip(),
             "negative": negative.strip(),
+            "composed_prompt": compose_prompt(prompt, positive, negative),
             "image_model": image_model,
             "size": size,
             "quality": quality,

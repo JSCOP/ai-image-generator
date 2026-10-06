@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "ai-image-generator": {
+      "command": "C:/work/ai-image-generator/.venv/Scripts/python.exe",
+      "args": ["C:/work/ai-image-generator/tools/mcp_server.py"],
+      "env": {}
+    }
+  }
+}

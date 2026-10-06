@@ -381,7 +381,7 @@ class GeneratorObservabilityTests(unittest.TestCase):
         ai_image._run_child = lambda cmd, timeout: (commands.append(cmd) or (0, "ok"))
         try:
             with tempfile.TemporaryDirectory() as tmp:
-                output_dir = Path(tmp) / "output" / "resume-test"
+                output_dir = Path(tmp) / "ImageGallery" / "output" / "resume-test"
                 output_dir.mkdir(parents=True)
                 existing = output_dir / "resume-test_001.png"
                 existing.write_bytes(b"existing")
@@ -415,6 +415,9 @@ class GeneratorObservabilityTests(unittest.TestCase):
         self.assertEqual(
             ai_image.SCHEMA["image_model"]["examples"],
             [
+                "gpt-image-2.5",
+                "gpt-image-2.5-flare",
+                "gpt-image-2.5-sunburst",
                 "gpt-image-2",
                 "gemini-3.1-flash-image",
                 "grok-imagine-image-2.0",
@@ -502,9 +505,8 @@ class GeneratorObservabilityTests(unittest.TestCase):
             )
 
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            prompt_files = list((tmp_path / "runs" / "batch-override-test").glob("*/prompts.jsonl"))
-            self.assertEqual(len(prompt_files), 1)
-            prompt = json.loads(prompt_files[0].read_text(encoding="utf-8").strip())
+            self.assertFalse((tmp_path / "ImageGallery").exists())
+            prompt = json.loads(proc.stdout.strip().splitlines()[-1])["planned_outputs"][0]
             self.assertEqual(prompt["image_model"], "grok-imagine-image-2.0")
 
     def test_image_menu_passes_selected_grok_model_to_batch_dry_run(self):
@@ -529,7 +531,7 @@ class GeneratorObservabilityTests(unittest.TestCase):
         try:
             proc = subprocess.run(
                 ["pwsh", "-NoProfile", "-File", str(ROOT / "tools" / "Image-Menu.ps1")],
-                input="2\n1\n1\n1\nn\ny\n3\nq\n",
+                input="2\n1\n1\n1\nn\ny\n6\nq\n",
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -539,9 +541,8 @@ class GeneratorObservabilityTests(unittest.TestCase):
             )
 
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            prompt_files = list(run_dir.glob("*/prompts.jsonl"))
-            self.assertEqual(len(prompt_files), 1)
-            prompt = json.loads(prompt_files[0].read_text(encoding="utf-8").strip())
+            plan_line = next(line for line in proc.stdout.splitlines() if line.startswith("{\"ok\""))
+            prompt = json.loads(plan_line)["planned_outputs"][0]
             self.assertEqual(prompt["image_model"], "grok-imagine-image-2.0")
         finally:
             preset.unlink(missing_ok=True)

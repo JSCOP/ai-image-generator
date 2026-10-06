@@ -19,6 +19,7 @@ import threading
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from gallery import topic_dirs
 from typing import Literal
 
 try:
@@ -34,9 +35,9 @@ GEN_IMAGE = ROOT / "scripts" / "gen_image.py"
 RUN_TOPIC = "t2in-event-hazards-core10-20260511"
 PILOT_TOPIC = f"{RUN_TOPIC}-pilot"
 COMPLETE_TOPIC = f"{RUN_TOPIC}-complete"
-RUN_DIR = ROOT / "runs" / RUN_TOPIC
-PILOT_OUT = ROOT / "output" / PILOT_TOPIC
-COMPLETE_OUT = ROOT / "output" / COMPLETE_TOPIC
+RUN_DIR = topic_dirs(ROOT, RUN_TOPIC)[1]
+PILOT_OUT = topic_dirs(ROOT, PILOT_TOPIC)[0]
+COMPLETE_OUT = topic_dirs(ROOT, COMPLETE_TOPIC)[0]
 
 SIZE = "1920x1088"
 QUALITY = "high"

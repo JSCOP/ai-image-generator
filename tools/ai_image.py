@@ -16,6 +16,7 @@ Usage:
   # Self-describe
   python tools/ai_image.py --schema
   python tools/ai_image.py --example
+  python tools/ai_image.py --list-models
 
 Spec keys (all in one flat object):
   mode              "single" (default) | "jobs" | "batch"
@@ -28,11 +29,11 @@ Spec keys (all in one flat object):
   image_model       image provider model (default grok-imagine-image-2.0)
   reference_images  [string] paths (default [])
   action            "auto" | "generate" | "edit" (default "generate"; GPT reference edits should use "edit")
-  topic_root        project output root (default project root)
+  topic_root        destination project/workspace or ImageGallery root (default caller's cwd)
   preset            path to preset JSON  (required when mode=batch)
   jobs              [object]  (required when mode=jobs); each item:
                       { id, prompt, reference_images?, size?, quality?, action?, model?, image_model? }
-                      output -> output/<topic_slug>/<id>.png
+                      output -> ImageGallery/output/<topic_slug>/<id>.png
   prompt_prefix     string prepended to every job's prompt (mode=jobs)
   prompt_suffix     string appended to every job's prompt (mode=jobs)
   concurrency       int (default 4, max useful ~8; applies to single count, jobs, and batch)
@@ -69,6 +70,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+from gallery import topic_dirs
+from gen_image import image_backend, resolve_base_url
 GEN_IMAGE = ROOT / "scripts" / "gen_image.py"
 GEN_BATCH = ROOT / "scripts" / "gen_batch.py"
 DEFAULT_TOPIC = "image-request"
@@ -87,6 +91,9 @@ SCHEMA = {
         "default": "grok-imagine-image-2.0",
         "description": "gpt-image-*, gemini-*-image, or grok-imagine-*",
         "examples": [
+            "gpt-image-2.5",
+            "gpt-image-2.5-flare",
+            "gpt-image-2.5-sunburst",
             "gpt-image-2",
             "gemini-3.1-flash-image",
             "grok-imagine-image-2.0",
@@ -96,7 +103,7 @@ SCHEMA = {
     },
     "action": {"type": "string", "enum": ["auto", "generate", "edit"], "default": "generate", "description": "image tool action; use edit for GPT reference-image restyling"},
     "reference_images": {"type": "array<string>", "description": "image paths", "default": []},
-    "topic_root": {"type": "string", "description": "project output root", "default": str(ROOT)},
+    "topic_root": {"type": "string", "description": "workspace or ImageGallery root", "default": str(Path.cwd())},
     "preset": {"type": "string", "required_when": "mode=batch", "description": "path to preset JSON"},
     "jobs": {
         "type": "array<object>",
@@ -133,7 +140,7 @@ EXAMPLES = {
         "size": "1920x1088",
         "quality": "high",
         "action": "edit",
-        "reference_images": ["E:/ai-image-generator/output/extraction-rpg-dad/ui_combat_hud/extraction-rpg-dad_000001.png"],
+        "reference_images": ["E:/ai-image-generator/ImageGallery/output/extraction-rpg-dad/ui_combat_hud/extraction-rpg-dad_000001.png"],
     },
     "batch_resume": {
         "mode": "batch",
@@ -173,11 +180,11 @@ def _safe_topic_slug(value: str) -> str:
     return (raw[:80] or DEFAULT_TOPIC)
 
 
-def _resolve_under_root(value: str | Path | None, default: Path = ROOT) -> Path:
-    path = Path(value) if value else default
+def _resolve_under_root(value: str | Path | None) -> Path:
+    path = Path(value).expanduser() if value else Path.cwd()
     if path.is_absolute():
         return path
-    return (ROOT / path).resolve()
+    return path.resolve()
 
 
 def _emit(obj: dict, exit_code: int) -> int:
@@ -185,6 +192,27 @@ def _emit(obj: dict, exit_code: int) -> int:
     sys.stdout.write("\n")
     sys.stdout.flush()
     return exit_code
+
+
+def list_models() -> dict:
+    """List image models advertised by this proxy, without generating or saving."""
+    from image_studio import check_connection
+
+    result = check_connection(resolve_base_url(None), None)
+    available = list(dict.fromkeys(
+        model for model in result["available_models"]
+        if image_backend(model) == "gemini" or model.lower().startswith(("gpt-image-", "grok-imagine-image"))
+    ))
+    result["available_models"] = available
+    result["models"] = [{
+        "id": model,
+        "provider": "Google Gemini" if image_backend(model) == "gemini" else
+                    "OpenAI" if model.lower().startswith("gpt-image-") else "xAI Grok",
+        "reference_images": image_backend(model) == "gemini" or model.lower().startswith("gpt-image-"),
+    } for model in available]
+    if result["ok"] and not available:
+        result.update(ok=False, error="프록시 목록에 이 CLI가 지원하는 이미지 모델이 없습니다.")
+    return result
 
 
 _PROGRESS_LOCK = threading.Lock()
@@ -261,7 +289,7 @@ def run_single(spec: dict) -> dict:
     resume = bool(spec.get("resume"))
     refs = [_resolve_under_root(r) for r in list(spec.get("reference_images") or [])]
     topic_root = _resolve_under_root(spec.get("topic_root"))
-    output_dir = topic_root / "output" / topic_slug
+    output_dir, metadata_dir = topic_dirs(topic_root, topic_slug)
     try:
         timeout_sec = _resolve_job_timeout(spec)
     except (TypeError, ValueError):
@@ -278,6 +306,11 @@ def run_single(spec: dict) -> dict:
     for r in refs:
         if not r.is_file():
             return {"ok": False, "error": f"reference image not found: {r}"}
+    if spec.get("dry_run"):
+        names = [f"{topic_slug}.png" if count == 1 else f"{topic_slug}_{i:03d}.png" for i in range(1, count + 1)]
+        return {"ok": True, "mode": "single", "dry_run": True, "outputs": [], "failures": [],
+                "output_dir": str(output_dir), "metadata_dir": str(metadata_dir),
+                "planned_outputs": [str(output_dir / name) for name in names]}
     output_dir.mkdir(parents=True, exist_ok=True)
 
     started = time.time()
@@ -287,7 +320,7 @@ def run_single(spec: dict) -> dict:
     def _one(i: int) -> tuple[int, int, str, str]:
         # Use topic_slug (not raw topic) so filenames cannot contain path separators.
         # Previously this used raw topic, which on Windows caused the file to land
-        # outside output/<topic_slug>/ when topic contained "/".
+        # outside ImageGallery/output/<topic_slug>/ when topic contained "/".
         name = f"{topic_slug}.png" if count == 1 else f"{topic_slug}_{i:03d}.png"
         out_path = str((output_dir / name).resolve())
         if resume and Path(out_path).is_file():
@@ -307,6 +340,8 @@ def run_single(spec: dict) -> dict:
             cmd += ["--model", str(model)]
         if image_model:
             cmd += ["--image-model", str(image_model)]
+        if spec.get("record_metadata") is False:
+            cmd.append("--no-metadata")
         for r in refs:
             cmd += ["--reference-image", str(r)]
         rc, last = _run_child(cmd, timeout_sec)
@@ -331,6 +366,7 @@ def run_single(spec: dict) -> dict:
         "failures": sorted(failures, key=lambda x: x["index"]),
         "topic_dir": str(output_dir.resolve()),
         "output_dir": str(output_dir.resolve()),
+        "metadata_dir": str(metadata_dir),
         "elapsed_sec": round(time.time() - started, 2),
     }
 
@@ -347,7 +383,7 @@ def run_jobs(spec: dict) -> dict:
       }
 
     Spec-level keys:
-      topic              parent topic; output goes under output/<topic_slug>/<id>.png
+      topic              parent topic; output goes under ImageGallery/output/<topic_slug>/<id>.png
       prompt_prefix      string prepended to every job's prompt (shared preamble)
       prompt_suffix      string appended to every job's prompt
       reference_images   default refs if a job omits its own
@@ -369,7 +405,7 @@ def run_jobs(spec: dict) -> dict:
     prefix = (spec.get("prompt_prefix") or "").strip()
     suffix = (spec.get("prompt_suffix") or "").strip()
     topic_root = _resolve_under_root(spec.get("topic_root"))
-    output_dir = topic_root / "output" / parent_slug
+    output_dir, metadata_dir = topic_dirs(topic_root, parent_slug)
     concurrency = max(1, int(spec.get("concurrency", 4)))
     try:
         timeout_sec = _resolve_job_timeout(spec)
@@ -379,12 +415,17 @@ def run_jobs(spec: dict) -> dict:
     if not isinstance(jobs, list) or not jobs:
         return {"ok": False, "error": "spec.jobs must be a non-empty array"}
 
+    seen = set()
     for idx, j in enumerate(jobs):
         if not isinstance(j, dict):
             return {"ok": False, "error": f"jobs[{idx}] must be an object"}
         body = (j.get("prompt") or "").strip()
         if not body and not (prefix or suffix):
             return {"ok": False, "error": f"jobs[{idx}].prompt is required"}
+        job_slug = _safe_topic_slug(str(j.get("id") or f"job_{idx + 1:03d}"))
+        if job_slug.casefold() in seen:
+            return {"ok": False, "error": "job IDs collide after filename normalization"}
+        seen.add(job_slug.casefold())
     if not dry_run:
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -443,6 +484,8 @@ def run_jobs(spec: dict) -> dict:
             cmd += ["--model", str(model)]
         if image_model:
             cmd += ["--image-model", str(image_model)]
+        if spec.get("record_metadata") is False:
+            cmd.append("--no-metadata")
         rc, last = _run_child(cmd, timeout_sec)
         if rc == 0:
             _emit_progress({"event": "job_finished", "mode": "jobs", "id": job_id, "index": idx, "output": out_path, "elapsed_sec": round(time.time() - job_started, 2)})
@@ -466,6 +509,7 @@ def run_jobs(spec: dict) -> dict:
         "dry_run": dry_run,
         "topic_dir": str(output_dir.resolve()),
         "output_dir": str(output_dir.resolve()),
+        "metadata_dir": str(metadata_dir),
         "outputs": [] if dry_run else sorted(outputs, key=lambda x: x["id"]),
         "planned_outputs": sorted(outputs, key=lambda x: x["id"]) if dry_run else [],
         "failures": sorted(failures, key=lambda x: (x.get("id") or "")),
@@ -507,15 +551,20 @@ def run_batch(spec: dict) -> dict:
         except Exception:
             topic = None
     topic_slug = _safe_topic_slug(topic) if topic else None
-    output_dir = (topic_root / "output" / topic_slug).resolve() if topic_slug else None
-    run_root = (topic_root / "runs" / topic_slug).resolve() if topic_slug else None
+    output_dir, metadata_dir = topic_dirs(topic_root, topic_slug) if topic_slug else (None, None)
+    try:
+        result = json.loads(proc.stdout.strip().splitlines()[-1])
+    except (IndexError, json.JSONDecodeError):
+        result = {}
 
     return {
         "ok": proc.returncode == 0,
         "mode": "batch",
         "topic_dir": str(output_dir) if output_dir else None,
         "output_dir": str(output_dir) if output_dir else None,
-        "run_root": str(run_root) if run_root else None,
+        "metadata_dir": str(metadata_dir) if metadata_dir else None,
+        "outputs": result.get("outputs", []), "failures": result.get("failures", []),
+        "dry_run": bool(spec.get("dry_run")), "planned_outputs": result.get("planned_outputs", []),
         "stdout_tail": (proc.stdout or "").splitlines()[-20:],
         "stderr_tail": (proc.stderr or "").splitlines()[-20:],
         "elapsed_sec": round(time.time() - started, 2),
@@ -533,8 +582,12 @@ def main() -> int:
     g.add_argument("--json", dest="inline_json", help="inline JSON spec string")
     g.add_argument("--schema", action="store_true", help="print spec schema and exit")
     g.add_argument("--example", action="store_true", help="print example specs and exit")
+    g.add_argument("--list-models", action="store_true", help="list currently available image models; no generation or files")
     args = ap.parse_args()
 
+    if args.list_models:
+        result = list_models()
+        return _emit(result, 0 if result["ok"] else 1)
     if args.schema:
         print(json.dumps(SCHEMA, indent=2, ensure_ascii=False))
         return 0

@@ -7,10 +7,11 @@ one HTTP proxy instead of shelling out to `codex responses`.
 
 Default output layout:
 
-    output/<topic>/<filename>.png
+    ImageGallery/output/<topic>/<filename>.png
+    ImageGallery/metadata/<topic>/<filename>.png.json
 
 Environment:
-    CLIPROXY_BASE_URL   Base URL. Default: http://localhost:8317/v1
+    CLIPROXY_BASE_URL   Base URL. Default: loopback on the proxy host, Tailscale elsewhere.
                         If `/v1` is omitted, it is appended automatically.
     CLIPROXY_API_KEY    API key configured in cli-proxy-api `api-keys`.
                         Falls back to OPENAI_API_KEY.
@@ -28,6 +29,7 @@ import io
 import mimetypes
 import os
 import queue
+import socket
 import re
 import sys
 import threading
@@ -36,12 +38,29 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from gallery import metadata_path, topic_dirs, write_json
 
-DEFAULT_BASE_URL = "http://localhost:8317/v1"
+
+LOCAL_BASE_URL = "http://127.0.0.1:8317/v1"
+REMOTE_BASE_URL = "http://100.98.54.122:8317/v1"
+PROXY_HOSTNAME = "desktop-sb818kq"
+
+
+def is_proxy_host() -> bool:
+    return socket.gethostname().split(".")[0].casefold() == PROXY_HOSTNAME
+
+
+def default_base_url() -> str:
+    return LOCAL_BASE_URL if is_proxy_host() else REMOTE_BASE_URL
+
+
+DEFAULT_BASE_URL = default_base_url()
 DEFAULT_MODEL = "gpt-5.5"
 DEFAULT_IMAGE_MODEL = "grok-imagine-image-2.0"
 DEFAULT_TOPIC = "image-request"
-DEFAULT_TOPIC_ROOT = str(Path(__file__).resolve().parent.parent)
+DEFAULT_TOPIC_ROOT = str(Path.cwd())
 STOPWORDS = {
     "the",
     "and",
@@ -115,12 +134,16 @@ def infer_topic_from_prompt(prompt: str) -> str:
 
 
 def resolve_base_url(value: str | None) -> str:
-    base = (value or os.environ.get("CLIPROXY_BASE_URL") or DEFAULT_BASE_URL).strip()
+    base = (value or os.environ.get("CLIPROXY_BASE_URL")
+            or _windows_user_environment("CLIPROXY_BASE_URL") or default_base_url()).strip()
     if not base:
-        base = DEFAULT_BASE_URL
+        base = default_base_url()
     base = base.rstrip("/")
     if not base.endswith("/v1"):
         base = f"{base}/v1"
+    # The proxy host must reach its own service without requiring Tailscale.
+    if is_proxy_host() and base in (REMOTE_BASE_URL, "http://localhost:8317/v1"):
+        return LOCAL_BASE_URL
     return base
 
 
@@ -151,7 +174,7 @@ def resolve_api_key(value: str | None) -> str | None:
 def resolve_topic(prompt: str, topic: str | None, topic_root: str) -> tuple[str, str, Path]:
     resolved_topic = topic.strip() if topic and topic.strip() else infer_topic_from_prompt(prompt)
     topic_slug = safe_topic_slug(resolved_topic)
-    return resolved_topic, topic_slug, Path(topic_root) / "output" / topic_slug
+    return resolved_topic, topic_slug, topic_dirs(topic_root, topic_slug)[0]
 
 
 def resolve_output_path(output: str | None, topic_dir: Path, output_format: str) -> Path:
@@ -530,12 +553,13 @@ def call_cliproxy(args: GenerateImageOptions) -> tuple[bytes, int]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate an image through CLIProxyAPI and save it under output/<topic>/."
+        description="Generate an image into ImageGallery/output/<topic>/ with one metadata JSON."
     )
     _ = parser.add_argument("prompt", help="Image prompt")
-    _ = parser.add_argument("-o", "--output", default=None, help="Output image path. Bare filenames are saved under output/<topic>/.")
+    _ = parser.add_argument("-o", "--output", default=None, help="Output image path. Bare filenames are saved under ImageGallery/output/<topic>/.")
     _ = parser.add_argument("--topic", default=None, help="Topic folder name. Defaults to an inferred prompt topic.")
-    _ = parser.add_argument("--topic-root", default=DEFAULT_TOPIC_ROOT, help="Root directory that contains topic folders")
+    _ = parser.add_argument("--topic-root", default=DEFAULT_TOPIC_ROOT, help="Workspace or ImageGallery directory (default: current directory)")
+    _ = parser.add_argument("--no-metadata", action="store_true", help=argparse.SUPPRESS)
     _ = parser.add_argument("--model", default=os.environ.get("CLIPROXY_MAIN_MODE") or os.environ.get("CLIPROXY_MAIN_MODEL") or DEFAULT_MODEL, help="Mainline model used to call the tool")
     _ = parser.add_argument("--image-model", default=os.environ.get("CLIPROXY_IMAGE_MODEL", DEFAULT_IMAGE_MODEL), help="Image generation tool model")
     _ = parser.add_argument("--size", default="1920x1080", help="Exact output size; provider requests are padded or bucketed automatically")
@@ -555,6 +579,9 @@ def main() -> int:
         namespace.topic_root,
     )
     output_path = resolve_output_path(namespace.output, topic_dir, namespace.output_format)
+    if output_path.exists():
+        sys.stderr.write(f"Output already exists; use a new topic or resume: {output_path}\n")
+        return 2
 
     args = GenerateImageOptions(
         prompt=namespace.prompt,
@@ -579,6 +606,16 @@ def main() -> int:
         if not Path(image_path).is_file():
             _ = sys.stderr.write(f"Reference image not found: {image_path}\n")
             return 2
+
+    record = {
+        "prompt": args.prompt, "image_model": args.image_model,
+        "size": args.size, "quality": args.quality, "action": args.action,
+        "reference_images": [str(Path(p).resolve()) for p in args.reference_image],
+        "output": str(output_path.resolve()),
+    }
+    record_path = metadata_path(output_path, namespace.topic_root, topic_slug)
+    if not namespace.no_metadata:
+        write_json(record_path, record)
 
     backend = image_backend(args.image_model)
     request_url = f"{args.base_url}/responses"
@@ -621,6 +658,11 @@ def main() -> int:
         if not image_bytes:
             _ = sys.stderr.write(f"No image data found in {backend} response.\n")
             return 1
+        response = json.loads(body_bytes)
+        response_model = response.get("modelVersion") if backend == "gemini" else response.get("model")
+        if isinstance(response_model, str) and response_model.strip() and not namespace.no_metadata:
+            record["response_model"] = response_model
+            write_json(record_path, record)
 
     try:
         image_bytes = normalize_image_bytes(image_bytes, args.output_format, args.size)
@@ -630,7 +672,8 @@ def main() -> int:
 
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    _ = output_path.write_bytes(image_bytes)
+    with output_path.open("xb") as saved:
+        saved.write(image_bytes)
     print(f"Topic: {args.topic_slug}")
     print(f"Saved {output_path}")
     return 0

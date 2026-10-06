@@ -294,7 +294,7 @@
   function updateRefWarning() {
     var m = state.modelsById[modelSelect.value];
     if (state.refs.length > 0 && m && m.reference_images === false) {
-      setText(refWarning, '선택한 모델(' + m.id + ')은 참조 이미지를 지원하지 않습니다. 생성을 계속하려면 참조를 모두 제거하거나, 참조 가능한 모델(gpt-image-2, gpt-image-1.5, gemini-3.1-flash-image)로 바꾸세요. 첨부 파일은 그대로 보관되며 자동 삭제하지 않습니다.');
+      setText(refWarning, '선택한 모델(' + m.id + ')은 참조 이미지를 지원하지 않습니다. 생성을 계속하려면 참조를 모두 제거하거나, 참조 가능한 모델(gpt-image-2.5 계열, gpt-image-2, gpt-image-1.5, gemini-3.1-flash-image)로 바꾸세요. 첨부 파일은 그대로 보관되며 자동 삭제하지 않습니다.');
       show(refWarning);
       return true;
     }

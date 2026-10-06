@@ -19,6 +19,7 @@ config/image-studio.local.json
 # Generated images, events, and batch state
 output/
 runs/
+ImageGallery/
 */output/
 */runs/
 *.log

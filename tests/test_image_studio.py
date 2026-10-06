@@ -119,6 +119,25 @@ class ImageStudioBoundaryTests(unittest.TestCase):
         _, _, body = self.request("GET", "/api/jobs")
         self.assertEqual(json.loads(body)["jobs"], json.loads(before)["jobs"])
 
+    def test_gpt_image_2_5_models_are_listed_and_use_edit_for_references(self):
+        status, _, body = self.request("GET", "/api/config")
+        self.assertEqual(status, 200)
+        models = {m["id"]: m for m in json.loads(body)["models"]}
+        for model_id in ("gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"):
+            with self.subTest(model=model_id):
+                self.assertIn(model_id, models)
+                self.assertTrue(models[model_id]["reference_images"])
+
+    def test_gpt_edit_models_cover_every_gpt_image_catalog_entry(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+        try:
+            import image_studio
+        finally:
+            sys.path.pop(0)
+        gpt_ids = {m["id"] for m in image_studio.MODELS if m["id"].startswith("gpt-image-")}
+        self.assertTrue({"gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst"} <= gpt_ids)
+        self.assertEqual(image_studio.GPT_EDIT_MODELS, gpt_ids)
+
     def test_static_routes_never_expose_source_or_settings(self):
         for path in ("/scripts/gen_image.py", "/config/image-studio.local.json",
                      "/files/../../scripts/gen_image.py", "/files/%2e%2e/%2e%2e/scripts/gen_image.py"):
@@ -186,7 +205,7 @@ class ImageStudioBoundaryTests(unittest.TestCase):
             self.assertEqual(saved.size, (1920, 1080))
             self.assertEqual(saved.format, "PNG")
         for path in (self.root / "config/image-studio.local.json",
-                     self.root / "output/studio" / job["id"] / "job.json"):
+                     self.root / "ImageGallery/metadata" / job["id"] / "job.json"):
             self.assertNotIn(session_key, path.read_text(encoding="utf-8"))
         reject.set()
         status, _, body = self.request("POST", "/api/jobs", self.valid_request(), self.authorized())
@@ -199,7 +218,7 @@ class ImageStudioBoundaryTests(unittest.TestCase):
             failed = json.loads(body)
         self.assertEqual(failed["status"], "failed", failed)
         self.assertIn("Insufficient credits", failed["error"])
-        saved_error = (self.root / "output/studio" / failed["id"] / "job.json").read_text(encoding="utf-8")
+        saved_error = (self.root / "ImageGallery/metadata" / failed["id"] / "job.json").read_text(encoding="utf-8")
         self.assertNotIn(session_key, saved_error)
         self.assertNotIn("privatebytes", saved_error)
 
