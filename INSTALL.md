@@ -231,3 +231,7 @@ Claude Code를 쓰면 `--agent codex`를 `--agent claude`로 바꿉니다. 둘 �
 | MCP 파일 접근 거부 | 해당 프로젝트/참조 폴더를 `--allow-root`로 지정. |
 | MCP state 잠금 오류 | 같은 state의 기존 서버를 종료하거나 클라이언트별 `--state-dir` 지정. |
 | Git pull 실패 | `git status`와 원격/브랜치를 확인하고 로컬 변경을 보존. ZIP이면 새 clone으로 설치. |
+
+## 검증 범위
+
+2026-10-07: Windows의 별도 clone(공백 포함 경로), 새 사용자 홈, 새 `.venv`에서 Python 3.13.5 / Pillow 12.3.0 / MCP SDK 1.30.0으로 Codex+Claude+MCP 설치와 `--check`, 링크 상태, 회귀 테스트 **33개**가 통과했습니다. 실제 MCP stdio 클라이언트의 initialize, 도구 **20개** 조회, `plan_generation`도 통과했습니다. 이 검증은 외부 이미지 생성 API를 호출하지 않았습니다. macOS/Linux 명령은 제공하지만 이번에는 해당 OS에서 실행 검증하지 않았습니다. 각 PC의 프록시/키/생성 크레딧은 별도로 확인해야 합니다.

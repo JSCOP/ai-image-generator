@@ -32,3 +32,7 @@
 ## Gallery storage update
 
 Image outputs now live under ImageGallery/output/<topic>; plans and job status live under ImageGallery/metadata/_mcp. Generation specifications are passed on stdin instead of creating a second specs file. Per-topic locks and all crop/resize/contact-sheet records are outside output.
+
+## 다른 PC 설치 검증 — 2026-10-07
+
+Windows의 별도 clone(공백 포함 경로)과 새 사용자 홈/.venv에서 `scripts/setup.py --agent codex --agent claude --mcp`, 동일 옵션의 `--check`, 링크 점검이 통과했습니다. Python 3.13.5, Pillow 12.3.0, MCP SDK 1.30.0 환경에서 회귀 테스트 33개 및 실제 MCP stdio initialize/도구 20개 조회/`plan_generation` 호출이 통과했습니다. 외부 생성 API 호출은 하지 않았습니다. 신규 설치/업데이트 절차는 [../INSTALL.md](../INSTALL.md)를 따릅니다.
