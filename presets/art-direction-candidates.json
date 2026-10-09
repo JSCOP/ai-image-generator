@@ -3,7 +3,7 @@
   "size": "1920x1088",
   "quality": "high",
   "model": "gpt-5.5",
-  "image_model": "gpt-image-2",
+  "image_model": "gpt-image-2.5",
   "global_style": "Same scene rendered in different art directions for comparison. Scene: a barbarian hero in a torch-lit stone dungeon room fighting an armored skeleton, top-down / high-angle (about 60 degrees) view, mobile landscape (16:9) framing, clear readable silhouettes, no UI overlay (this is reference art only).",
   "negative": "no UI elements, no HUD, no text, no watermark, no real brand logos, no nsfw, no chibi unless specified, no AI noise artifacts, clean composition.",
   "categories": [

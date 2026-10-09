@@ -60,7 +60,7 @@ def main() -> int:
         run([str(python), str(ROOT / "tools/ai_image.py"), "--schema"], capture=True)
         spec = {"mode": "single", "prompt": "installation verification", "topic": "install-check",
                 "topic_root": str(ROOT), "count": 1, "size": "1920x1080", "quality": "high",
-                "image_model": "grok-imagine-image-2.0", "dry_run": True}
+                "dry_run": True}
         result = run([str(python), str(ROOT / "tools/ai_image.py"), "--json", json.dumps(spec)], capture=True)
         if not json.loads(result.stdout.strip().splitlines()[-1]).get("ok"):
             raise RuntimeError("CLI dry-run verification failed.")

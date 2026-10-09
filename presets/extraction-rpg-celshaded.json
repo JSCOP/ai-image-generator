@@ -3,7 +3,7 @@
   "size": "1920x1088",
   "quality": "high",
   "model": "gpt-5.5",
-  "image_model": "gpt-image-2",
+  "image_model": "gpt-image-2.5",
   "global_style": "Cel-shaded dark toon art style — Genshin Impact / Honkai Star Rail / Wuthering Waves but darker dark-fantasy. Crisp anime-inspired line work, flat shaded color blocks with one or two clean shadow steps, subtle rim lighting, polished mobile-game render look. NO painterly brush strokes, NO inked woodcut crosshatching, NO photoreal, NO chibi. Stylized hero proportions (slightly tall and slim, semi-anime), readable silhouettes. Atmospheric torchlight rim lighting, dark moody palette of charcoal black, deep teal-blue shadows, candle amber, restrained blood red, dull steel and brass. Game scenes are top-down / high-angle (about 60 degrees) over a stone dungeon, mobile landscape (16:9) framing, clean composition with clear focal point. UI screens are mobile (16:9) adaptations of Dark and Darker / Tarkov: parchment-and-iron framed panels rendered in the same cel-shaded style, riveted iron borders, wax seals, brass corners, crisp icons.",
   "negative": "no AI noise artifacts, no painterly brush strokes, no inked woodcut crosshatching, no photoreal render, no chibi or super-deformed cute cartoon, no neon, no real brand logos, no readable text or signage, no watermark, no nsfw, no modern guns, no sci-fi tech, no pixel art.",
   "categories": [

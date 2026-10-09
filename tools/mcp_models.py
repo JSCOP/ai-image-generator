@@ -13,7 +13,7 @@ class StrictModel(BaseModel):
 class ImageOptions(StrictModel):
     size: str = Field(default="1920x1080", pattern=r"^[1-9][0-9]*x[1-9][0-9]*$")
     quality: Literal["low", "medium", "high"] = "high"
-    image_model: str = Field(default="grok-imagine-image-2.0", min_length=1)
+    image_model: str = Field(default="gpt-image-2.5", min_length=1)
     model: str | None = None
     action: Literal["auto", "generate", "edit"] = "auto"
     reference_images: list[str] = Field(default_factory=list, max_length=4)

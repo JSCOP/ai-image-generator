@@ -431,10 +431,10 @@ class GeneratorObservabilityTests(unittest.TestCase):
         )
         self.assertEqual(
             ai_image.SCHEMA["image_model"]["default"],
-            "grok-imagine-image-2.0",
+            "gpt-image-2.5",
         )
         gen_image = load_module("gen_image_default_under_test", ROOT / "scripts" / "gen_image.py")
-        self.assertEqual(gen_image.DEFAULT_IMAGE_MODEL, "grok-imagine-image-2.0")
+        self.assertEqual(gen_image.DEFAULT_IMAGE_MODEL, "gpt-image-2.5")
 
 
     def test_ai_batch_passes_image_model_override(self):

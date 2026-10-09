@@ -105,6 +105,7 @@ class GalleryTests(unittest.TestCase):
         self.addCleanup(server.shutdown)
         env = {**os.environ, "CLIPROXY_BASE_URL": f"http://127.0.0.1:{server.server_port}/v1",
                "CLIPROXY_API_KEY": "gallery-fixture-secret", "PYTHONDONTWRITEBYTECODE": "1"}
+        env.pop("CLIPROXY_IMAGE_MODEL", None)
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
 
@@ -121,10 +122,12 @@ class GalleryTests(unittest.TestCase):
             self.assertEqual(calls, [])
             _, result = run(spec)
             self.assertTrue(result["ok"], result)
+            self.assertEqual(calls[-1]["model"], "gpt-image-2.5")
             image = workspace / "ImageGallery/output/cute-cat/cute-cat.png"
             record = workspace / "ImageGallery/metadata/cute-cat/cute-cat.png.json"
             self.assertEqual(result["outputs"], [str(image)])
             self.assertEqual(json.loads(record.read_text(encoding="utf-8"))["prompt"], spec["prompt"])
+            self.assertEqual(json.loads(record.read_text(encoding="utf-8"))["image_model"], "gpt-image-2.5")
             original = image.read_bytes()
             process, result = run(spec)
             self.assertNotEqual(process.returncode, 0)
@@ -137,13 +140,16 @@ class GalleryTests(unittest.TestCase):
             _, result = run({"mode": "jobs", "topic": "poses", "size": "8x8",
                              "topic_root": str(workspace / "ImageGallery"),
                              "jobs": [{"id": "sleep", "prompt": "sleeping kitten"},
-                                      {"id": "run", "prompt": "running kitten"}]})
+                                      {"id": "run", "prompt": "running kitten", "image_model": "gpt-image-2.5-flare"}]})
             self.assertTrue(result["ok"], result)
+            self.assertEqual({call["prompt"]: call["model"] for call in calls[-2:]},
+                             {"sleeping kitten": "gpt-image-2.5", "running kitten": "gpt-image-2.5-flare"})
             preset = workspace / "preset.json"
             preset.write_text(json.dumps({"topic": "batch", "size": "8x8", "categories": [
                 {"name": "cat", "templates": ["fluffy cat"]}]}), encoding="utf-8")
             _, result = run({"mode": "batch", "preset": str(preset), "count": 2})
             self.assertTrue(result["ok"], result)
+            self.assertEqual([call["model"] for call in calls[-2:]], ["gpt-image-2.5"] * 2)
             self.assertEqual(len(result["outputs"]), 2)
             output, metadata = topic_dirs(workspace, "batch")
             self.assertEqual(len(list(output.glob("*.png"))), 2)
@@ -173,11 +179,24 @@ class GalleryTests(unittest.TestCase):
 
             from mcp_service import ImageService
             from mcp_models import GenerationSpec
+            direct_root = workspace / "direct-cli"
+            for selected in (None, "grok-imagine-image-2.0"):
+                command = [sys.executable, str(ROOT / "scripts/gen_image.py"), "direct model selection",
+                           "--topic-root", str(direct_root), "--topic", selected or "default", "--size", "8x8"]
+                if selected:
+                    command.extend(["--image-model", selected])
+                process = subprocess.run(command, env=env, capture_output=True, text=True, encoding="utf-8", timeout=20)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                self.assertEqual(calls[-1]["model"], selected or "gpt-image-2.5")
             service = ImageService(root=workspace)
             service.base_url = env["CLIPROXY_BASE_URL"]
             service.key = env["CLIPROXY_API_KEY"]
             try:
                 plan = service.plan_generation(GenerationSpec(prompt="MCP kitten", topic="mcp-cat", size="8x8"))
+                self.assertEqual(plan["spec"]["jobs"][0]["image_model"], "gpt-image-2.5")
+                selected_plan = service.plan_generation(GenerationSpec(prompt="MCP explicit model", topic="mcp-chosen",
+                                                                        image_model="gpt-image-2.5-sunburst"))
+                self.assertEqual(selected_plan["spec"]["jobs"][0]["image_model"], "gpt-image-2.5-sunburst")
                 self.assertFalse(Path(plan["output_dir"]).exists())
                 job = service.start_generation(plan["plan_id"])
                 deadline = time.monotonic() + 10

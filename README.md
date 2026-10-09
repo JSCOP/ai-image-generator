@@ -145,7 +145,7 @@ Invoke-WebRequest -UseBasicParsing `
 
 에이전트는 `tools/ai_image.py`를 우선 사용합니다. JSON 입력을 받고 JSON 한 줄을 반환하므로 Claude Code / Codex / Hermes에서 결과 경로를 안정적으로 파싱할 수 있습니다.
 
-스킬의 첫 이미지 요청에서는 `python tools/ai_image.py --list-models`로 실제 프록시의 이미지 모델 목록과 참조 지원 여부를 확인하고, 질문 도구로 사용할 정확한 ID를 선택받습니다. `gpt-image-2.5`, `-flare`, `-sunburst`는 별도 선택입니다. 이미 지정/선택한 모델은 그대로 사용하며, "알아서"라고 맡긴 경우에는 적합한 모델을 고릅니다. 선택 기록은 대화 안에서만 유지하고 파일은 만들지 않습니다.
+모델을 지정하지 않으면 선택 질문 없이 `gpt-image-2.5`를 사용합니다. `python tools/ai_image.py --list-models`로 연결과 모델 사용 가능 여부를 확인하고, 요청한 모델이 없으면 오류를 알립니다. 사용자가 모델을 직접 지정하면 그 정확한 ID를 우선합니다. `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, Gemini, Grok도 명시적으로 선택할 수 있습니다. 대화에서 선택한 모델은 후속 요청에 유지하며, "기본 모델로"라고 요청하면 `gpt-image-2.5`로 돌아옵니다.
 
 ## 대화형 이미지 생성 메뉴
 
@@ -153,7 +153,7 @@ Invoke-WebRequest -UseBasicParsing `
 pwsh -NoProfile -File tools\Image-Menu.ps1
 ```
 
-단일/다회 생성과 preset 배치 모두 최신 GPT 모델 `gpt-image-2.5`(flare/sunburst 변형 포함), `gpt-image-2`, `gemini-3.1-flash-image`, Grok 이미지 3개 또는 직접 입력한 모델 ID를 선택할 수 있습니다. 기본 이미지 모델은 `grok-imagine-image-2.0`입니다.
+단일/다회 생성과 preset 배치 모두 최신 GPT 모델 `gpt-image-2.5`(flare/sunburst 변형 포함), `gpt-image-2`, `gemini-3.1-flash-image`, Grok 이미지 3개 또는 직접 입력한 모델 ID를 선택할 수 있습니다. 기본 이미지 모델은 `gpt-image-2.5`입니다.
 
 ## 수동 crop 지정 툴
 
@@ -251,11 +251,11 @@ open-manual-crop-tool.cmd
 
 이미지 provider/model 선택:
 
-- `gpt-image-2.5`(및 `-flare`, `-sunburst`), `gpt-image-2`, `gpt-image-1.5`: OpenAI `/v1/images/generations` 경로. 참조 이미지가 있으면 `/v1/images/edits` 경로
+- `gpt-image-2.5`(기본), `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, `gpt-image-2`, `gpt-image-1.5`: OpenAI `/v1/images/generations` 경로. 참조 이미지가 있으면 `/v1/images/edits` 경로
 - `gemini-3.1-flash-image`: Gemini native `generateContent` 경로; Antigravity OAuth 사용 가능
-- `grok-imagine-image-2.0`(기본), `grok-imagine-image-quality`, `grok-imagine-image`: xAI `/v1/images/generations` 경로
+- `grok-imagine-image-2.0`, `grok-imagine-image-quality`, `grok-imagine-image`: xAI `/v1/images/generations` 경로
 
-`tools/ai_image.py` JSON에 `image_model`을 지정합니다. 생략 시 `grok-imagine-image-2.0`을 사용합니다. `gpt-image-2.5` 등 `gpt-image-*` 참조 편집은 `reference_images`와 `action: "edit"`를 함께 지정합니다. Gemini는 참조 이미지를 native inline data로 전달합니다. Grok 3개 모델은 text-to-image만 지원하며 `reference_images`가 있으면 API 호출 전에 거부합니다.
+`tools/ai_image.py` JSON의 `image_model` 또는 직접 CLI의 `--image-model`로 모델을 지정합니다. 직접 설정한 `CLIPROXY_IMAGE_MODEL` 환경변수도 CLI 기본 설정으로 유지되며 요청의 명시 모델이 우선합니다. 생략 시 `gpt-image-2.5`를 사용합니다. `gpt-image-2.5` 등 `gpt-image-*` 참조 편집은 `reference_images`와 `action: "edit"`를 함께 지정합니다. Gemini는 참조 이미지를 native inline data로 전달합니다. Grok 3개 모델은 text-to-image만 지원하며 `reference_images`가 있으면 API 호출 전에 거부합니다.
 
 Gemini native 해상도는 요청한 `size`의 긴 변을 기준으로 `512`, `1K`, `2K`, `4K` 버킷을 자동 선택합니다. 16:9 실측 출력은 각각 약 `688x384`, `1376x768`, `2752x1536`, `5504x3072`이며 `8K`는 지원되지 않습니다. 모델 출력은 요청 픽셀과 정확히 일치하지 않을 수 있습니다.
 
@@ -310,7 +310,7 @@ ImageGallery/output/<topic>/<filename>.png
 - `-o <file>`: 출력 파일명 또는 경로
 - `--size 1920x1080`: 최종 결과 파일의 정확한 크기
 - `--quality low|medium|high`: 품질. 생략 시 `high`
-- `--image-model <id>`: 이미지 provider 모델. 생략 시 `grok-imagine-image-2.0`
+- `--image-model <id>`: 이미지 provider 모델. 생략 시 `gpt-image-2.5`
 - `--reference-image <path>`: 참조 이미지. 여러 번 지정 가능
 - `--events <path>`: 요청한 경우에만 원본 API 응답 저장 (metadata 쪽 경로 사용)
 
@@ -333,7 +333,7 @@ python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume --c
 - `--concurrency N`: 동시 워커 수. 여러 이미지를 동시에 요청합니다. `N=4`면 한 번에 최대 4개의 `gen_image.py` 프로세스가 선택한 provider endpoint를 호출합니다.
 - `--seed N`: 카테고리/템플릿 선택 시드
 - `--topic <name>`: preset의 `topic` 덮어쓰기
-- `--image-model <id>`: preset의 `image_model` 덮어쓰기
+- `--image-model <id>`: preset의 `image_model` 덮어쓰기. 지정하지 않으면 preset의 명시 모델을 유지하고, preset에도 없으면 `gpt-image-2.5`
 - `--topic-root <dir>`: 작업 공간 또는 ImageGallery 경로
 - `--resume`: 이미 존재하는 PNG는 건너뜀
 - `--dry-run`: 계획 JSON만 출력하며 파일·API 요청을 만들지 않음
@@ -367,7 +367,7 @@ python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume --c
   "size": "1920x1080",
   "quality": "high",
   "model": "gpt-5.5",
-  "image_model": "grok-imagine-image-2.0",
+  "image_model": "gpt-image-2.5",
   "global_style": "전 이미지에 공통으로 붙는 스타일 문장",
   "negative": "전 이미지에 공통으로 붙는 금지 항목",
   "categories": [

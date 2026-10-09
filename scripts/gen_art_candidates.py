@@ -14,6 +14,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from gallery import topic_dirs
+from gen_image import DEFAULT_IMAGE_MODEL
 
 ROOT = Path(__file__).resolve().parent.parent
 PRESET = ROOT / "presets" / "art-direction-candidates.json"
@@ -57,7 +58,7 @@ def main() -> int:
     negative = data.get("negative", "")
     size = data.get("size", "1920x1088")
     model = data.get("model", "gpt-5.5")
-    image_model = data.get("image_model", "gpt-image-2")
+    image_model = data.get("image_model") or os.environ.get("CLIPROXY_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL
     cats = data["categories"]
 
     print(f"Generating {len(cats)} candidates @ quality={QUALITY}, concurrency={CONCURRENCY}")

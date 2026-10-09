@@ -12,7 +12,7 @@ Preset shape (all fields optional unless noted):
   "size": "1920x1080",                      # exact output size
   "quality": "high",                        # low|medium|high
   "model": "gpt-5.5",                       # CLIProxyAPI main model
-  "image_model": "grok-imagine-image-2.0",
+  "image_model": "gpt-image-2.5",
   "global_style": "concept art, ...",       # appended to every prompt
   "negative": "no real brand logos, ...",   # appended as constraints line
   "categories": [                           # required, length >= 1
@@ -55,6 +55,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gallery import topic_dirs
+from gen_image import DEFAULT_IMAGE_MODEL
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -107,7 +108,7 @@ def load_preset(path: Path) -> Preset:
         size=str(data.get("size", "1920x1080")),
         quality=str(data.get("quality", "high")),
         model=str(data.get("model", os.environ.get("CLIPROXY_MAIN_MODEL", "gpt-5.5"))),
-        image_model=str(data.get("image_model", "grok-imagine-image-2.0")),
+        image_model=str(data.get("image_model") or os.environ.get("CLIPROXY_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL),
         global_style=str(data.get("global_style", "")),
         negative=str(data.get("negative", "")),
         categories=categories,

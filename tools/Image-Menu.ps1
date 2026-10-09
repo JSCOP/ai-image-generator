@@ -124,15 +124,15 @@ function Read-Quality {
     }
 }
 
-function Read-ImageModel($default = 'grok-imagine-image-2.0') {
+function Read-ImageModel($default = 'gpt-image-2.5') {
     Write-Host ""
     Write-Host "이미지 모델:"
-    Write-Host "  [1] gpt-image-2.5 (최신 GPT)"
+    Write-Host "  [1] gpt-image-2.5 (기본)"
     Write-Host "  [2] gpt-image-2.5-flare"
     Write-Host "  [3] gpt-image-2.5-sunburst"
     Write-Host "  [4] gpt-image-2"
     Write-Host "  [5] gemini-3.1-flash-image"
-    Write-Host "  [6] grok-imagine-image-2.0 (기본)"
+    Write-Host "  [6] grok-imagine-image-2.0"
     Write-Host "  [7] grok-imagine-image-quality"
     Write-Host "  [8] grok-imagine-image"
     Write-Host "  [9] 직접 입력"
@@ -287,7 +287,7 @@ function Run-Batch {
     $resume = Read-YesNo "이어하기 (resume)? (y/n)" "n"
     $dry    = Read-YesNo "dry-run (계획만)? (y/n)" "n"
     $presetData = Get-Content -Raw -Encoding UTF8 -LiteralPath $preset | ConvertFrom-Json
-    $presetImageModel = if ([string]::IsNullOrWhiteSpace([string]$presetData.image_model)) { 'grok-imagine-image-2.0' } else { [string]$presetData.image_model }
+    $presetImageModel = if ([string]::IsNullOrWhiteSpace([string]$presetData.image_model)) { 'gpt-image-2.5' } else { [string]$presetData.image_model }
     $imageModel = Read-ImageModel $presetImageModel
 
     $argList = @($GenBatch, $preset, '--count', $count, '--concurrency', $conc, '--topic-root', $WorkspaceRoot, '--image-model', $imageModel)

@@ -3,7 +3,7 @@
   "size": "1920x1088",
   "quality": "high",
   "model": "gpt-5.5",
-  "image_model": "gpt-image-2",
+  "image_model": "gpt-image-2.5",
   "global_style": "Hand-drawn ink illustration / woodcut art style — Darkest Dungeon / Inscryption inspired dark fantasy. Heavy bold black ink outlines, dense crosshatching shadows, sharp comic-book linework, high-contrast lighting. Limited muted palette: charcoal black, cold blue-gray dungeon stone, parchment cream, blood red, candle amber. Strong warm orange torch highlights against deep cold-blue shadows. Painterly flat fills inside crisp inked silhouettes; NO 3D render look, NO photoreal, NO cel-shaded anime, NO chibi cartoon. Dramatic violent fantasy-action mood. Game scenes are top-down / high-angle (about 60 degrees) over a stone dungeon, mobile landscape (16:9) framing, clear readable silhouettes. UI screens are mobile (16:9) adaptations of Dark and Darker / Tarkov: parchment-and-iron framed panels, riveted iron borders, wax seals, brass corners, hand-inked icons in the same woodcut style.",
   "negative": "no AI noise artifacts, no soft photoreal render, no 3D engine look, no anime cel-shading, no chibi or cute cartoon, no neon, no real brand logos, no readable text or signage, no watermark, no nsfw, no modern guns, no sci-fi tech, no pixel art.",
   "categories": [

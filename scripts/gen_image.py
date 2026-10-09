@@ -58,7 +58,7 @@ def default_base_url() -> str:
 
 DEFAULT_BASE_URL = default_base_url()
 DEFAULT_MODEL = "gpt-5.5"
-DEFAULT_IMAGE_MODEL = "grok-imagine-image-2.0"
+DEFAULT_IMAGE_MODEL = "gpt-image-2.5"
 DEFAULT_TOPIC = "image-request"
 DEFAULT_TOPIC_ROOT = str(Path.cwd())
 STOPWORDS = {

@@ -151,6 +151,7 @@ class ImageStudioBoundaryTests(unittest.TestCase):
         image_payload = base64.b64encode(source.getvalue()).decode("ascii")
         session_key = "session-only-fixture-key"
         reject = threading.Event()
+        requested_models = []
 
         class ProviderFixture(BaseHTTPRequestHandler):
             def log_message(self, *args):
@@ -168,13 +169,13 @@ class ImageStudioBoundaryTests(unittest.TestCase):
                 if self.path != "/v1/models" or self.headers.get("Authorization") != "Bearer " + session_key:
                     self.send_error(401)
                     return
-                self.reply({"data": [{"id": "grok-imagine-image-2.0"}]})
+                self.reply({"data": [{"id": "grok-imagine-image-2.0"}, {"id": "gpt-image-2.5"}]})
 
             def do_POST(self):
                 if self.path != "/v1/images/generations" or self.headers.get("Authorization") != "Bearer " + session_key:
                     self.send_error(401)
                     return
-                self.rfile.read(int(self.headers["Content-Length"]))
+                requested_models.append(json.loads(self.rfile.read(int(self.headers["Content-Length"])))['model'])
                 if reject.is_set():
                     self.reply({"error": {"message": f"Insufficient credits: {session_key} data:image/png;base64,privatebytes"}}, 402)
                     return
@@ -190,7 +191,11 @@ class ImageStudioBoundaryTests(unittest.TestCase):
                                       {"base_url": base_url, "api_key": session_key}, self.authorized())
         self.assertEqual(status, 200)
         self.assertTrue(json.loads(body)["ok"], body)
-        status, _, body = self.request("POST", "/api/jobs", self.valid_request(), self.authorized())
+        _, _, config = self.request("GET", "/api/config")
+        self.assertEqual(json.loads(config)["defaults"]["image_model"], "gpt-image-2.5")
+        default_request = self.valid_request()
+        default_request.pop("image_model")
+        status, _, body = self.request("POST", "/api/jobs", default_request, self.authorized())
         self.assertEqual(status, 202, body)
         job = json.loads(body)
         deadline = time.monotonic() + 20
@@ -199,6 +204,8 @@ class ImageStudioBoundaryTests(unittest.TestCase):
             _, _, body = self.request("GET", "/api/jobs/" + job["id"])
             job = json.loads(body)
         self.assertEqual(job["status"], "succeeded", job)
+        self.assertEqual(requested_models[-1], "gpt-image-2.5")
+        self.assertEqual(job["image_model"], "gpt-image-2.5")
         status, _, image = self.request("GET", job["images"][0]["url"])
         self.assertEqual(status, 200)
         with Image.open(io.BytesIO(image)) as saved:
@@ -217,6 +224,7 @@ class ImageStudioBoundaryTests(unittest.TestCase):
             _, _, body = self.request("GET", "/api/jobs/" + failed["id"])
             failed = json.loads(body)
         self.assertEqual(failed["status"], "failed", failed)
+        self.assertEqual(requested_models[-1], "grok-imagine-image-2.0")
         self.assertIn("Insufficient credits", failed["error"])
         saved_error = (self.root / "ImageGallery/metadata" / failed["id"] / "job.json").read_text(encoding="utf-8")
         self.assertNotIn(session_key, saved_error)

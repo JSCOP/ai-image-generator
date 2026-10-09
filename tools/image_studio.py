@@ -88,7 +88,7 @@ SIZE_LABELS = {
     "2048x2048": "2048×2048 고해상도 정사각형",
     "3840x2160": "3840×2160 4K 와이드",
 }
-DEFAULTS = {"image_model": "grok-imagine-image-2.0", "size": "1920x1080", "quality": "high"}
+DEFAULTS = {"image_model": gen_image.DEFAULT_IMAGE_MODEL, "size": "1920x1080", "quality": "high"}
 LIMITS = {"reference_count": 4, "reference_bytes": 10485760}  # 개수, 파일당 바이트
 
 FINAL_SIZE_NOTE = (

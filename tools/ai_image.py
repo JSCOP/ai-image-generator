@@ -26,7 +26,7 @@ Spec keys (all in one flat object):
   size              "WIDTHxHEIGHT", positive integers (default "1920x1080")
   quality           "low" | "medium" | "high"  (default "high")
   model             main Responses model for the legacy hosted image tool fallback
-  image_model       image provider model (default grok-imagine-image-2.0)
+  image_model       image provider model (default gpt-image-2.5)
   reference_images  [string] paths (default [])
   action            "auto" | "generate" | "edit" (default "generate"; GPT reference edits should use "edit")
   topic_root        destination project/workspace or ImageGallery root (default caller's cwd)
@@ -72,7 +72,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from gallery import topic_dirs
-from gen_image import image_backend, resolve_base_url
+from gen_image import DEFAULT_IMAGE_MODEL, image_backend, resolve_base_url
 GEN_IMAGE = ROOT / "scripts" / "gen_image.py"
 GEN_BATCH = ROOT / "scripts" / "gen_batch.py"
 DEFAULT_TOPIC = "image-request"
@@ -88,7 +88,7 @@ SCHEMA = {
     "model": {"type": "string", "description": "main Responses model for the legacy hosted image tool fallback"},
     "image_model": {
         "type": "string",
-        "default": "grok-imagine-image-2.0",
+        "default": DEFAULT_IMAGE_MODEL,
         "description": "gpt-image-*, gemini-*-image, or grok-imagine-*",
         "examples": [
             "gpt-image-2.5",
@@ -283,7 +283,7 @@ def run_single(spec: dict) -> dict:
     size = spec.get("size", "1920x1080")
     quality = spec.get("quality", "high")
     model = spec.get("model")
-    image_model = spec.get("image_model")
+    image_model = spec.get("image_model") or os.environ.get("CLIPROXY_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL
     action = str(spec.get("action") or "generate")
     concurrency = max(1, int(spec.get("concurrency", 4)))
     resume = bool(spec.get("resume"))
@@ -398,7 +398,7 @@ def run_jobs(spec: dict) -> dict:
     default_quality = spec.get("quality", "high")
     default_refs = list(spec.get("reference_images") or [])
     default_model = spec.get("model")
-    default_image_model = spec.get("image_model")
+    default_image_model = spec.get("image_model") or os.environ.get("CLIPROXY_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL
     default_action = str(spec.get("action") or "generate")
     dry_run = bool(spec.get("dry_run"))
     resume = bool(spec.get("resume"))

@@ -20,6 +20,7 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from gallery import topic_dirs
+from gen_image import DEFAULT_IMAGE_MODEL
 from typing import Literal
 
 try:
@@ -42,7 +43,7 @@ COMPLETE_OUT = topic_dirs(ROOT, COMPLETE_TOPIC)[0]
 SIZE = "1920x1088"
 QUALITY = "high"
 MODEL = "gpt-5.5"
-IMAGE_MODEL = "gpt-image-2"
+IMAGE_MODEL = DEFAULT_IMAGE_MODEL
 
 
 @dataclass(frozen=True)
@@ -581,6 +582,7 @@ def make_contact_sheet(scope: str, root: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="T2IN event hazard top-down CCTV dataset runner")
+    parser.add_argument("--image-model", default=DEFAULT_IMAGE_MODEL, help="Image model (default: gpt-image-2.5)")
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("plan", help="Write deterministic manifests and summary only")
@@ -599,7 +601,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> int:
+    global IMAGE_MODEL
     args = parse_args()
+    IMAGE_MODEL = args.image_model
     if args.command == "plan":
         plan()
         return 0

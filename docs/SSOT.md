@@ -39,11 +39,11 @@ CLIProxyAPI `/v1/models` 기준 이미지 모델은 9개이며, 실제 생성까
 
 | 모델 | 경로 | 참조 이미지 | 상태 |
 |---|---|---|---|
-| `grok-imagine-image-2.0` | xAI `/v1/images/generations` | 불가 | 정상 (기본값) |
+| `grok-imagine-image-2.0` | xAI `/v1/images/generations` | 불가 | 정상 |
 | `grok-imagine-image-quality` | xAI `/v1/images/generations` | 불가 | 정상 |
 | `grok-imagine-image` | xAI `/v1/images/generations` | 불가 | 정상 |
 | `gemini-3.1-flash-image` | Gemini native `generateContent` | 가능 | 정상. 2026-08-28 검증 |
-| `gpt-image-2.5` | OpenAI `/v1/images/generations`, `/v1/images/edits` | 가능 | 정상. 최신 GPT 이미지 모델, generation/edit 2026-09-30 검증 |
+| `gpt-image-2.5` | OpenAI `/v1/images/generations`, `/v1/images/edits` | 가능 | 정상 (기본값). 최신 GPT 이미지 모델, generation/edit 2026-09-30 검증 |
 | `gpt-image-2.5-flare` | OpenAI `/v1/images/generations`, `/v1/images/edits` | 가능 | 정상. generation 2026-09-30 검증 |
 | `gpt-image-2.5-sunburst` | OpenAI `/v1/images/generations`, `/v1/images/edits` | 가능 | 정상. generation 2026-09-30 검증 |
 | `gpt-image-2` | OpenAI `/v1/images/generations`, `/v1/images/edits` | 가능 | 정상. 이전 세대, generation/edit 2026-09-04 검증 (`gpt-image-2-2026-04-21`) |
@@ -83,4 +83,4 @@ python scripts/sync_skills.py --check
 
 ## Gallery storage
 
-All entry points use `<destination-project-or-workspace>/ImageGallery/output/<topic>/` for images and `metadata/<topic>/` for minimal request records. Agent requests explicitly set `topic_root` to the requested project (including newly created projects), or the active workspace when no project is requested. The skill's first generation without a model choice queries `tools/ai_image.py --list-models` and waits for the user's selection; no preference file is created. Exact variant IDs are passed unchanged. Ordinary generation writes one image and one JSON, optionally including the provider's `response_model`; Studio uses job.json instead, and MCP state lives under metadata/_mcp. CLI dry-runs write no files. Legacy assets are reorganized with `python tools/organize_gallery.py --workspace <workspace>` (inspect) and `--apply` (move without overwriting).
+All entry points use `<destination-project-or-workspace>/ImageGallery/output/<topic>/` for images and `metadata/<topic>/` for minimal request records. Agent requests explicitly set `topic_root` to the requested project (including newly created projects), or the active workspace when no project is requested. Without a model choice the skill queries `tools/ai_image.py --list-models` and uses `gpt-image-2.5` without a selection question. An explicitly requested model takes priority, and an explicitly selected conversation model carries into follow-ups until changed/reset to the default; no preference file is created. Exact variant IDs are passed unchanged. Ordinary generation writes one image and one JSON, optionally including the provider's `response_model`; Studio uses job.json instead, and MCP state lives under metadata/_mcp. CLI dry-runs write no files. Legacy assets are reorganized with `python tools/organize_gallery.py --workspace <workspace>` (inspect) and `--apply` (move without overwriting).

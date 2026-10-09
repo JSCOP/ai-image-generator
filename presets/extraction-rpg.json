@@ -3,7 +3,7 @@
   "size": "1920x1088",
   "quality": "high",
   "model": "gpt-5.5",
-  "image_model": "gpt-image-2",
+  "image_model": "gpt-image-2.5",
   "global_style": "Dark and Darker / Escape from Tarkov inspired dark fantasy extraction RPG aesthetic. Grim medieval dungeon atmosphere, low-key lighting dominated by warm flickering torchlight against deep shadows, desaturated palette of charcoal black, iron gray, oxidized brass, blood red, candle amber. Heavy painterly textures, weathered stone, rusted iron, scratched leather, aged parchment. UI panels look like riveted iron plates and burnt parchment with brass corners. Designed as a mobile (landscape, 16:9) adaptation of Dark and Darker — every UI screen reads like a dark fantasy hardcore extraction game running on a phone, with touch-sized buttons but the same gritty visual language. Game scenes are top-down or slightly high-angle (about 60 degrees) over a stylized dungeon, readable silhouettes, atmospheric torch light pools.",
   "negative": "no bright cartoon colors, no chibi, no anime, no cute mascot style, no cell-shaded look, no neon, no clean pastel UI, no real brand logos, no readable signage text, no watermark, no nsfw, no modern guns, no sci-fi tech, no pixel art.",
   "categories": [

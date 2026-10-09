@@ -9,9 +9,9 @@ description: Use for generating, editing, restyling, upscaling, or batch-creatin
 
 1. Resolve the destination from the user's request. An explicitly named project, or a new project the user asks you to create, is the destination root. Use the active workspace only when no project destination was requested. Announce the absolute project root and planned image path before generation; run this repository's tools with that root explicitly in `topic_root`.
 2. Query the current proxy with `python tools/ai_image.py --list-models` from the repository root. This returns only supported image IDs and their reference-image support; an advertised model can still fail because of quota/provider errors. If discovery fails, report the connection error instead of presenting the static provider notes below as an available list.
-3. On the first generation request in a conversation without a chosen model, show the available exact IDs (including `-flare` and `-sunburst`) and ask which to use. For reference work, identify GPT/Gemini as compatible and Grok as text-only. A provider name such as "GPT" narrows the choices but does not select a variant. Use `request_user_input_async` or the available question tool with exact model IDs as choices; wait for the user's submitted answer before calling a generation API. If no question tool is available, ask in the final response and resume generation after the answer. Elapsed time is not a selection. Prompt preparation and dry-run planning can continue while waiting.
-4. An exact model in the request, or a previous user selection in this conversation, supplies the choice. Explicit delegation such as "알아서", "추천 모델로", or "기본값으로" also permits choosing a suitable available model. Reuse the choice for follow-ups; ask again only when requested or when it cannot handle the task. Keep this preference in conversation context, without creating onboarding/settings files.
-5. Pass the selected ID unchanged as `image_model` in every executed spec (and in per-job overrides when applicable). For example, choosing `gpt-image-2.5-sunburst` must send that complete ID rather than `gpt-image-2.5`. A missing/unavailable choice requires a new selection; do not silently substitute another variant.
+3. If the user has not specified or selected a model, use `gpt-image-2.5` immediately after discovery, without asking a model-selection question. Generic GPT image requests and delegation such as "알아서" also use this default. "기본 모델로" resets the choice to `gpt-image-2.5`.
+4. An exact model in the request overrides the default and any previous choice. Reuse an explicitly selected model for follow-up work in the same conversation until the user changes it or requests the default. Keep the choice in conversation context, without creating preference files. Show model choices when the user asks to choose; clarify only an ambiguous explicitly requested alternative or an incompatible/unavailable model.
+5. Pass the resolved ID unchanged as `image_model` in every executed spec (and in per-job overrides when applicable). For example, choosing `gpt-image-2.5-sunburst` must send that complete ID rather than `gpt-image-2.5`. If the default or chosen model is unavailable, report the problem and ask for an alternative instead of silently substituting another model. Grok is text-only; GPT/Gemini support references.
 
 ## Local installation
 
@@ -33,7 +33,7 @@ The repository is the single source of truth. Agent skill folders are directory 
 
 ## Providers
 
-- Direct CLI calls fall back to `grok-imagine-image-2.0`; skill use follows the selection workflow above and explicitly sets `image_model`. Grok rejects reference images; use a selected GPT image model with `action: "edit"` or Gemini for reference work.
+- The default image model is `gpt-image-2.5`; skill use explicitly sets the resolved `image_model`. A user-selected exact ID takes priority. Grok rejects reference images; use a selected GPT image model with `action: "edit"` or Gemini for reference work.
 - `grok-imagine-image-2.0`, `grok-imagine-image-quality`, `grok-imagine-image`: xAI text-to-image. Verified working 2026-08-28. Reference editing is not implemented by this CLI.
 - `gemini-3.1-flash-image`: Gemini native generation with reference images. Verified working 2026-08-28.
 - `gpt-image-2.5`: latest GPT image model. Direct generation and reference editing through the Image API verified working 2026-09-30. Prefer it for GPT requests unless the user names another model.
@@ -85,7 +85,7 @@ For T2IN work, use the user's actual T2IN checkout as the destination rather tha
 | Standard size | `1920x1080`; the CLI pads/buckets provider requests and saves the exact requested dimensions |
 | Square size | `1024x1024` or another positive `WIDTHxHEIGHT`; dimensions no longer need to be divisible by 16 |
 | Gemini/Antigravity | `image_model: "gemini-3.1-flash-image"`; supports `reference_images`; native buckets `512`, `1K`, `2K`, `4K`, then exact-size conversion |
-| Grok/xAI | default `image_model: "grok-imagine-image-2.0"`; text-to-image only; requires available xAI credits |
+| Grok/xAI | explicit `image_model: "grok-imagine-image-2.0"`; text-to-image only; requires available xAI credits |
 | Native image error/history pollution | Stop using native image calls; rerun through `tools/ai_image.py` with file outputs |
 
 `action` accepts `auto`, `generate`, or `edit`. It is supported at the top level for `single` and `jobs`, and each job may override it. For `gpt-image-*`, reference inputs use `/v1/images/edits`; `action: "edit"` requires at least one reference image.

@@ -3,7 +3,7 @@
   "size": "1920x1088",
   "quality": "high",
   "model": "gpt-5.4",
-  "image_model": "gpt-image-2",
+  "image_model": "gpt-image-2.5",
   "global_style": "Use case: photorealistic natural synthetic dataset image for ADX engine and multi-object tracking tests. Scene is inspired by Incheon International Airport Terminal 2 interiors but uses only generic fictional signage. Camera is a ceiling-mounted CCTV camera looking straight down at exactly 90 degrees, true orthographic top-down, no tilt, no 3/4 perspective, no horizon line, no wall elevation view, no ceiling visible. People must appear as directly overhead heads, shoulders, arms, coats, backpacks, rolling suitcases, luggage carts, strollers, wheelchairs, and staff uniforms, with enough separation for object detection and enough partial occlusion for tracking difficulty. Keep floor-plan geometry readable with vertical and horizontal architectural axes, crisp polished floor reflections, natural shadows falling straight down, varied passenger density, realistic queues and walking paths.",
   "negative": "no real brand logos, no readable airline names, no exact airport name in signage, no watermark, no UI overlay, no map overlay, no labels, no captions, no fisheye lens, no oblique angle, no balcony view, no cinematic ground-level perspective, no distorted anatomy, no duplicated malformed people, no fantasy objects, no emergency or violent incident, no smoke, no fire, no police action, no unreadable clutter covering the whole image. Output one coherent natural overhead airport photograph.",
   "categories": [
