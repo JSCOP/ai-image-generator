@@ -91,6 +91,19 @@ Invoke-WebRequest -UseBasicParsing `
 
 모델을 지정하지 않으면 선택 질문 없이 `gpt-image-2.5`를 사용합니다. `python tools/ai_image.py --list-models`로 연결과 모델 사용 가능 여부를 확인하고, 요청한 모델이 없으면 오류를 알립니다. 사용자가 모델을 직접 지정하면 그 정확한 ID를 우선합니다. `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, Gemini, Grok도 명시적으로 선택할 수 있습니다. 대화에서 선택한 모델은 후속 요청에 유지하며, "기본 모델로"라고 요청하면 `gpt-image-2.5`로 돌아옵니다.
 
+## Rust CLI (이전 중, 1단계)
+
+같은 JSON 계약을 지키는 Rust CLI `image-cli`가 `crates/`에 있습니다. 에이전트 기본 진입점은 아직 `tools/ai_image.py`입니다(전환은 단계 6).
+
+```powershell
+cargo build --release -p image-cli
+$env:CLIPROXY_BASE_URL = "http://127.0.0.1:8317/v1"   # 필수: 머신별 기본 주소가 없습니다
+target/release/image-cli --list-models
+target/release/image-cli --json '{"prompt":"...","topic":"x","dry_run":true}'
+```
+
+투명 배경은 `"image_model":"gpt-image-2.5-sunburst","background":"transparent"`로 요청하며 결과는 비율을 유지한 투명 여백(`fit:"contain"`)으로 저장됩니다. Python과 다른 점은 [docs/RUST_PARITY.md](docs/RUST_PARITY.md)에 있습니다. 검증: `cargo test --workspace`(Python `.venv`가 있으면 동등성 비교 포함).
+
 ## 직접 CLI 사용
 
 ### 단일 이미지
