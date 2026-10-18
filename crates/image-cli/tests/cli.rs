@@ -153,6 +153,28 @@ fn list_models_filters_image_ids() {
 }
 
 #[test]
+fn list_models_has_the_same_keys_on_success_and_every_failure() {
+    let ok = FakeProvider::start(|_| Reply::json(200, r#"{"data":[{"id":"gpt-image-2.5"}]}"#));
+    let down = FakeProvider::start(|_| Reply::json(500, "{}"));
+    let tmp = tempfile::tempdir().unwrap();
+    let keys = |base_url: &str| {
+        let res = last_json(&cli(base_url, tmp.path()).arg("--list-models").output().unwrap());
+        let mut keys: Vec<String> = res.as_object().unwrap().keys().filter(|k| !k.starts_with("error")).cloned().collect();
+        keys.sort();
+        (keys, res)
+    };
+    let (success, res) = keys(&ok.base_url());
+    assert_eq!((res["profile"].clone(), res["kind"].clone()), (Value::Null, json!("cliproxy")), "{res}");
+    for bad in [down.base_url(), "ftp://nowhere".to_string()] {
+        let (failure, res) = keys(&bad);
+        assert_eq!(failure, success, "{res}");
+        assert!(res["error"].is_string() && res["error_category"].is_string(), "{res}");
+    }
+    let (_, res) = keys("ftp://nowhere");
+    assert_eq!((res["profile"].clone(), res["kind"].clone()), (Value::Null, Value::Null), "{res}");
+}
+
+#[test]
 fn list_models_with_bad_connection_config_fails_offline() {
     let tmp = tempfile::tempdir().unwrap();
     let out = cli("ftp://nowhere", tmp.path()).arg("--list-models").output().unwrap();

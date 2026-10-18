@@ -292,8 +292,9 @@ async fn models(profile: Option<&str>) -> (Value, i32) {
     let conn = match resolve_for_cli(&SystemEnv, profile) {
         Ok((conn, _)) => conn,
         Err(err) => {
-            let result = json!({"ok": false, "base_url": null, "key_configured": false, "available_models": [], "models": [],
-                "error": err.message, "error_category": err.category});
+            // Same keys as success; what the failed resolution could not tell is null.
+            let result = json!({"ok": false, "base_url": null, "key_configured": false, "profile": null, "kind": null,
+                "available_models": [], "models": [], "error": err.message, "error_category": err.category});
             return (result, 1);
         }
     };
