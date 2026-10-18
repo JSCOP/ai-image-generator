@@ -85,6 +85,18 @@ Remove-Variable proxySecret
 
 `ok: true`와 실제 `available_models`가 나와야 합니다. 모델 목록 조회 성공만으로 생성 크레딧까지 보장되지는 않습니다. 실제 생성 테스트를 원하는 경우 모델 ID를 명시해 한 장을 요청하고 결과 JSON, 이미지 존재, 크기를 확인합니다.
 
+### Rust CLI 연결 설정
+
+Rust `image-cli`는 위 환경변수를 그대로 읽고, 추가로 "연결 프로필"을 쓸 수 있습니다. 프로필은 키를 Windows 자격 증명 관리자에 넣으므로 키를 사용자 환경변수에 평문으로 둘 필요가 없습니다. 빌드는 `cargo build --release -p image-cli`입니다.
+
+```powershell
+# 키는 현재 터미널의 CLIPROXY_API_KEY에서 한 번 읽어 자격 증명 관리자에 저장합니다
+target/release/image-cli profile add local --kind cliproxy --url http://127.0.0.1:8317 --key-env CLIPROXY_API_KEY --default
+target/release/image-cli profile check local
+```
+
+`check` 결과에서 `reachable`·`authenticated`·`models_listed`가 모두 `true`이고 `image_models`에 쓸 모델이 있어야 합니다. 생성할 때는 `--profile local`을 붙이거나, 기본 프로필(`--default`)이면 환경변수 `CLIPROXY_BASE_URL`이 없을 때 자동으로 쓰입니다. 환경변수가 있으면 그쪽이 먼저입니다. 다른 PC에서는 `--url`만 그 PC에서 닿는 주소(예: Tailscale `http://100.98.54.122:8317`)로 바꿉니다. 프로필 파일 위치는 `%APPDATA%\ImageStudio`(또는 `IMAGE_STUDIO_HOME`), 키 삭제는 `image-cli profile remove 이름`입니다. 자세한 사용법은 [README.md](README.md#연결-프로필)를 봅니다.
+
 ## 4. 스킬 링크와 갱신 방식
 
 스킬 파일을 에이전트마다 복사하지 않고 **저장소 폴더를 가리키는 링크**를 만듭니다. Windows에서는 junction을 사용하므로 관리자 권한/개발자 모드가 필요 없습니다. macOS/Linux에서는 심볼릭 링크를 만듭니다.

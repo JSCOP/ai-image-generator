@@ -91,16 +91,39 @@ Invoke-WebRequest -UseBasicParsing `
 
 모델을 지정하지 않으면 선택 질문 없이 `gpt-image-2.5`를 사용합니다. `python tools/ai_image.py --list-models`로 연결과 모델 사용 가능 여부를 확인하고, 요청한 모델이 없으면 오류를 알립니다. 사용자가 모델을 직접 지정하면 그 정확한 ID를 우선합니다. `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, Gemini, Grok도 명시적으로 선택할 수 있습니다. 대화에서 선택한 모델은 후속 요청에 유지하며, "기본 모델로"라고 요청하면 `gpt-image-2.5`로 돌아옵니다.
 
-## Rust CLI (이전 중, 1단계)
+## Rust CLI (이전 중, 2단계)
 
 같은 JSON 계약을 지키는 Rust CLI `image-cli`가 `crates/`에 있습니다. 에이전트 기본 진입점은 아직 `tools/ai_image.py`입니다(전환은 단계 6).
 
 ```powershell
 cargo build --release -p image-cli
-$env:CLIPROXY_BASE_URL = "http://127.0.0.1:8317/v1"   # 필수: 머신별 기본 주소가 없습니다
+$env:CLIPROXY_BASE_URL = "http://127.0.0.1:8317/v1"   # 프로필이 없으면 필수: 머신별 기본 주소가 없습니다
 target/release/image-cli --list-models
 target/release/image-cli --json '{"prompt":"...","topic":"x","dry_run":true}'
 ```
+
+### 연결 프로필
+
+연결을 "프로필"(공급자 종류 + 주소 + 키)로 저장해 두고 `--profile 이름`으로 고를 수 있습니다. 프로필 목록은 `%APPDATA%\ImageStudio\profiles.json`(환경변수 `IMAGE_STUDIO_HOME`이 있으면 그 폴더)에, 키는 Windows 자격 증명 관리자에만 저장됩니다. 키는 명령줄 인자로 받지 않습니다(셸 기록에 남기 때문). `--key-env 변수`는 그 환경변수에서, `--key-stdin`은 표준입력 첫 줄에서 읽습니다.
+
+```powershell
+# 이 PC에서 도는 CLIProxyAPI (/v1은 자동으로 붙음)
+target/release/image-cli profile add local --kind cliproxy --url http://127.0.0.1:8317 --key-env CLIPROXY_API_KEY --default
+
+# 노트북에서 Tailscale로 집 PC의 CLIProxyAPI 사용 (Tailscale·사설망 http는 경고 없음)
+target/release/image-cli profile add home --kind cliproxy --url http://100.98.54.122:8317 --key-env CLIPROXY_API_KEY
+
+# OpenAI 공식 API (주소는 기본값 https://api.openai.com/v1, 키 필수). 키는 숨김 입력으로 넘깁니다
+$k = Read-Host 'OpenAI API key' -AsSecureString
+[System.Net.NetworkCredential]::new('', $k).Password | target/release/image-cli profile add openai --kind openai --key-stdin
+Remove-Variable k
+
+target/release/image-cli profile list            # 키 값은 나오지 않고 key_configured만 표시
+target/release/image-cli profile check local     # 서버 접근 → 인증 → 모델 목록 (유료 생성 없음)
+target/release/image-cli --profile local --json '{"prompt":"...","topic":"x","image_model":"gpt-image-2.5"}'
+```
+
+종류는 `cliproxy`, `openai`, `gemini`, `xai`, `openai_compatible`입니다. 연결은 spec `profile` 또는 `--profile` → 프로세스 `CLIPROXY_BASE_URL` → 사용자 환경변수 `CLIPROXY_BASE_URL` → 기본 프로필 순서로 정합니다. 고른 프로필이 없거나 키가 비어 있으면 다른 주소·키를 빌리지 않고 호출 전에 오류를 냅니다. 프로필 종류와 맞지 않는 모델(예: Gemini 프로필에 `gpt-image-2.5`)도 호출 전에 거부합니다. 동시 실행 기본값은 `cliproxy`·`openai_compatible` 30, 공식 API(`openai`·`gemini`·`xai`) 4이며 `profile add/update --concurrency N`이나 spec `concurrency`로 바꿉니다. 공식 API 직접 연결은 문서 근거로 구현했고 아직 실제 키로 확인하지 않았습니다. OpenAI 공식 API에는 접미사 없는 `gpt-image-2.5` ID가 없으므로 `gpt-image-2.5-sunburst`나 `-flare`를 지정하세요.
 
 투명 배경은 `"image_model":"gpt-image-2.5-sunburst","background":"transparent"`로 요청하며 결과는 비율을 유지한 투명 여백(`fit:"contain"`)으로 저장됩니다. Python과 다른 점은 [docs/RUST_PARITY.md](docs/RUST_PARITY.md)에 있습니다. 검증: `cargo test --workspace`(Python `.venv`가 있으면 동등성 비교 포함).
 

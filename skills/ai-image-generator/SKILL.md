@@ -30,6 +30,7 @@ The repository is the single source of truth. Agent skill folders are directory 
 - Read `CLIPROXY_API_KEY` from the process or Windows user environment only.
 - Never write the API key into the repository, specs, prompts, logs, or output metadata.
 - Before diagnosing model behavior, verify the authenticated `/v1/models` request succeeds.
+- The Rust `image-cli` (not yet the agent entry point) can also use connection profiles: `image-cli profile list`, `image-cli profile check NAME`, and `--profile NAME` on a run. Profiles live in `%APPDATA%\ImageStudio\profiles.json` and their keys only in Windows Credential Manager. Add keys with `--key-env VAR` or `--key-stdin`, never as an argument or in chat. See the README "연결 프로필" section.
 
 ## Providers
 

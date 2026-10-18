@@ -165,14 +165,14 @@ ai-image-generator/
 
 엔진은 모델 ID와 프로필 종류로 기능을 판정해 화면이 불가능한 조합을 미리 막는다. 표에는 **공식 문서 근거**와 **이 환경 실측(날짜)**을 따로 적는다. 실측(2026-10-18, CLIProxyAPI 8.0.32 경유): GPT/Gemini 생성·참조 편집 성공, sunburst 투명 RGBA 성공, Grok 지출 한도 실패. 공식 API 직접 연결은 미검증.
 
-| 모델 | 참조 | 마스크 | 투명(모델 자체) |
-|---|---|---|---|
-| gpt-image-2.5-sunburst / -flare | O | O [구현 중 확인] | O (공식 문서) |
-| gpt-image-2.5 (접미사 없음) | O | O (CLIProxyAPI 수신 확인, 마스크 준수 여부는 미확정) | [구현 중 확인] 공식 문서에 없음 |
-| gpt-image-2 | O | O [구현 중 확인] | 미리보기 지원, 중단 보고 있음 [구현 중 확인] |
-| gpt-image-1.5 | O | O | [구현 중 확인] |
-| gemini-3.1-flash-image | O | X (프롬프트+합성으로 대체) | X (생성 후 배경 제거로 대체) |
-| grok-imagine-* | O(xAI 문서) / CLIProxyAPI 경유는 [구현 중 확인] | X | X (생성 후 배경 제거로 대체) |
+| 모델 | 참조 | 마스크 | 투명(모델 자체) | 문서 근거(2026-10-18) | 실측 |
+|---|---|---|---|---|---|
+| gpt-image-2.5-sunburst / -flare | O | O [구현 중 확인] | O (공식 문서) | OpenAI 공식: Bearer, `/v1/images/edits` JSON(`images[]`, 최대 16장), 편집 기본 모델이 sunburst | CLIProxyAPI 경유 생성·sunburst 투명 RGBA 성공(2026-10-18). 공식 API 미실측 |
+| gpt-image-2.5 (접미사 없음) | O | O (CLIProxyAPI 수신 확인, 마스크 준수 여부는 미확정) | [구현 중 확인] 공식 문서에 없음 | **OpenAI 공식 문서에 이 ID 없음**(2.5는 -sunburst/-flare와 -2026-09-08 스냅샷만). 공식 프로필에서는 접미사 모델을 쓴다 | CLIProxyAPI 경유 생성·참조 편집 성공(2026-10-18). `--profile local`(cliproxy) 1024² low 생성 성공(2026-10-19, 제공자 1448x1086 → cover로 1024x1024 저장) |
+| gpt-image-2 | O | O [구현 중 확인] | 미리보기 지원, 중단 보고 있음 [구현 중 확인] | OpenAI 공식 Images API, `input_fidelity` 보내지 않음 | CLIProxyAPI 경유 생성·참조 편집 성공(2026-09-04). 공식 API 미실측 |
+| gpt-image-1.5 | O | O | [구현 중 확인] | OpenAI 공식 Images API | 직접 Images API 경로 재검증 안 함. 공식 API 미실측 |
+| gemini-3.1-flash-image | O | X (프롬프트+합성으로 대체) | X (생성 후 배경 제거로 대체) | Gemini 공식: `x-goog-api-key` 헤더, `/v1beta/models/{id}:generateContent`, 모델 목록 `/v1beta/models`는 `pageToken` 페이지 처리 | CLIProxyAPI 경유 생성·참조 편집 성공(2026-10-18). 공식 API 미실측 |
+| grok-imagine-* | O(xAI 문서) / CLIProxyAPI 경유는 [구현 중 확인] | X | X (생성 후 배경 제거로 대체) | xAI 공식: Bearer, 편집은 JSON 전용 `/v1/images/edits`(multipart 불가), 참조는 grok-imagine-image-2.0 최대 5장·그 밖의 grok 1장으로 제한 | CLIProxyAPI 경유 생성은 지출 한도로 실패(2026-10-18). 공식 API 미실측 |
 
 ### 6.4 요청 형식 차이
 
