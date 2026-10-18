@@ -51,15 +51,19 @@ pub async fn get_settings(state: State<'_, AppState>) -> Result<Settings, Servic
     blocking(move || Ok(settings::load_settings(&home))).await
 }
 
+/// Saves settings, then allows the (possibly new) work folder's gallery so generated images show at once.
 #[tauri::command]
-pub async fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<(), ServiceError> {
+pub async fn save_settings<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>, settings: Settings) -> Result<(), ServiceError> {
     let home = state.ctx.home.clone();
     let lock = state.settings_lock.clone();
-    blocking(move || {
+    let saved = blocking(move || {
         let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-        settings::save_settings(&home, &settings)
+        settings::save_settings(&home, &settings)?;
+        Ok(settings)
     })
-    .await
+    .await?;
+    allow_galleries(&app, &saved);
+    Ok(())
 }
 
 #[tauri::command]

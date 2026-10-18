@@ -163,6 +163,13 @@ mod tests {
         assert_eq!(saved["galleryFolders"], json!([]));
         let err = invoke(&webview, "remove_gallery_folder", json!({ "path": work })).unwrap_err();
         assert_eq!(err["category"], "invalid_request");
+
+        // A new work folder is allowed as soon as settings are saved, before any gallery call.
+        let moved = dir.path().join("moved");
+        let new_image = moved.join("ImageGallery").join("output").join("t").join("c.png");
+        assert!(!app.asset_protocol_scope().is_allowed(&new_image));
+        invoke(&webview, "save_settings", json!({"settings": {"workDir": moved, "galleryFolders": []}})).unwrap();
+        assert!(app.asset_protocol_scope().is_allowed(&new_image), "saving settings allows the new work folder's gallery");
     }
 
     #[test]
