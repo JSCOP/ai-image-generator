@@ -289,3 +289,45 @@ async fn resume_finishes_a_pending_record_left_by_a_crash() {
     assert!(rec["sha256"].is_string());
     assert!(!s.lock_dir().join("a.png.lock").exists());
 }
+
+#[tokio::test]
+async fn resume_with_corrupt_record_fails_without_reuse_or_request() {
+    let p = FakeProvider::start(|_| openai_image_reply(&png_bytes(8, 8, [0, 0, 0, 255])));
+    let s = setup(&p);
+    let cancel = CancellationToken::new();
+    generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "8x8"), Fit::Cover, true), &cancel).await.unwrap();
+    let image = std::fs::read(s.out()).unwrap();
+    std::fs::write(s.rec(), b"{broken").unwrap();
+    let mut changed = request("gpt-image-2.5", "8x8");
+    changed.prompt = "a different mug".into();
+    let err = generate_one(&s.ctx, &s.job(changed, Fit::Cover, true), &cancel).await.unwrap_err();
+    assert_eq!(err.category, Category::Conflict);
+    assert_eq!(p.requests().len(), 1, "no provider request after the first run");
+    assert_eq!(std::fs::read(s.out()).unwrap(), image);
+    assert_eq!(std::fs::read(s.rec()).unwrap(), b"{broken");
+    assert!(!s.lock_dir().join("a.png.lock").exists());
+}
+
+#[tokio::test]
+async fn output_locked_by_another_run_is_a_conflict_with_no_request() {
+    let p = FakeProvider::start(|_| openai_image_reply(&png_bytes(8, 8, [0, 0, 0, 255])));
+    let s = setup(&p);
+    let cancel = CancellationToken::new();
+    let other = image_core::store::reserve(&s.out(), Some(&s.rec()), &s.lock_dir()).unwrap();
+    let err = generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "8x8"), Fit::Cover, true), &cancel).await.unwrap_err();
+    assert_eq!(err.category, Category::Conflict);
+    // The other run completes with a different request; A resumes and must leave it alone.
+    let mut b = request("gpt-image-2.5", "8x8");
+    b.prompt = "B".into();
+    let hash_b = image_core::store::request_hash(&b, Fit::Cover).unwrap();
+    let png_b = png_bytes(8, 8, [0, 0, 255, 255]);
+    let rec_b = image_core::store::Record { request_hash: Some(hash_b.clone()), ..Default::default() };
+    other.write_pending(&rec_b).unwrap();
+    other.publish(&png_b, rec_b).unwrap();
+    let err = generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "8x8"), Fit::Cover, true), &cancel).await.unwrap_err();
+    assert_eq!(err.category, Category::Conflict);
+    assert!(p.requests().is_empty());
+    assert_eq!(std::fs::read(s.out()).unwrap(), png_b);
+    assert_eq!(s.record()["request_hash"], hash_b.as_str());
+    assert_eq!(s.record()["status"], "complete");
+}

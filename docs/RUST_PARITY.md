@@ -10,7 +10,7 @@
 | 기록 JSON 새 필드 | `status`(pending/complete/failed), `request_id`, `request_hash`, `background`, `fit`, `provider_size`, `saved_size`, `sha256`, `alpha`, `connection_source`, `error`, `engine`. Python 키는 모두 같은 값으로 유지 | 이미지와 기록을 하나의 완료 결과로 공개 (§5.4, P1-05) |
 | 실패 기록 | 실패하면 `status:"failed"`와 오류 구조를 남김. Python은 요청 전 기록만 남김 | 갤러리가 완료/실패를 구분 (§7.5) |
 | 동시 실행 | 같은 출력 경로를 다른 실행이 쓰는 중이면 API 호출 없이 `conflict` 실패 | 이중 과금·기록 뒤섞임 방지 (§5.4) |
-| resume 판정 | 파일 존재만이 아니라 기록의 `request_hash`·`sha256`과 이미지 디코딩까지 확인. 다른 요청으로 만든 파일이면 건드리지 않고 `conflict`. `status`가 없는 Python 기록은 이미지가 열리면 완료로 인정 | 다른 프롬프트의 결과를 재사용하지 않게 (§5.4) |
+| resume 판정 | 파일 존재만이 아니라 기록의 `request_hash`·`sha256`과 이미지 디코딩까지 확인. 다른 요청으로 만든 파일이면 건드리지 않고 `conflict`. 기록 파일이 없거나 `status`가 없는 유효한 Python 기록이면 이미지가 열릴 때 완료로 인정. 읽을 수 없거나 JSON으로 해석되지 않는 기록은 손상으로 보고 `conflict`(재사용·덮어쓰기·생성 요청 없음). 판정은 출력 lock을 잡은 뒤 다시 하므로, 다른 실행이 먼저 완료한 기록은 덮어쓰지 않음 | 다른 프롬프트의 결과를 재사용하지 않게 (§5.4) |
 | 실패 사유 문구 | `failures[].reason`은 `HTTP 400: rejected`처럼 정제한 한 줄. Python은 자식 프로세스 stderr 마지막 줄. 대신 `failures[].error`에 `category`, `provider_code`, `http_status`, `retryable` | 원인 구분과 키 제거 (§5.4) |
 | 최상위 오류 | `error_category`를 함께 냄 | 같은 이유 |
 | 새 spec 키 | `background`, `fit` 지원. `mask`, `keep_outside_mask`, `remove_background:true`(단계 4)는 유료 호출 전에 `unsupported`로 거부. 최상위 `profile`은 지원(Python에는 없음), job 안의 `profile`은 `unsupported`(한 실행은 한 연결) | 조용히 무시하지 않음 (§5.2, P1-04) |

@@ -97,6 +97,23 @@ pub enum Existing {
     Corrupt(String),
 }
 
+/// `Ok(None)` only when the record file is absent. A record that cannot be read, is not a JSON
+/// object, or has a non-string `status` is an error: it must never pass as a legacy Python record.
+fn read_record(path: &Path) -> Result<Option<Value>, String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("existing record is not readable; fix or remove it, or use a new topic: {}: {e}", path.display())),
+    };
+    let unusable = || format!("existing record is damaged; fix or remove it, or use a new topic: {}", path.display());
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| unusable())?;
+    let status_ok = value.get("status").is_none_or(|s| s.is_string() || s.is_null());
+    if !value.is_object() || !status_ok {
+        return Err(unusable());
+    }
+    Ok(Some(value))
+}
+
 fn decodes(path: &Path) -> bool {
     image::ImageReader::open(path).and_then(|r| r.with_guessed_format()).ok().and_then(|r| r.decode().ok()).is_some()
 }
@@ -106,13 +123,14 @@ pub fn inspect_existing(output: &Path, record: Option<&Path>, request_hash: &str
         return Existing::Absent;
     }
     let corrupt = || Existing::Corrupt(format!("existing output is not a valid image: {}", output.display()));
-    let saved: Option<Value> = record.and_then(|p| std::fs::read(p).ok()).and_then(|b| serde_json::from_slice(&b).ok());
-    let status = saved.as_ref().and_then(|v| v["status"].as_str().map(str::to_string));
-    let Some(status) = status else {
+    let saved = match record.map(read_record).transpose() {
+        Ok(saved) => saved.flatten(),
+        Err(message) => return Existing::Corrupt(message),
+    };
+    let Some((saved, status)) = saved.and_then(|v| v["status"].as_str().map(str::to_string).map(|s| (v, s))) else {
         // No record, or a record written by the Python CLI: the image itself is the evidence.
         return if decodes(output) { Existing::Reusable } else { corrupt() };
     };
-    let saved = saved.unwrap_or_default();
     if saved["request_hash"].as_str() != Some(request_hash) {
         return Existing::Mismatch(format!("existing output was made from a different request; use a new topic: {}", output.display()));
     }
@@ -245,7 +263,14 @@ fn process_alive(pid: u64) -> bool {
 }
 
 impl Reservation {
+    /// Refuses when an image already sits at the output: its record belongs to whoever published it.
     pub fn write_pending(&self, rec: &Record) -> Result<(), EngineError> {
+        if self.output.exists() {
+            return Err(EngineError::new(
+                Category::Conflict,
+                format!("Output already exists; use a new topic or resume: {}", self.output.display()),
+            ));
+        }
         let Some(path) = &self.record else { return Ok(()) };
         let mut rec = rec.clone();
         rec.status = Some("pending".into());
@@ -297,13 +322,26 @@ impl Reservation {
     }
 
     /// Reuse an image whose record was left pending/failed: rewrite the record as complete.
-    pub fn finalize_existing(&self) -> Result<Record, EngineError> {
+    /// Re-inspects under this lock, so only a record of the same request is ever finalized.
+    pub fn finalize_existing(&self, request_hash: &str) -> Result<Record, EngineError> {
+        let conflict = |message: String| EngineError::new(Category::Conflict, message);
+        match inspect_existing(&self.output, self.record.as_deref(), request_hash) {
+            Existing::NeedsFinalize => {}
+            Existing::Mismatch(message) | Existing::Corrupt(message) => return Err(conflict(message)),
+            Existing::Absent | Existing::Reusable => {
+                return Err(conflict(format!("existing output changed while waiting for its lock: {}", self.output.display())))
+            }
+        }
         let bytes = std::fs::read(&self.output).map_err(|e| io_error("cannot read existing image", &self.output, e))?;
-        let image = image::load_from_memory(&bytes).map_err(|e| {
-            EngineError::new(Category::Conflict, format!("existing output is not a valid image: {}: {e}", self.output.display()))
-        })?;
+        let image = image::load_from_memory(&bytes)
+            .map_err(|e| conflict(format!("existing output is not a valid image: {}: {e}", self.output.display())))?;
         let mut rec: Record = match &self.record {
-            Some(path) => std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default(),
+            Some(path) => {
+                let bytes = std::fs::read(path).map_err(|e| io_error("cannot read record", path, e))?;
+                serde_json::from_slice(&bytes).map_err(|_| {
+                    conflict(format!("existing record is damaged; fix or remove it, or use a new topic: {}", path.display()))
+                })?
+            }
             None => Record::default(),
         };
         rec.status = Some("complete".into());

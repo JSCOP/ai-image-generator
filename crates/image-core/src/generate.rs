@@ -1,4 +1,4 @@
-//! One image, end to end: validate → resume check → reserve → call → fit → publish.
+//! One image, end to end: validate → reserve → resume check under the lock → call → fit → publish.
 
 use crate::adapter::{check_request, model_supported};
 use crate::connection::Connection;
@@ -70,6 +70,9 @@ pub async fn generate_one(ctx: &JobContext, job: &JobSpec, cancel: &Cancellation
     let req = &job.request;
     validate_request(ctx.conn.kind, req)?;
     let hash = request_hash(req, job.fit)?;
+    // Lock first, then inspect: a decision made before the lock may be stale by the time we hold it.
+    // Early returns drop the reservation, which releases the lock without touching the record.
+    let reservation = reserve(&job.output, job.record.as_deref(), &job.lock_dir)?;
     match inspect_existing(&job.output, job.record.as_deref(), &hash) {
         Existing::Absent => {}
         _ if !job.resume => {
@@ -80,8 +83,7 @@ pub async fn generate_one(ctx: &JobContext, job: &JobSpec, cancel: &Cancellation
         }
         Existing::Reusable => return Ok(JobOk::Skipped { output: job.output.clone() }),
         Existing::NeedsFinalize => {
-            let reservation = reserve(&job.output, job.record.as_deref(), &job.lock_dir)?;
-            reservation.finalize_existing()?;
+            reservation.finalize_existing(&hash)?;
             return Ok(JobOk::Skipped { output: job.output.clone() });
         }
         Existing::Mismatch(message) | Existing::Corrupt(message) => return Err(EngineError::new(Category::Conflict, message)),
@@ -89,7 +91,6 @@ pub async fn generate_one(ctx: &JobContext, job: &JobSpec, cancel: &Cancellation
     if cancel.is_cancelled() {
         return Err(EngineError::new(Category::Cancelled, "cancelled before start"));
     }
-    let reservation = reserve(&job.output, job.record.as_deref(), &job.lock_dir)?;
     let mut record = Record {
         prompt: req.prompt.clone(),
         image_model: req.image_model.clone(),

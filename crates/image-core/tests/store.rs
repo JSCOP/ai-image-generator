@@ -227,7 +227,7 @@ fn pending_or_failed_record_with_matching_image_needs_finalize() {
         assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::NeedsFinalize), "{status}");
     }
     let r = reserve(&d.out, Some(&d.rec), &d.lock_dir).unwrap();
-    let done = r.finalize_existing().unwrap();
+    let done = r.finalize_existing("h").unwrap();
     let saved = read_json(&d.rec);
     assert_eq!(saved["status"], "complete");
     assert_eq!(saved["sha256"], sha256_hex(&png));
@@ -236,4 +236,64 @@ fn pending_or_failed_record_with_matching_image_needs_finalize() {
     assert_eq!(done.status.as_deref(), Some("complete"));
     assert!(!lock_path(&d).exists());
     assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::Reusable));
+}
+
+/// F1: A inspects (Absent) before B publishes, then reserves. A must not take over B's output.
+#[test]
+fn run_that_inspected_before_another_completed_cannot_take_its_output() {
+    let d = dirs();
+    let hash_a = request_hash(&request("A: a red cup"), Fit::Cover).unwrap();
+    let hash_b = request_hash(&request("B: a blue cup"), Fit::Cover).unwrap();
+    let png_b = png_bytes(8, 8, [0, 0, 255, 255]);
+    assert!(matches!(inspect_existing(&d.out, Some(&d.rec), &hash_a), Existing::Absent));
+
+    let b = reserve(&d.out, Some(&d.rec), &d.lock_dir).unwrap();
+    b.write_pending(&record(&d.out, &hash_b)).unwrap();
+    b.publish(&png_b, record(&d.out, &hash_b)).unwrap();
+    let record_b = read_json(&d.rec);
+
+    let a = reserve(&d.out, Some(&d.rec), &d.lock_dir).unwrap();
+    // Under the lock A sees B's result, and the pending write refuses to replace it.
+    assert!(matches!(inspect_existing(&d.out, Some(&d.rec), &hash_a), Existing::Mismatch(_)));
+    let err = a.write_pending(&record(&d.out, &hash_a)).unwrap_err();
+    assert_eq!(err.category, Category::Conflict);
+    a.fail(record(&d.out, &hash_a), &err);
+    assert_eq!(read_json(&d.rec), record_b);
+    assert_eq!(std::fs::read(&d.out).unwrap(), png_b);
+
+    // Finalizing B's image as A's result is refused under the lock as well.
+    let recovery = reserve(&d.out, Some(&d.rec), &d.lock_dir).unwrap();
+    assert_eq!(recovery.finalize_existing(&hash_a).unwrap_err().category, Category::Conflict);
+    assert_eq!(read_json(&d.rec), record_b);
+    assert_eq!(read_json(&d.rec)["request_hash"], hash_b.as_str());
+}
+
+/// F4: only an absent record or a valid status-less (Python) record is the legacy case.
+#[test]
+fn unreadable_or_unparsable_record_is_corrupt_not_legacy() {
+    let d = dirs();
+    std::fs::write(&d.out, png_bytes(8, 8, [1, 1, 1, 255])).unwrap();
+    std::fs::create_dir_all(&d.lock_dir).unwrap();
+    for broken in [&b"{broken"[..], b"[1, 2]", b"\"text\"", b"{\"status\": 3}"] {
+        std::fs::write(&d.rec, broken).unwrap();
+        assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::Corrupt(_)), "{}", String::from_utf8_lossy(broken));
+    }
+    std::fs::remove_file(&d.rec).unwrap();
+    std::fs::create_dir_all(&d.rec).unwrap();
+    assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::Corrupt(_)), "unreadable record");
+    std::fs::remove_dir(&d.rec).unwrap();
+    assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::Reusable), "absent record");
+}
+
+#[test]
+fn finalize_refuses_a_corrupt_record() {
+    let d = dirs();
+    let png = png_bytes(8, 8, [1, 1, 1, 255]);
+    std::fs::write(&d.out, &png).unwrap();
+    std::fs::create_dir_all(&d.lock_dir).unwrap();
+    std::fs::write(&d.rec, b"{broken").unwrap();
+    let r = reserve(&d.out, Some(&d.rec), &d.lock_dir).unwrap();
+    assert_eq!(r.finalize_existing("h").unwrap_err().category, Category::Conflict);
+    assert_eq!(std::fs::read(&d.rec).unwrap(), b"{broken");
+    assert_eq!(std::fs::read(&d.out).unwrap(), png);
 }
