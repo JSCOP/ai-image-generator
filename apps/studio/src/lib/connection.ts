@@ -11,12 +11,16 @@ export interface Stage {
   state: StageState;
   /** Korean reason for warn/fail, else "". */
   detail: string;
+  /** Provider error code behind the reason (can be long, e.g. billing_hard_limit_reached), else "". */
+  code: string;
 }
 
 function errorDetail(report: ConnectionReport): string {
-  const e = report.error;
-  if (!e) return '';
-  return e.provider_code ? `${categoryLabel(e.category)} (${e.provider_code})` : categoryLabel(e.category);
+  return report.error ? categoryLabel(report.error.category) : '';
+}
+
+function errorCode(report: ConnectionReport): string {
+  return report.error?.provider_code ?? '';
 }
 
 /**
@@ -30,14 +34,20 @@ export function stagesOf(report: ConnectionReport | null, lastGeneration: Genera
   let serverDetail = '';
   let authDetail = '';
   let modelsDetail = '';
+  let serverCode = '';
+  let authCode = '';
+  let modelsCode = '';
   if (report) {
     server = report.reachable ? 'ok' : 'fail';
-    if (!report.reachable) serverDetail = errorDetail(report);
-    else if (report.authenticated) {
+    if (!report.reachable) {
+      serverDetail = errorDetail(report);
+      serverCode = errorCode(report);
+    } else if (report.authenticated) {
       auth = 'ok';
       if (!report.models_listed) {
         models = 'fail';
         modelsDetail = errorDetail(report) || '모델 목록을 받지 못함';
+        modelsCode = errorCode(report);
       } else if (report.image_models.length === 0) {
         models = 'warn';
         modelsDetail = '이미지 모델이 없음';
@@ -45,23 +55,25 @@ export function stagesOf(report: ConnectionReport | null, lastGeneration: Genera
     } else {
       auth = 'fail';
       authDetail = errorDetail(report) || '키가 거부됨';
+      authCode = errorCode(report);
     }
   }
   const last = report?.last_generation ?? lastGeneration;
   let generation: StageState = 'unknown';
   let generationDetail = '';
+  let generationCode = '';
   if (last) {
     generation = last.ok ? 'ok' : 'fail';
     if (!last.ok) {
-      const label = last.category ? categoryLabel(last.category) : '실패';
-      generationDetail = last.provider_code ? `${label} (${last.provider_code})` : label;
+      generationDetail = last.category ? categoryLabel(last.category) : '실패';
+      generationCode = last.provider_code ?? '';
     }
   }
   return [
-    { key: 'server', label: '서버', state: server, detail: serverDetail },
-    { key: 'auth', label: '인증', state: auth, detail: authDetail },
-    { key: 'models', label: '모델', state: models, detail: modelsDetail },
-    { key: 'generation', label: '생성', state: generation, detail: generationDetail },
+    { key: 'server', label: '서버', state: server, detail: serverDetail, code: serverCode },
+    { key: 'auth', label: '인증', state: auth, detail: authDetail, code: authCode },
+    { key: 'models', label: '모델', state: models, detail: modelsDetail, code: modelsCode },
+    { key: 'generation', label: '생성', state: generation, detail: generationDetail, code: generationCode },
   ];
 }
 

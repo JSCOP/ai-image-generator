@@ -14,10 +14,14 @@ import {
   itemCard,
   MAX_COUNT,
   parseSize,
+  progressView,
   RESUME_WORK_DIR_ONLY,
+  retryInput,
   resumeBlocked,
   resumeFrom,
   runCard,
+  runOutcome,
+  runPills,
   samePath,
   sizeOf,
   splitPrompt,
@@ -333,21 +337,80 @@ describe('cards', () => {
   it('shows a run card with its image only when the image is there', () => {
     expect(runCard({ index: 2, status: 'running', output: 'C:\\o\\t_2.png' })).toMatchObject({ key: 'run-2', label: '#2', status: 'running', imagePath: null });
     expect(runCard({ index: 2, status: 'done', output: 'C:\\o\\t_2.png' })).toMatchObject({ status: 'done', imagePath: 'C:\\o\\t_2.png' });
-    expect(runCard({ index: 3, status: 'failed', reason: '429', category: 'quota' })).toMatchObject({ status: 'failed', text: '사용 한도 초과 · 429' });
+    expect(runCard({ index: 2, status: 'done', output: 'C:\\o\\t_2.png' }).detail).toBe('');
+  });
+
+  it('puts the Korean cause first and keeps the raw provider message as the detail', () => {
+    const reason = 'HTTP 429: You exceeded your current quota (billing_hard_limit_reached)';
+    expect(runCard({ index: 3, status: 'failed', reason, category: 'quota' })).toMatchObject({ status: 'failed', text: '사용 한도 초과', detail: reason });
+    // imageFailed carries no category; the finished event adds it later.
+    expect(runCard({ index: 3, status: 'failed', reason: 'boom' })).toMatchObject({ status: 'failed', text: '', detail: 'boom' });
+    expect(runCard({ index: 3, status: 'retrying', attempt: 2, reason: 'timeout' })).toMatchObject({ text: '재시도 2회차 · timeout', detail: '' });
   });
 
   it('shows a cancelled image as cancelled, not as a red failure', () => {
     const card = runCard({ index: 4, status: 'failed', reason: '취소되었습니다', category: 'cancelled' });
-    expect(card).toMatchObject({ status: 'cancelled', text: '' });
+    expect(card).toMatchObject({ status: 'cancelled', text: '', detail: '' });
     const cards = [card, runCard({ index: 5, status: 'failed', category: 'quota' }), runCard({ index: 6, status: 'done', output: 'x' })];
     expect(tallyCards(cards)).toEqual({ done: 1, running: 0, retrying: 0, failed: 1, cancelled: 1, total: 3 });
+  });
+
+  it('while cancelling, an image that stops (imageFailed without a category) is cancelled, never counted as failed', () => {
+    const stopped = { index: 1, status: 'failed' as const, reason: 'cancelled' };
+    expect(runCard(stopped, false, true)).toMatchObject({ status: 'cancelled', text: '', detail: '' });
+    expect(tallyCards([runCard(stopped, false, true)])).toMatchObject({ failed: 0, cancelled: 1 });
+    // A real failure with its category stays a failure even while cancelling.
+    expect(runCard({ ...stopped, category: 'quota' }, false, true).status).toBe('failed');
   });
 
   it('maps gallery statuses to card states', () => {
     expect(itemCard(item({ status: 'legacy' }))).toMatchObject({ status: 'done', imagePath: item().imagePath, label: '#1' });
     expect(itemCard(item({ status: 'missing' }))).toMatchObject({ status: 'missing', imagePath: null, text: '기록은 있지만 파일 없음' });
-    expect(itemCard(item({ status: 'failed', error: '한도' }))).toMatchObject({ status: 'failed', text: '한도' });
+    expect(itemCard(item({ status: 'failed', error: 'HTTP 500' }))).toMatchObject({ status: 'failed', text: '', detail: 'HTTP 500' });
     expect(itemCard(item({ status: 'pending' }))).toMatchObject({ status: 'pending', text: '끝나지 않은 기록' });
     expect(itemCard(item({ background: 'transparent' })).transparent).toBe(true);
+  });
+});
+
+describe('run header', () => {
+  const tally = (over: Partial<ReturnType<typeof tallyCards>> = {}) => ({ done: 0, running: 0, retrying: 0, failed: 0, cancelled: 0, total: 6, ...over });
+
+  it('shows only the live counters that are not zero', () => {
+    expect(runPills(tally({ done: 2, running: 3 })).map((p) => p.label)).toEqual(['완료 2', '진행 3']);
+    expect(runPills(tally({ retrying: 1, failed: 1, cancelled: 2 })).map((p) => p.tone)).toEqual(['warn', 'fail', 'neutral']);
+    expect(runPills(tally())).toEqual([]);
+  });
+
+  it('sums up a finished run in one line', () => {
+    expect(runOutcome(tally({ done: 5, failed: 1 }), 3.6, false)).toEqual({ line: '5장 완료 · 1장 실패 · 3.6초', tone: 'warn' });
+    expect(runOutcome(tally({ done: 6 }), 12, false)).toEqual({ line: '6장 완료 · 12초', tone: 'ok' });
+    expect(runOutcome(tally({ done: 0, cancelled: 6 }), 2.1, true)).toEqual({ line: '취소됨 · 완료 0/6 · 2.1초', tone: 'neutral' });
+    expect(runOutcome(tally({ done: 2, failed: 1, cancelled: 3 }), 5, true).line).toBe('취소됨 · 완료 2/6 · 1장 실패 · 5초');
+  });
+
+  it('the bar of a cancelled run shows only what was made, in a neutral colour', () => {
+    expect(progressView(tally({ cancelled: 6 }), false, true)).toEqual({ fraction: 0, tone: 'neutral' });
+    expect(progressView(tally({ done: 3, cancelled: 3 }), false, true)).toEqual({ fraction: 0.5, tone: 'neutral' });
+    expect(progressView(tally({ done: 2, running: 1, cancelled: 1 }), true, false)).toEqual({ fraction: 0.5, tone: 'accent' });
+    expect(progressView(tally({ done: 5, failed: 1 }), false, false)).toEqual({ fraction: 1, tone: 'warn' });
+    expect(progressView(tally({ total: 0 }), false, false)).toEqual({ fraction: 0, tone: 'accent' });
+  });
+
+  it('retrying failed images resumes the same topic with the same settings', () => {
+    const input = {
+      profile: 'local',
+      prompt: 'p',
+      avoid: '',
+      imageModel: 'gpt-image-2.5',
+      size: '1024x1024',
+      quality: 'low',
+      count: 6,
+      references: ['C:\\r.png'],
+      background: 'auto' as const,
+      topic: null,
+      resume: false,
+    };
+    expect(retryInput(input, 'cozy-room')).toEqual({ ...input, topic: 'cozy-room', resume: true });
+    expect(input.resume).toBe(false);
   });
 });

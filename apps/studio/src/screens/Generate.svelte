@@ -16,7 +16,7 @@
   import Stepper from '../components/Stepper.svelte';
   import Viewer, { type ViewerEntry } from '../components/Viewer.svelte';
   import { errorText, imageSrc, toServiceError } from '../lib/api';
-  import { formatElapsed, formatRelativeTime, oneLine } from '../lib/format';
+  import { formatRelativeTime, oneLine } from '../lib/format';
   import {
     gen,
     addReferencePaths,
@@ -29,6 +29,7 @@
     referenceLimit,
     removeReference,
     resumeGroup,
+    retryFailed,
     reuseItem,
     startRun,
     stopResume,
@@ -44,9 +45,12 @@
     itemCard,
     MAX_COUNT,
     parseSize,
+    progressView,
     QUALITIES,
     resumeBlocked,
     runCard,
+    runOutcome,
+    runPills,
     samePath,
     SIZE_PRESETS,
     tallyCards,
@@ -80,9 +84,17 @@
     if (group) return group.items.map(itemCard);
     if (!run) return [];
     const transparent = run.input.background === 'transparent';
-    return run.cards.map((c) => runCard(c, transparent));
+    return run.cards.map((c) => runCard(c, transparent, run.cancelling));
   });
   const tally = $derived(run && !group ? tallyCards(cards) : null);
+  const finished = $derived(!!run && !gen.running && !!run.summary);
+  const outcome = $derived(tally && finished && run?.summary ? runOutcome(tally, run.summary.elapsedSec, run.summary.cancelled) : null);
+  const bar = $derived(tally ? progressView(tally, gen.running, !!run?.summary?.cancelled) : null);
+  const retryLabel = $derived(tally && tally.failed > 0 ? '실패한 장 다시 만들기' : '남은 장 이어서 만들기');
+  const canRetry = $derived(finished && !!tally && tally.failed + tally.cancelled > 0 && !!run?.topic);
+
+  // History: a column on wide windows, a drawer behind a slim rail below 1366px (more room for the results).
+  let historyOpen = $state(false);
   const aspect = $derived(aspectOf(group ? group.items[0]?.size : run?.input.size));
 
   // ---- viewer ----
@@ -186,10 +198,16 @@
   }
 
   const buttonText = $derived(form.resume ? `${form.count}장 이어서 생성` : `${form.count}장 생성`);
-  const progress = $derived(tally && tally.total > 0 ? (tally.done + tally.failed + tally.cancelled) / tally.total : 0);
+  const gridCols = $derived(aspect > 1.4 ? 'minmax(280px, 1fr)' : 'minmax(200px, 1fr)');
 </script>
 
-<div class="gen">
+<svelte:window
+  onkeydown={(e) => {
+    if (e.key === 'Escape' && historyOpen && viewerIndex === null) historyOpen = false;
+  }}
+/>
+
+<div class="gen" class:drawer-open={historyOpen}>
   <!-- ===== left: settings ===== -->
   <aside class="left" aria-label="생성 설정">
     <div class="scroll">
@@ -369,7 +387,7 @@
           <p class="head-note"><Icon name="info" size={14} />{groupResumeBlocked}</p>
         {/if}
       </header>
-      <div class="grid" style:--cols={aspect > 1.4 ? 'minmax(260px, 1fr)' : 'minmax(160px, 1fr)'}>
+      <div class="grid" style:--cols={gridCols}>
         {#each cards as card (card.key)}
           <ImageCard {card} {aspect} onopen={() => openViewer(card)} />
         {/each}
@@ -378,34 +396,36 @@
       <header class="result-head">
         <div class="title">
           <h2 class="ellipsis" title={run.input.prompt}>{oneLine(run.input.prompt)}</h2>
-          <p class="meta ellipsis">
-            {[run.topic, run.input.imageModel, run.input.size.replace('x', '×'), run.summary ? formatElapsed(run.summary.elapsedSec) : '']
-              .filter(Boolean)
-              .join(' · ')}
+          <p class="meta ellipsis" title={[run.input.imageModel, run.input.size.replace('x', '×'), run.topic].filter(Boolean).join(' · ')}>
+            {[run.input.imageModel, run.input.size.replace('x', '×'), run.topic].filter(Boolean).join(' · ')}
           </p>
         </div>
-        {#if tally}
+        {#if outcome}
+          <p class="outcome {outcome.tone}" aria-live="polite">{outcome.line}</p>
+        {:else if tally}
           <div class="counters" aria-live="polite">
-            <span class="cnt ok">완료 {tally.done}</span>
-            <span class="cnt run">진행 {tally.running}</span>
-            <span class="cnt warn">재시도 {tally.retrying}</span>
-            <span class="cnt fail">실패 {tally.failed}</span>
-            {#if tally.cancelled}<span class="cnt">취소 {tally.cancelled}</span>{/if}
+            {#each runPills(tally) as pill (pill.key)}<span class="cnt {pill.tone}">{pill.label}</span>{/each}
+            {#if run.cancelling}<span class="cnt neutral">취소하는 중…</span>{/if}
           </div>
         {/if}
         <div class="head-actions">
-          {#if run.outputDir}
-            <Button size="sm" variant="ghost" icon="folder" label="탐색기에서 보기" title="탐색기에서 보기" onclick={() => reveal(run.summary?.outputs[0] ?? run.outputDir)} />
+          {#if canRetry}
+            <Button size="sm" variant="primary" icon="refresh" onclick={retryFailed}>{retryLabel}</Button>
+          {/if}
+          {#if run.outputDir && finished}
+            <Button size="sm" icon="folder" onclick={() => reveal(run.summary?.outputs[0] ?? run.outputDir)}>폴더 열기</Button>
+          {:else if run.outputDir}
+            <Button size="sm" variant="ghost" icon="folder" label="폴더 열기" title="폴더 열기" onclick={() => reveal(run.outputDir)} />
           {/if}
         </div>
       </header>
-      {#if tally && tally.total > 0}
+      {#if tally && bar && tally.total > 0}
         <div class="bar" role="progressbar" aria-label="진행" aria-valuemin={0} aria-valuemax={tally.total} aria-valuenow={tally.done + tally.failed + tally.cancelled}>
-          <span style:width="{progress * 100}%" class:fail={tally.failed > 0 && !gen.running}></span>
+          <span style:width="{bar.fraction * 100}%" class={bar.tone}></span>
         </div>
       {/if}
       {#if cards.length > 0}
-        <div class="grid" style:--cols={aspect > 1.4 ? 'minmax(260px, 1fr)' : 'minmax(160px, 1fr)'}>
+        <div class="grid" style:--cols={gridCols}>
           {#each cards as card (card.key)}
             <ImageCard {card} {aspect} onopen={() => openViewer(card)} />
           {/each}
@@ -420,11 +440,23 @@
     {/if}
   </section>
 
-  <!-- ===== right: history ===== -->
-  <aside class="right" aria-label="기록">
+  <!-- ===== right: history (a drawer below 1366px) ===== -->
+  <div class="rail">
+    <button type="button" class="rail-btn" aria-expanded={historyOpen} aria-controls="gen-history" title="기록 열기" onclick={() => (historyOpen = !historyOpen)}>
+      <Icon name="history" size={18} />
+      <span>기록</span>
+    </button>
+  </div>
+  {#if historyOpen}
+    <button type="button" class="scrim" aria-label="기록 닫기" tabindex="-1" onclick={() => (historyOpen = false)}></button>
+  {/if}
+  <aside class="right" id="gen-history" aria-label="기록">
     <header class="hist-head">
       <h2>기록</h2>
-      <Button size="sm" variant="ghost" icon="refresh" label="기록 새로 읽기" title="기록 새로 읽기" disabled={gen.historyLoading} onclick={loadHistory} />
+      <div class="hist-tools">
+        <Button size="sm" variant="ghost" icon="refresh" label="기록 새로 읽기" title="기록 새로 읽기" disabled={gen.historyLoading} onclick={loadHistory} />
+        <span class="drawer-close"><Button size="sm" variant="ghost" icon="close" label="기록 닫기" title="기록 닫기" onclick={() => (historyOpen = false)} /></span>
+      </div>
     </header>
     <div class="hist">
       {#if gen.historyError}
@@ -435,7 +467,7 @@
         <ul>
           {#each groups as g (g.key)}
             <li>
-              <button type="button" class="entry" class:on={gen.view === g.key} aria-current={gen.view === g.key} onclick={() => (gen.view = g.key)}>
+              <button type="button" class="entry" class:on={gen.view === g.key} aria-current={gen.view === g.key} onclick={() => ((gen.view = g.key), (historyOpen = false))}>
                 <span class="thumbs" class:one={g.thumbs.length === 1}>
                   {#each g.thumbs as path (path)}
                     <img src={imageSrc(path)} alt="" loading="lazy" />
@@ -483,9 +515,79 @@
 
 <style>
   .gen {
+    position: relative;
     height: 100%;
     display: grid;
     grid-template-columns: var(--panel-left-w) minmax(0, 1fr) var(--panel-right-w);
+  }
+  .rail,
+  .scrim,
+  .drawer-close {
+    display: none;
+  }
+  /* Below 1366px the history becomes a drawer behind a slim rail, so the results get the width. */
+  @media (max-width: 1365px) {
+    .gen {
+      grid-template-columns: 320px minmax(0, 1fr) 56px;
+    }
+    .rail {
+      display: flex;
+      justify-content: center;
+      padding-top: var(--s3);
+      border-left: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .rail-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+      width: 44px;
+      height: fit-content;
+      padding: var(--s2) 0;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .rail-btn:hover,
+    .rail-btn[aria-expanded='true'] {
+      color: var(--text);
+      background: var(--panel);
+    }
+    .scrim {
+      display: block;
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      border: 0;
+      background: rgba(8, 9, 12, 0.45);
+      cursor: default;
+    }
+    .right {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 21;
+      width: var(--panel-right-w);
+      box-shadow: var(--shadow);
+      transform: translateX(100%);
+      visibility: hidden;
+      transition:
+        transform 0.18s ease-out,
+        visibility 0s 0.18s;
+    }
+    .drawer-open .right {
+      transform: none;
+      visibility: visible;
+      transition: transform 0.18s ease-out;
+    }
+    .drawer-close {
+      display: inline-flex;
+    }
   }
 
   /* left */
@@ -720,6 +822,21 @@
   .cnt.fail {
     color: #fca5a5;
   }
+  .outcome {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .outcome.ok {
+    color: #86efac;
+  }
+  .outcome.warn {
+    color: #fcd34d;
+  }
+  .outcome.neutral {
+    color: var(--muted);
+  }
   .head-actions {
     display: flex;
     gap: var(--s2);
@@ -735,8 +852,11 @@
     background: var(--accent);
     transition: width 0.3s;
   }
-  .bar span.fail {
+  .bar span.warn {
     background: linear-gradient(90deg, var(--accent), var(--warn));
+  }
+  .bar span.neutral {
+    background: var(--border-strong);
   }
   .grid {
     flex: 1;
@@ -779,6 +899,10 @@
     flex-direction: column;
     border-left: 1px solid var(--border);
     background: var(--bg);
+  }
+  .hist-tools {
+    display: flex;
+    gap: var(--s1);
   }
   .hist-head {
     display: flex;

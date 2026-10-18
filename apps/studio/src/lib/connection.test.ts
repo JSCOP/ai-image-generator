@@ -72,7 +72,20 @@ describe('stagesOf', () => {
   it('a failed last generation shows the reason (e.g. spending limit)', () => {
     const p = profile({ lastGeneration: { ok: false, at: 1, model: 'grok-imagine-image', category: 'quota', provider_code: 'spending_limit' } });
     const stages = stagesOf(null, p.lastGeneration);
-    expect(stages[3]).toMatchObject({ state: 'fail', detail: '사용 한도 초과 (spending_limit)' });
+    expect(stages[3]).toMatchObject({ state: 'fail', detail: '사용 한도 초과', code: 'spending_limit' });
+  });
+
+  it('keeps the Korean cause as the text and the long provider code apart', () => {
+    const quota = report({
+      authenticated: false,
+      models_listed: false,
+      image_models: [],
+      error: { category: 'quota', provider_code: 'billing_hard_limit_reached', http_status: 429, retryable: false, message: 'quota' },
+    });
+    const stages = stagesOf(quota, null);
+    expect(stages[1]).toMatchObject({ state: 'fail', detail: '사용 한도 초과', code: 'billing_hard_limit_reached' });
+    expect(stages[0].code).toBe('');
+    expect(stagesOf(report({ authenticated: false, models_listed: false, image_models: [] }), null)[1]).toMatchObject({ detail: '키가 거부됨', code: '' });
   });
 });
 

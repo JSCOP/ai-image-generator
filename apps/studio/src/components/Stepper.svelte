@@ -80,7 +80,11 @@
     background: transparent;
   }
   .num:focus-visible {
-    box-shadow: none;
+    outline: none;
+  }
+  .stepper:has(.num:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
   }
   button {
     width: 44px;

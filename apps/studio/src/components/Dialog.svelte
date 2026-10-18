@@ -91,7 +91,7 @@
     box-shadow: var(--shadow);
   }
   .box:focus-visible {
-    box-shadow: var(--shadow);
+    outline: none;
   }
   header {
     display: flex;

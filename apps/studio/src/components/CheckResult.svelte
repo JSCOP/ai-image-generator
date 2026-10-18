@@ -45,10 +45,10 @@
             <span class="word">{checking && s.key !== 'generation' ? '확인 중…' : WORD[s.state]}</span>
           </div>
           {#if s.detail}<p class="detail">{s.detail}</p>{/if}
+          {#if s.code}<p class="code" title={s.code}>{s.code}</p>{/if}
           {#if s.key === 'generation' && last}
-            <p class="sub">
-              {formatRelativeTime(last.at)} · {last.model}
-            </p>
+            <p class="sub">{formatRelativeTime(last.at)}</p>
+            <p class="code" title={last.model}>{last.model}</p>
           {/if}
           {#if stageNote(s.key, s.state) && !checking}<p class="sub">{stageNote(s.key, s.state)}</p>{/if}
         </div>
@@ -91,9 +91,11 @@
     flex-direction: column;
     gap: var(--s4);
   }
+  /* A compact stepper: 4 across when there is room, 2x2 otherwise; each box only as tall as its own text. */
   .stages {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    align-items: start;
     gap: var(--s2);
     margin: 0;
     padding: 0;
@@ -102,11 +104,28 @@
   .stages li {
     display: flex;
     gap: var(--s2);
-    padding: var(--s3);
+    padding: var(--s2) var(--s3);
     background: var(--panel-2);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     min-width: 0;
+  }
+  @media (max-width: 1279px) {
+    .stages {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  .stages li.unknown {
+    background: transparent;
+    border-style: dashed;
+  }
+  .code {
+    margin: 2px 0 0;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+    word-break: normal;
   }
   .dot {
     flex: none;
@@ -163,7 +182,7 @@
     margin: 2px 0 0;
     font-size: 12px;
     color: #fca5a5;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   .warn .detail {
     color: #fcd34d;
@@ -172,7 +191,7 @@
     margin: 2px 0 0;
     font-size: 12px;
     color: var(--muted);
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   .error {
     display: flex;

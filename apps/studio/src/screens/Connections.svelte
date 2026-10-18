@@ -541,7 +541,7 @@
             </div>
           {/if}
 
-          <div class="actions">
+          <div class="actions" class:sticky={isNew || dirty}>
             {#if !isNew && dirty}<span class="muted dirty">저장하지 않은 변경이 있습니다</span>{/if}
             {#if isNew && profiles.length > 0}
               <Button variant="ghost" onclick={() => select(firstSelection())}>취소</Button>
@@ -848,6 +848,16 @@
     gap: var(--s2);
     padding-top: var(--s4);
     border-top: 1px solid var(--border);
+  }
+  /* With changes (or a new connection) the save bar stays at the bottom of the pane, however far the form scrolls. */
+  .actions.sticky {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    margin: 0 calc(var(--s6) * -1);
+    padding: var(--s3) var(--s6);
+    background: var(--bg);
+    box-shadow: 0 -10px 18px rgba(0, 0, 0, 0.35);
   }
   .dirty {
     margin-right: auto;

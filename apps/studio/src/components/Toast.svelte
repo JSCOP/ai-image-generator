@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Toast stack (bottom right), fed by state.toast().
+  // Toast stack (bottom centre of the work area, clear of the action buttons), fed by state.toast().
   import { dismissToast, toasts } from '../lib/state.svelte';
   import Icon from './Icon.svelte';
 
@@ -19,13 +19,15 @@
 <style>
   .stack {
     position: fixed;
-    right: var(--s5);
+    /* Bottom centre of the work area (right of the nav rail): clear of the generate button (left), the save bars
+       and gallery actions (right), and the header buttons (top). */
+    left: calc(var(--nav-w) + (100vw - var(--nav-w) - min(380px, calc(100vw - 48px))) / 2);
     bottom: var(--s5);
     z-index: 60;
     display: flex;
     flex-direction: column;
     gap: var(--s2);
-    width: min(420px, calc(100vw - 48px));
+    width: min(380px, calc(100vw - 48px));
     pointer-events: none;
   }
   .toast {

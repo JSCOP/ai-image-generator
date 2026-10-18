@@ -2,6 +2,7 @@
 // reusing a gallery record, the history list and the result cards. The Rust service checks everything again.
 
 import { cardText, type Card, type CardStatus } from './run';
+import { categoryLabel, formatElapsed } from './format';
 import { ENV_NAME } from './connection';
 import type { ConnectionsView, FolderView, GalleryItem, GenerateInput, ModelView, ReferenceView, ServiceError } from './types';
 
@@ -382,24 +383,36 @@ export interface DisplayCard {
   status: DisplayStatus;
   /** Image to show; only for finished images. */
   imagePath: string | null;
-  /** Retry or failure line, else "". */
+  /** Retry line, or the Korean failure cause, else "". */
   text: string;
+  /** Raw engine/provider message of a failure (shown behind "자세히"), else "". */
+  detail: string;
   transparent: boolean;
   elapsedSec?: number;
 }
 
-/** A card of the running (or last) run. */
-export function runCard(card: Card, transparent = false): DisplayCard {
-  const finished = card.status === 'done' || card.status === 'skipped';
-  if (card.status === 'failed' && card.category === 'cancelled') {
-    return { key: `run-${card.index}`, label: `#${card.index}`, status: 'cancelled', imagePath: null, text: '', transparent };
+/**
+ * A card of the running (or last) run. While `cancelling`, an image that stops without a category (imageFailed
+ * carries none; the finished event adds it) is shown as cancelled, not as a red failure.
+ */
+export function runCard(card: Card, transparent = false, cancelling = false): DisplayCard {
+  const key = `run-${card.index}`;
+  const label = `#${card.index}`;
+  if (card.status === 'failed' && (card.category === 'cancelled' || (cancelling && !card.category))) {
+    return { key, label, status: 'cancelled', imagePath: null, text: '', detail: '', transparent };
   }
+  if (card.status === 'failed') {
+    const text = card.category ? categoryLabel(card.category) : '';
+    return { key, label, status: 'failed', imagePath: null, text, detail: card.reason ?? '', transparent, elapsedSec: card.elapsedSec };
+  }
+  const finished = card.status === 'done' || card.status === 'skipped';
   return {
-    key: `run-${card.index}`,
-    label: `#${card.index}`,
+    key,
+    label,
     status: card.status,
     imagePath: finished && card.output ? card.output : null,
     text: card.status === 'skipped' ? '이미 만든 이미지(이어서 생성)' : cardText(card),
+    detail: '',
     transparent,
     elapsedSec: card.elapsedSec,
   };
@@ -428,16 +441,51 @@ export function tallyCards(cards: DisplayCard[]): CardTally {
   return n;
 }
 
+export type Tone = 'ok' | 'run' | 'warn' | 'fail' | 'neutral';
+
+/** Live counters of a running run; zero ones are left out. */
+export function runPills(t: CardTally): { key: string; label: string; tone: Tone }[] {
+  const all: { key: string; label: string; tone: Tone; n: number }[] = [
+    { key: 'done', label: `완료 ${t.done}`, tone: 'ok', n: t.done },
+    { key: 'running', label: `진행 ${t.running}`, tone: 'run', n: t.running },
+    { key: 'retrying', label: `재시도 ${t.retrying}`, tone: 'warn', n: t.retrying },
+    { key: 'failed', label: `실패 ${t.failed}`, tone: 'fail', n: t.failed },
+    { key: 'cancelled', label: `취소 ${t.cancelled}`, tone: 'neutral', n: t.cancelled },
+  ];
+  return all.filter((p) => p.n > 0).map(({ key, label, tone }) => ({ key, label, tone }));
+}
+
+/** One summary line of a finished run, e.g. "5장 완료 · 1장 실패 · 3.6초" or "취소됨 · 완료 0/6 · 2.1초". */
+export function runOutcome(t: CardTally, elapsedSec: number | null, cancelled: boolean): { line: string; tone: 'ok' | 'warn' | 'neutral' } {
+  const parts = cancelled ? ['취소됨', `완료 ${t.done}/${t.total}`] : [`${t.done}장 완료`];
+  if (t.failed > 0) parts.push(`${t.failed}장 실패`);
+  if (elapsedSec !== null) parts.push(formatElapsed(elapsedSec));
+  return { line: parts.join(' · '), tone: cancelled ? 'neutral' : t.failed > 0 ? 'warn' : 'ok' };
+}
+
+/** Progress bar: share of finished images while running; after a cancel only what was made, in a neutral colour. */
+export function progressView(t: CardTally, running: boolean, cancelled: boolean): { fraction: number; tone: 'accent' | 'warn' | 'neutral' } {
+  if (t.total <= 0) return { fraction: 0, tone: 'accent' };
+  if (!running && cancelled) return { fraction: t.done / t.total, tone: 'neutral' };
+  const fraction = (t.done + t.failed + t.cancelled) / t.total;
+  return { fraction, tone: !running && t.failed > 0 ? 'warn' : 'accent' };
+}
+
+/** "실패한 장 다시 만들기": the same settings resumed on the run's topic, so finished images are kept. */
+export function retryInput(input: GenerateInput, topic: string): GenerateInput {
+  return { ...input, references: [...input.references], topic, resume: true };
+}
+
 /** A card of a gallery record (history view). */
 export function itemCard(item: GalleryItem): DisplayCard {
   const n = imageNumber(item.imagePath);
-  const base = { key: item.recordPath, label: n === null ? '' : `#${n}`, transparent: item.background === 'transparent' };
+  const base = { key: item.recordPath, label: n === null ? '' : `#${n}`, transparent: item.background === 'transparent', detail: '' };
   switch (item.status) {
     case 'complete':
     case 'legacy':
       return { ...base, status: 'done', imagePath: item.imagePath, text: '' };
     case 'failed':
-      return { ...base, status: 'failed', imagePath: null, text: item.error ?? '실패' };
+      return { ...base, status: 'failed', imagePath: null, text: '', detail: item.error ?? '' };
     case 'pending':
       return { ...base, status: 'pending', imagePath: null, text: '끝나지 않은 기록' };
     default:

@@ -69,6 +69,12 @@
       {/if}
       <strong>{broken ? '이미지를 불러오지 못함' : STATUS_TEXT[card.status]}</strong>
       {#if card.text}<p title={card.text}>{card.text}</p>{/if}
+      {#if card.detail}
+        <details class="more">
+          <summary>자세히</summary>
+          <p class="raw">{card.detail}</p>
+        </details>
+      {/if}
     </div>
   </div>
 {/if}
@@ -181,7 +187,31 @@
     color: #fecaca;
   }
   .cancelled {
-    opacity: 0.7;
+    border-color: var(--border);
+    background: var(--panel);
+  }
+  .cancelled strong {
+    color: var(--muted);
+  }
+  .more {
+    max-width: 100%;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .more summary {
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .more summary:hover {
+    color: var(--text);
+  }
+  .failed .more .raw {
+    margin-top: var(--s1);
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted);
+    -webkit-line-clamp: 6;
+    line-clamp: 6;
   }
   .missing,
   .pending {

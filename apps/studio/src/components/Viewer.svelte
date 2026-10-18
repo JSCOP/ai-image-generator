@@ -177,7 +177,7 @@
     background: rgba(10, 11, 14, 0.96);
   }
   .viewer:focus-visible {
-    box-shadow: none;
+    outline: none;
   }
   .stage {
     position: relative;

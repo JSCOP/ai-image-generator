@@ -8,7 +8,8 @@
   --border-strong: #3a3f4b;
   --text: #e6e8ee;
   --muted: #9aa0ad;
-  --faint: #6b7180;
+  --faint: #8a90a0;
+  --focus-ring: #c4b5fd;
   --accent: #8b5cf6;
   --accent-hover: #7c4dff;
   --accent-soft: rgba(139, 92, 246, 0.16);
@@ -38,7 +39,6 @@
   --font: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
   --mono: 'Cascadia Mono', Consolas, 'Malgun Gothic', monospace;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent-line);
   color-scheme: dark;
 }
 
@@ -75,9 +75,11 @@ textarea {
   color: inherit;
 }
 
+/* Focus: a light solid ring 2px off the element (3:1+ on every panel), unlike the accent "selected" border.
+   An outline, so scoped box-shadow rules (selected chips and cards) cannot hide it. */
 :focus-visible {
-  outline: none;
-  box-shadow: var(--focus);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 ::selection {

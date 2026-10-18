@@ -13,6 +13,7 @@ import {
   MAX_REFERENCES,
   resumeBlocked,
   resumeFrom,
+  retryInput,
   formFromItem,
   toInput,
   type GenerateForm,
@@ -174,7 +175,17 @@ export async function startRun(): Promise<void> {
     toast(result.errors[0], 'warn');
     return;
   }
-  const input = result.input;
+  await runWith(result.input, true);
+}
+
+/** "실패한 장 다시 만들기": the last run's settings resumed on its topic, so only the missing images are made. */
+export async function retryFailed(): Promise<void> {
+  const last = gen.run;
+  if (gen.running || !last || !last.topic) return;
+  await runWith(retryInput(last.input, last.topic), false);
+}
+
+async function runWith(input: GenerateInput, fromForm: boolean): Promise<void> {
   gen.running = true;
   gen.view = 'run';
   gen.run = { runId: null, input, cards: [], topic: input.topic ?? '', outputDir: '', summary: null, error: null, cancelling: false };
@@ -192,9 +203,13 @@ export async function startRun(): Promise<void> {
       run.cards = reduce(run.cards, ev);
     });
     run.summary = summary;
-    if (summary.cancelled) toast('생성을 취소했습니다. 끝난 이미지는 그대로 남습니다.', 'info');
-    else if (summary.ok) toast(`${summary.outputs.length}장을 만들었습니다.`, 'ok');
-    else toast(`${summary.outputs.length}장 완료, ${summary.failures.length}장 실패`, 'warn');
+    // On the run view the header already sums the run up (and a toast would sit over its buttons).
+    const seen = app.screen === 'generate' && gen.view === 'run';
+    if (!seen) {
+      if (summary.cancelled) toast('생성을 취소했습니다. 끝난 이미지는 그대로 남습니다.', 'info');
+      else if (summary.ok) toast(`${summary.outputs.length}장을 만들었습니다.`, 'ok');
+      else toast(`${summary.outputs.length}장 완료, ${summary.failures.length}장 실패`, 'warn');
+    }
     for (const warning of summary.warnings) toast(warning, 'warn', 8000);
   } catch (e) {
     const error = api.toServiceError(e);
@@ -204,7 +219,7 @@ export async function startRun(): Promise<void> {
   } finally {
     run.cancelling = false;
     gen.running = false;
-    if (gen.form.resume) {
+    if (fromForm && gen.form.resume) {
       // A finished resume run is done with that topic; the next start makes a new one.
       gen.form.resume = false;
       gen.form.topic = null;

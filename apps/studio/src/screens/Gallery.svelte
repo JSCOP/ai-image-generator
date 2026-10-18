@@ -135,7 +135,7 @@
   const selectedHasImage = $derived(selected?.status === 'complete' || selected?.status === 'legacy');
 </script>
 
-<div class="gallery">
+<div class="gallery" class:with-detail={!!selected}>
   <section class="main" aria-label="갤러리">
     <header class="toolbar">
       <div class="folders" role="group" aria-label="폴더">
@@ -242,8 +242,12 @@
     </div>
   </section>
 
-  <aside class="detail" aria-label="자세히">
-    {#if selected && selectedPrompt}
+  {#if selected && selectedPrompt}
+    <aside class="detail" aria-label="자세히">
+      <header class="detail-head">
+        <h2 class="detail-title">자세히</h2>
+        <Button size="sm" variant="ghost" icon="close" label="자세히 닫기" title="닫기" onclick={() => (gal.selected = null)} />
+      </header>
       <div class="detail-scroll">
         {#if selectedHasImage}
           <button type="button" class="preview" class:checker={selected.background === 'transparent'} title="크게 보기" onclick={() => openViewer(selected)}>
@@ -277,27 +281,26 @@
         </dl>
       </div>
       <div class="actions">
-        <Button icon="folder" full onclick={() => reveal(selectedHasImage ? selected.imagePath : selected.recordPath)}>탐색기에서 보기</Button>
-        <Button icon="refresh" full disabled={gen.running} title={gen.running ? runningNote : undefined} onclick={() => reuse(selected)}>이 설정 다시 쓰기</Button>
-        {#if selectedHasImage}
-          <Button icon="image" full onclick={() => useAsReference(selected.imagePath)}>참조로 사용</Button>
-        {/if}
-        <Button
-          icon="play"
-          full
-          disabled={gen.running || !!selectedResumeBlocked}
-          title={selectedResumeBlocked ?? (gen.running ? runningNote : undefined)}
-          onclick={() => resume(selected)}>이어서 생성</Button
+        <Button variant="primary" icon="refresh" full disabled={gen.running} title={gen.running ? runningNote : undefined} onclick={() => reuse(selected)}
+          >이 설정 다시 쓰기</Button
         >
+        <div class="minor">
+          <Button size="sm" icon="folder" title="탐색기에서 보기" onclick={() => reveal(selectedHasImage ? selected.imagePath : selected.recordPath)}>탐색기</Button>
+          {#if selectedHasImage}
+            <Button size="sm" icon="image" title="참조로 사용" onclick={() => useAsReference(selected.imagePath)}>참조로</Button>
+          {/if}
+          <Button
+            size="sm"
+            icon="play"
+            disabled={gen.running || !!selectedResumeBlocked}
+            title={selectedResumeBlocked ?? (gen.running ? runningNote : '이어서 생성')}
+            onclick={() => resume(selected)}>이어서</Button
+          >
+        </div>
         {#if selectedResumeBlocked}<p class="note">{selectedResumeBlocked}</p>{/if}
       </div>
-    {:else}
-      <div class="detail-empty">
-        <Icon name="image" size={24} />
-        <p>이미지를 고르면 프롬프트와 기록 내용이 여기에 나옵니다. 두 번 누르면 크게 봅니다.</p>
-      </div>
-    {/if}
-  </aside>
+    </aside>
+  {/if}
 </div>
 
 {#if viewerIndex !== null && entries.length > 0}
@@ -325,6 +328,10 @@
   .gallery {
     height: 100%;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* The detail column opens only while a record is selected. */
+  .gallery.with-detail {
     grid-template-columns: minmax(0, 1fr) var(--panel-right-w);
   }
   .main {
@@ -455,7 +462,11 @@
     outline: none;
   }
   .search input:focus-visible {
-    box-shadow: none;
+    outline: none;
+  }
+  .search:has(input:focus-visible) {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
   }
   .search input::placeholder {
     color: var(--faint);
@@ -618,32 +629,34 @@
   .path {
     color: var(--muted);
   }
+  .detail-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--s2) var(--s2) 0 var(--s4);
+  }
+  .detail-title {
+    margin: 0;
+  }
   .actions {
     display: flex;
     flex-direction: column;
     gap: var(--s2);
     padding: var(--s3) var(--s4) var(--s4);
-    border-top: 1px solid var(--border);
+    border-top: 1px solid var(--border-strong);
+    background: var(--bg);
+    /* The fixed footer casts a shadow upward, so cut-off details read as "scroll for more". */
+    box-shadow: 0 -10px 16px rgba(0, 0, 0, 0.35);
+    position: relative;
+  }
+  .minor {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(76px, 1fr));
+    gap: var(--s2);
   }
   .note {
     margin: 0;
     font-size: 12px;
-    color: var(--muted);
-  }
-  .detail-empty {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: var(--s2);
-    padding: var(--s5);
-    text-align: center;
-    color: var(--faint);
-  }
-  .detail-empty p {
-    margin: 0;
-    font-size: 13px;
     color: var(--muted);
   }
 </style>

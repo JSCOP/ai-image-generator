@@ -12,7 +12,8 @@
   const WORD: Record<StageState, string> = { ok: '정상', warn: '주의', fail: '문제', unknown: '확인 전' };
 
   function tip(s: Stage): string {
-    return s.detail ? `${s.label}: ${WORD[s.state]} — ${s.detail}` : `${s.label}: ${WORD[s.state]}`;
+    const why = [s.detail, s.code ? `(${s.code})` : ''].filter(Boolean).join(' ');
+    return why ? `${s.label}: ${WORD[s.state]} — ${why}` : `${s.label}: ${WORD[s.state]}`;
   }
 </script>
 
