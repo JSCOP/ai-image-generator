@@ -41,7 +41,7 @@ pub fn schema_json() -> Value {
         "mask": {"type": "string", "description": "not supported yet (planned for stage 4); rejected before any request"},
         "keep_outside_mask": {"type": "boolean", "description": "not supported yet (planned for stage 4); rejected before any request"},
         "remove_background": {"type": "boolean", "description": "not supported yet (planned for stage 4); true is rejected before any request"},
-        "profile": {"type": "string", "description": "not supported yet (planned for stage 2: connection profiles); rejected before any request"},
+        "profile": {"type": "string", "description": "connection profile name or id (see `image-cli profile list`; same as `image-cli --profile`); used instead of CLIPROXY_* environment variables; top level only"},
     })
 }
 
