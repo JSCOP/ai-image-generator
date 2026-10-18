@@ -8,6 +8,7 @@ pub mod generate;
 pub mod http;
 pub mod normalize;
 pub mod paths;
+pub mod profiles;
 pub mod provider;
 pub mod runner;
 pub mod schema;

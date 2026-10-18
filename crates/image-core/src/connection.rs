@@ -64,6 +64,15 @@ pub struct Connection {
 
 /// Same rules as `tools/image_core.normalize_base_url`, without host rewriting.
 pub fn normalize_base_url(raw: &str) -> Result<String, String> {
+    let mut base = validate_base_url(raw)?;
+    if !base.ends_with("/v1") {
+        base.push_str("/v1");
+    }
+    Ok(base)
+}
+
+/// `normalize_base_url` checks (no spaces, credentials or query) without adding `/v1`.
+pub fn validate_base_url(raw: &str) -> Result<String, String> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Err("base_url이 비어 있습니다.".into());
@@ -88,9 +97,6 @@ pub fn normalize_base_url(raw: &str) -> Result<String, String> {
         base.push_str(&format!(":{port}"));
     }
     base.push_str(url.path().trim_end_matches('/'));
-    if !base.ends_with("/v1") {
-        base.push_str("/v1");
-    }
     Ok(base)
 }
 
