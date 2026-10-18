@@ -5,8 +5,8 @@
 ## 1. 준비 사항
 
 - Git, 실행 가능한 Python **3.11 이상**, 패키지 다운로드를 위한 인터넷.
-- 이미지를 실제로 생성하려면 접근 가능한 **CLIProxyAPI 서버**, 그 서버의 API 키, 이미지 제공자 인증/크레딧이 필요합니다. 이 저장소는 이미지 클라이언트와 Studio/MCP/스킬을 설치합니다. CLIProxyAPI 자체와 계정/OAuth 인증은 포함하지 않습니다.
-- 스킬을 사용할 경우 Codex, Claude Code 또는 OMP 중 사용할 에이전트가 필요합니다. 웹 Studio만 사용할 때는 에이전트가 필요 없습니다.
+- 이미지를 실제로 생성하려면 접근 가능한 **CLIProxyAPI 서버**, 그 서버의 API 키, 이미지 제공자 인증/크레딧이 필요합니다. 이 저장소는 이미지 클라이언트와 MCP/스킬을 설치합니다. CLIProxyAPI 자체와 계정/OAuth 인증은 포함하지 않습니다.
+- 스킬을 사용할 경우 Codex, Claude Code 또는 OMP 중 사용할 에이전트가 필요합니다. CLI만 직접 사용할 때는 에이전트가 필요 없습니다.
 
 먼저 PowerShell에서 확인합니다. `python`이 다른 앱의 깨진 가상환경을 가리킬 수 있으므로 Windows에서는 `py -3`를 우선 사용합니다.
 
@@ -34,7 +34,7 @@ py -3 scripts/setup.py --agent codex --check
 
 | 목적 | 프로젝트 폴더에서 실행 |
 |---|---|
-| 웹 Studio / CLI만 | `py -3 scripts/setup.py` |
+| CLI만 | `py -3 scripts/setup.py` |
 | Codex 스킬 | `py -3 scripts/setup.py --agent codex` |
 | Claude Code 스킬 | `py -3 scripts/setup.py --agent claude` |
 | OMP 스킬 | `py -3 scripts/setup.py --agent omp` |
@@ -75,7 +75,7 @@ Remove-Variable proxySecret
 [Environment]::SetEnvironmentVariable('CLIPROXY_API_KEY', $env:CLIPROXY_API_KEY, 'User')
 ```
 
-이미 열려 있는 에이전트/MCP 앱은 다시 실행해 새 환경을 받습니다. 이 프로젝트의 CLI는 Windows 사용자 환경변수도 읽습니다. `.env` 파일을 만드는 방식은 필요 없으며, 이 도구가 `.env`를 자동으로 불러오지도 않습니다. Studio의 연결 설정에서 키를 직접 넣으면 해당 Studio 서버 메모리에서만 유지됩니다. CLI/MCP에는 별도로 환경변수가 필요합니다.
+이미 열려 있는 에이전트/MCP 앱은 다시 실행해 새 환경을 받습니다. 이 프로젝트의 CLI는 Windows 사용자 환경변수도 읽습니다. `.env` 파일을 만드는 방식은 필요 없으며, 이 도구가 `.env`를 자동으로 불러오지도 않습니다. CLI/MCP는 이 환경변수에서 키를 읽습니다.
 
 연결과 사용 가능한 이미지 모델을 확인합니다. 이미지 생성이나 파일 저장은 하지 않습니다.
 
@@ -85,15 +85,7 @@ Remove-Variable proxySecret
 
 `ok: true`와 실제 `available_models`가 나와야 합니다. 모델 목록 조회 성공만으로 생성 크레딧까지 보장되지는 않습니다. 실제 생성 테스트를 원하는 경우 모델 ID를 명시해 한 장을 요청하고 결과 JSON, 이미지 존재, 크기를 확인합니다.
 
-## 4. 웹 화면 실행
-
-```powershell
-.\open-image-studio.cmd
-```
-
-브라우저에서 `http://127.0.0.1:8766/`을 엽니다. 연결 설정을 확인한 뒤 모델과 프롬프트를 선택합니다. 바로가기/자동 시작은 사용자가 원할 때만 [README.md](README.md)의 명령으로 등록합니다. 설치 스크립트는 자동 시작이나 바탕화면 등록을 하지 않습니다.
-
-## 5. 스킬 링크와 갱신 방식
+## 4. 스킬 링크와 갱신 방식
 
 스킬 파일을 에이전트마다 복사하지 않고 **저장소 폴더를 가리키는 링크**를 만듭니다. Windows에서는 junction을 사용하므로 관리자 권한/개발자 모드가 필요 없습니다. macOS/Linux에서는 심볼릭 링크를 만듭니다.
 
@@ -116,9 +108,9 @@ Codex 사용자 스킬과 링크 지원은 [공식 문서](https://learn.chatgpt
 
 스킬의 연결 원본은 `<clone>/skills/ai-image-generator/`입니다. `git pull`로 원본이 바뀌면 모든 링크에서 바로 최신 파일을 읽습니다. 에이전트에 반영되지 않으면 새 세션을 시작하거나 앱을 재시작합니다. clone을 삭제/이동하면 링크가 깨지므로 새 위치에서 다시 setup을 실행합니다.
 
-## 6. 업데이트
+## 5. 업데이트
 
-프로젝트 폴더에서 현재 생성 작업이 끝난 뒤 Studio/MCP를 종료합니다. 다음은 Codex+MCP를 설치한 예입니다. 실제로 설치한 옵션과 일치시킵니다.
+프로젝트 폴더에서 현재 생성 작업이 끝난 뒤 MCP를 종료합니다. 다음은 Codex+MCP를 설치한 예입니다. 실제로 설치한 옵션과 일치시킵니다.
 
 ```powershell
 git status --short
@@ -130,9 +122,9 @@ py -3 scripts/setup.py --agent codex --mcp --check
 
 추적 파일의 로컬 수정 또는 pull 충돌이 있으면 변경을 보존한 상태에서 원인을 보고합니다. `reset --hard`/`clean`으로 해결하지 않습니다. `.venv`, 키/로컬 설정, 결과 이미지, 참조 원본은 Git 배포 대상이 아니며 업데이트에서도 보존합니다. 기존 `.venv`가 손상되었거나 다른 PC에서 복사한 환경이면 이름을 바꿔 보관한 뒤 해당 PC에서 setup을 다시 실행하세요. 같은 clone 경로라도 가상환경은 PC마다 새로 만듭니다.
 
-## 7. MCP 연결 (선택)
+## 6. MCP 연결 (선택)
 
-스킬/Studio 사용에 MCP는 필수가 아닙니다. MCP를 사용할 때 `setup.py --mcp`로 설치하고 [mcp.json.example](mcp.json.example)의 경로를 **현재 PC의 절대 경로**로 치환합니다.
+스킬/CLI 사용에 MCP는 필수가 아닙니다. MCP를 사용할 때 `setup.py --mcp`로 설치하고 [mcp.json.example](mcp.json.example)의 경로를 **현재 PC의 절대 경로**로 치환합니다.
 
 ```json
 {
@@ -159,7 +151,7 @@ Codex의 설정 형식과 `env_vars` 전달 방식은 [공식 MCP 문서](https:
 
 검증은 클라이언트에서 initialize와 도구 목록 조회, `plan_generation` 호출까지 확인합니다. 계획만으로 이미지 생성 API를 호출하지 않습니다. 설치 점검만 할 때 stdio 서버를 터미널에서 무작정 실행하면 입력을 기다리므로 `tools/mcp_server.py --help`를 사용하세요.
 
-## 8. macOS / Linux
+## 7. macOS / Linux
 
 Python 3.11+의 `venv`/pip가 있는 환경에서:
 
@@ -171,12 +163,11 @@ python3 scripts/setup.py --agent codex --check
 export CLIPROXY_BASE_URL='https://your-proxy.example/v1'
 # 키는 로컬 비밀 설정으로 CLIPROXY_API_KEY에 넣습니다.
 .venv/bin/python tools/ai_image.py --list-models
-.venv/bin/python tools/image_studio.py --open
 ```
 
-이 플랫폼은 Windows 사용자 환경변수를 읽지 않으므로 프로세스 환경변수를 사용합니다. MCP `command`는 `<clone>/.venv/bin/python`입니다. `venv` 생성 오류가 나면 OS의 Python venv/pip 구성부터 확인합니다. Windows `.cmd`/바로가기 기능은 해당되지 않습니다.
+이 플랫폼은 Windows 사용자 환경변수를 읽지 않으므로 프로세스 환경변수를 사용합니다. MCP `command`는 `<clone>/.venv/bin/python`입니다. `venv` 생성 오류가 나면 OS의 Python venv/pip 구성부터 확인합니다.
 
-## 9. AI에게 복사해서 줄 설치 요청문
+## 8. AI에게 복사해서 줄 설치 요청문
 
 아래 요청은 **로컬 파일/터미널을 실행할 수 있는 AI 에이전트**에 전달합니다. 일반 채팅만 가능한 AI에서는 명령 안내까지만 할 수 있습니다. 설치 폴더와 에이전트 종류는 실제 환경으로 바꿉니다.
 
@@ -217,7 +208,7 @@ Claude Code를 쓰면 `--agent codex`를 `--agent claude`로 바꿉니다. 둘 �
 회귀 테스트와 모델 목록 조회를 확인해줘. 실제 이미지 생성은 요청할 때 진행해줘.
 ```
 
-## 10. 오류별 확인
+## 9. 오류별 확인
 
 | 증상 | 확인할 것 |
 |---|---|
@@ -227,7 +218,6 @@ Claude Code를 쓰면 `--agent codex`를 `--agent claude`로 바꿉니다. 둘 �
 | 연결 시간 초과 / connection refused | 실제 프록시 실행 여부, URL/포트, Tailscale 로그인, 네트워크/방화벽. |
 | HTTP 401/403 | 해당 CLIProxyAPI 서버에 설정된 키와 제공자 인증. 웹 계정 비밀번호를 API 키로 쓰지 않습니다. |
 | 모델이 없음 / 크레딧 오류 | `--list-models`의 실제 목록과 해당 제공자 계정/크레딧. 다른 모델로 몰래 바꾸지 않습니다. |
-| Studio 포트 충돌 | `.\open-image-studio.cmd -Port 8776`. |
 | MCP 파일 접근 거부 | 해당 프로젝트/참조 폴더를 `--allow-root`로 지정. |
 | MCP state 잠금 오류 | 같은 state의 기존 서버를 종료하거나 클라이언트별 `--state-dir` 지정. |
 | Git pull 실패 | `git status`와 원격/브랜치를 확인하고 로컬 변경을 보존. ZIP이면 새 clone으로 설치. |

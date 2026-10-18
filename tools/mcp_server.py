@@ -30,7 +30,7 @@ def make_server(service: ImageService) -> FastMCP:
 
     @mcp.resource("image://models")
     def models() -> str:
-        return json.dumps({"catalog": service.studio_catalog(), "environment": service.available_models()}, ensure_ascii=False)
+        return json.dumps({"catalog": service.model_catalog(), "environment": service.available_models()}, ensure_ascii=False)
 
     @mcp.resource("image://presets")
     def presets_resource() -> str:
@@ -50,7 +50,7 @@ def make_server(service: ImageService) -> FastMCP:
     @mcp.tool()
     def list_models() -> dict:
         """Return the static image model catalog and the authenticated provider model IDs."""
-        return {"catalog": service.studio_catalog(), "available_models": service.available_models()}
+        return {"catalog": service.model_catalog(), "available_models": service.available_models()}
 
     @mcp.tool()
     def list_presets() -> list[dict]:
@@ -131,11 +131,6 @@ def make_server(service: ImageService) -> FastMCP:
     def contact_sheet(paths: list[str], columns: int = 4, tile_size: int = 256) -> dict:
         """Create a numbered contact sheet from up to 100 images."""
         return service.contact_sheet(paths, columns, tile_size)
-
-    @mcp.tool()
-    def studio_history(limit: int = 50) -> list[dict]:
-        """Read local Image Studio job history without secrets."""
-        return service.studio_history(limit)
 
     return mcp
 

@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tools"))
 import gen_batch
 import ai_image
-import image_studio as studio
+import image_core as core
 from gallery import gallery_root, topic_dirs, metadata_path, write_json
 from mcp_models import CropRegion, GenerationSpec, ImageOptions, PresetSpec
 
@@ -71,8 +71,8 @@ class ImageService:
         self._processes: dict[str, subprocess.Popen] = {}
         self._threads: dict[str, threading.Thread] = {}
         self._closed = False
-        self.key = studio.resolve_api_key()
-        self.base_url = studio.load_base_url()
+        self.key = core.resolve_api_key()
+        self.base_url = core.load_base_url()
         for path in (self.state / "jobs").glob("*.json"):
             rec = self._read_json(path)
             if rec["status"] not in TERMINAL:
@@ -117,7 +117,7 @@ class ImageService:
 
     def _image(self, value: str) -> Image.Image:
         path = self.path(value, exists=True)
-        if path.suffix.lower() not in studio.IMAGE_SUFFIXES:
+        if path.suffix.lower() not in core.IMAGE_SUFFIXES:
             raise ValueError("Only PNG/JPEG/WebP images are supported")
         if path.stat().st_size > 64 * 1024 * 1024:
             raise ValueError("Image exceeds 64 MiB")
@@ -148,7 +148,7 @@ class ImageService:
         directory_path = self.path(directory)
         if not directory_path.is_dir():
             raise ValueError("Image directory does not exist")
-        files = sorted(p for p in directory_path.rglob("*") if p.is_file() and p.suffix.lower() in studio.IMAGE_SUFFIXES
+        files = sorted(p for p in directory_path.rglob("*") if p.is_file() and p.suffix.lower() in core.IMAGE_SUFFIXES
                        and any(p.resolve().is_relative_to(root) for root in self.allowed_roots))
         return {"total": len(files), "offset": offset,
                 "images": [{"path": str(p.resolve()), "bytes": p.stat().st_size} for p in files[offset:offset + limit]]}
@@ -156,15 +156,15 @@ class ImageService:
     def list_presets(self) -> list[dict]:
         return [{"name": p.stem, "path": str(p)} for p in sorted((self.root / "presets").glob("*.json"))]
 
-    def studio_catalog(self) -> list[dict]:
-        return copy.deepcopy(studio.MODELS)
+    def model_catalog(self) -> list[dict]:
+        return copy.deepcopy(core.MODELS)
 
     def available_models(self) -> list[str]:
         result = self.check_connection()
         return result.get("available_models", []) if result.get("ok") else []
 
     def check_connection(self) -> dict:
-        return self.scrub(studio.check_connection(self.base_url, self.key))
+        return self.scrub(core.check_connection(self.base_url, self.key))
 
     def get_preset(self, path: str) -> dict:
         return self._read_json(self.path(path, exists=True))
@@ -189,7 +189,7 @@ class ImageService:
         refs = []
         for ref in options["reference_images"]:
             path = self.path(ref, exists=True)
-            if path.stat().st_size > studio.LIMITS["reference_bytes"]:
+            if path.stat().st_size > core.LIMITS["reference_bytes"]:
                 raise ValueError("Reference image exceeds 10 MiB")
             self.image_info(str(path))
             refs.append(str(path))
@@ -236,7 +236,7 @@ class ImageService:
                 raise ValueError("Job ID is a reserved Windows filename")
             seen.add(job_id.casefold())
             opts = self._options({**options, **{k: v for k, v in job.items() if k in ImageOptions.model_fields}})
-            prompt = studio.compose_prompt("\n".join(p.strip() for p in (spec.prompt_prefix, job["prompt"], spec.prompt_suffix) if p.strip()), spec.positive, spec.negative)
+            prompt = core.compose_prompt("\n".join(p.strip() for p in (spec.prompt_prefix, job["prompt"], spec.prompt_suffix) if p.strip()), spec.positive, spec.negative)
             if not prompt.strip():
                 raise ValueError("Prompt cannot be blank")
             normalized.append({"id": job_id, "prompt": prompt, **opts})
@@ -401,12 +401,6 @@ class ImageService:
         if rec["status"] not in TERMINAL:
             raise ValueError("Wait until the job is terminal before resuming")
         return self.start_generation(rec["plan_id"], resume=True)
-
-    def studio_history(self, limit: int = 50) -> list[dict]:
-        if not 1 <= limit <= 200:
-            raise ValueError("limit must be 1..200")
-        paths = sorted((gallery_root(self.root) / "metadata").glob("*/job.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        return [self.scrub(self._read_json(self.path(p, exists=True))) for p in paths[:limit]]
 
     def _save_image(self, im: Image.Image, path: Path) -> dict:
         path = self.path(path)

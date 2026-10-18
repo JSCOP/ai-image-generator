@@ -18,7 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "tools"))
 from gallery import topic_dirs
-from organize_gallery import apply_moves, plan_moves
 
 
 class GalleryTests(unittest.TestCase):
@@ -215,29 +214,6 @@ class GalleryTests(unittest.TestCase):
             finally:
                 service.close()
 
-    def test_migration_preserves_collisions_updates_records_and_is_idempotent(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            workspace = Path(tmp)
-            old = workspace / "ImageGallery/cat/output/cat/image.png"
-            old.parent.mkdir(parents=True)
-            old.write_bytes(b"old-image")
-            existing = workspace / "ImageGallery/output/cat/image.png"
-            existing.parent.mkdir(parents=True)
-            existing.write_bytes(b"new-image")
-            record = workspace / "ImageGallery/cat/spec.json"
-            record.write_text(json.dumps({"reference_images": [str(old)], "output_dir": str(old.parent)}), encoding="utf-8")
-            moves = plan_moves(workspace)
-            self.assertEqual(len(moves), 2)
-            report = apply_moves(workspace, moves)
-            self.assertEqual(report["moved"], 2)
-            renamed = existing.with_name("image__legacy_1.png")
-            self.assertEqual(renamed.read_bytes(), b"old-image")
-            self.assertEqual(existing.read_bytes(), b"new-image")
-            saved = json.loads((workspace / "ImageGallery/metadata/cat/spec.json").read_text(encoding="utf-8"))
-            self.assertEqual(saved["reference_images"], [str(renamed)])
-            self.assertEqual(saved["output_dir"], str(existing.parent))
-            self.assertEqual(plan_moves(workspace), [])
-            self.assertTrue(Path(report["record"]).is_file())
 
 
 if __name__ == "__main__":

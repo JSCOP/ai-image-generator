@@ -12,7 +12,6 @@ __pycache__/
 !.env.example
 auths/
 config.yaml
-config/image-studio.local.json
 *.key
 *.pem
 

@@ -196,28 +196,6 @@ class ParallelRunnerTests(unittest.TestCase):
                     self.assertEqual(im.size, (64, 64))
 
 
-class ImageMenuParallelTests(unittest.TestCase):
-    def test_menu_single_generates_count_through_parallel_runner(self):
-        server = provider_fixture([429])
-        self.addCleanup(server.server_close)
-        self.addCleanup(server.shutdown)
-        env = {**os.environ, "CLIPROXY_BASE_URL": f"http://127.0.0.1:{server.server_port}/v1",
-               "CLIPROXY_API_KEY": "fixture-key", "AI_IMAGE_PYTHON": sys.executable,
-               "AI_IMAGE_RETRY_BACKOFF_SEC": "0", "PYTHONUTF8": "1"}
-        # menu 1 -> topic, count, concurrency, size, quality, model, prompt mode, prompt, END, no refs, run, no explorer, quit
-        answers = "1\nmenu-par\n3\n3\n1\n1\n1\n1\ndiagnostic\nEND\n\ny\nn\nq\n"
-        with tempfile.TemporaryDirectory() as tmp:
-            proc = subprocess.run(
-                ["pwsh", "-NoProfile", "-File", str(ROOT / "tools" / "Image-Menu.ps1")],
-                input=answers, capture_output=True, text=True, encoding="utf-8", env=env, cwd=tmp, timeout=120,
-            )
-            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-            outputs = sorted((Path(tmp) / "ImageGallery" / "output" / "menu-par").glob("*.png"))
-            self.assertEqual([p.name for p in outputs], ["menu-par_001.png", "menu-par_002.png", "menu-par_003.png"])
-            self.assertIn("완료: 성공 3, 실패 0", proc.stdout)
-            self.assertIn("재시도", proc.stdout)
-
-
 class McpConcurrencyTests(unittest.TestCase):
     def test_mcp_spec_defaults_to_parallel_generation(self):
         sys.path.insert(0, str(ROOT / "tools"))

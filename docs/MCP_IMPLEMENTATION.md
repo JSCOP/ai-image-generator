@@ -10,7 +10,7 @@
 
 ## 구현 범위
 
-공식 Python MCP SDK의 stdio 서버, 모델/연결 조회, typed 생성 계획(single/jobs/batch), 영속 비동기 실행·조회·취소·재개, 프리셋 조회/생성, 이미지 검색·메타데이터·미리보기, 크롭·리사이즈·컨택트시트, 기존 Studio 기록 조회. 기본 파일 접근은 저장소 아래이며 추가 작업 루트는 서버 인자로 지정한다. API 키는 기존 환경변수만 사용한다.
+공식 Python MCP SDK의 stdio 서버, 모델/연결 조회, typed 생성 계획(single/jobs/batch), 영속 비동기 실행·조회·취소·재개, 프리셋 조회/생성, 이미지 검색·메타데이터·미리보기, 크롭·리사이즈·컨택트시트. 기본 파일 접근은 저장소 아래이며 추가 작업 루트는 서버 인자로 지정한다. API 키는 기존 환경변수만 사용한다.
 
 ## 검증 계획
 
@@ -36,3 +36,8 @@ Image outputs now live under ImageGallery/output/<topic>; plans and job status l
 ## 다른 PC 설치 검증 — 2026-10-07
 
 Windows의 별도 clone(공백 포함 경로)과 새 사용자 홈/.venv에서 `scripts/setup.py --agent codex --agent claude --mcp`, 동일 옵션의 `--check`, 링크 점검이 통과했습니다. Python 3.13.5, Pillow 12.3.0, MCP SDK 1.30.0 환경에서 회귀 테스트 33개 및 실제 MCP stdio initialize/도구 20개 조회/`plan_generation` 호출이 통과했습니다. 외부 생성 API 호출은 하지 않았습니다. 신규 설치/업데이트 절차는 [../INSTALL.md](../INSTALL.md)를 따릅니다.
+
+## 2026-10-18 — 기존 UI 제거
+
+- 웹 Studio를 새로 만들기 위해 `tools/image_studio.py`와 웹 UI, PowerShell 메뉴, 수동 크롭 도구, 갤러리 이전 도구를 제거했다.
+- MCP가 쓰던 모델 카탈로그·연결 확인·프롬프트 합성은 `tools/image_core.py`로 옮겼다. `studio_catalog`는 `model_catalog`로 이름을 바꿨고, Studio 기록 조회 도구 `studio_history`는 삭제했다.

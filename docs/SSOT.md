@@ -3,7 +3,7 @@
 이 저장소가 이미지 생성 도구/스킬/운영 규칙의 유일한 정본입니다. 어떤 머신에서도 파일을 따로 복사하지 않고, `git pull` 하나로 모든 에이전트가 같은 내용을 봅니다.
 
 - 정본 원격: `https://github.com/JSCOP/ai-image-generator` (`main`)
-- 정본 파일: `skills/ai-image-generator/SKILL.md`, `tools/ai_image.py`, `tools/image_studio.py`, `tools/image_studio_web/*`, `open-image-studio.*`, `scripts/*`, `presets/*`, 이 문서
+- 정본 파일: `skills/ai-image-generator/SKILL.md`, `tools/ai_image.py`, `tools/image_core.py`, `tools/mcp_*.py`, `scripts/*`, `presets/*`, 이 문서
 - 금지: 에이전트 스킬 폴더에 `SKILL.md`를 복사해 두는 것. 링크만 사용합니다.
 
 신규 PC의 설치·연결·업데이트와 AI에게 줄 요청문은 [../INSTALL.md](../INSTALL.md)가 설치 절차의 정본입니다. 스킬은 로드된 `SKILL.md` 링크의 실제 경로에서 clone을 찾으며 머신 이름이나 드라이브에 의존하지 않습니다.
@@ -17,7 +17,7 @@
 
 `CLIPROXY_BASE_URL`은 CLIProxyAPI 호스트에서 `http://127.0.0.1:8317/v1`, 그 외 머신에서 `http://100.98.54.122:8317/v1`. 에이전트/CLI는 `CLIPROXY_API_KEY`를 프로세스 또는 Windows 사용자 환경변수에서 읽고 저장소에 절대 기록하지 않습니다.
 
-사람이 직접 쓰는 웹 화면은 `open-image-studio.cmd`로 실행합니다. Python 3.11+와 Pillow 외에 에이전트가 필요하지 않습니다. 화면의 연결 설정은 프록시 주소만 Git 제외 파일 `config/image-studio.local.json`에 저장하며, 입력한 API 키는 서버 세션 메모리에만 보관합니다. 다른 PC에서도 clone 후 같은 런처를 사용하되, 그 PC에서 접근 가능한 프록시 주소와 인증키를 설정해야 합니다. 시작프로그램 등록·해제와 사용법은 `README.md`의 로컬 이미지 스튜디오 절을 따릅니다.
+기존 웹 Studio, PowerShell 메뉴, 수동 크롭 도구, 갤러리 이전 도구는 2026-10-18에 제거했습니다(마지막 포함 커밋 `52e220b`). 사람용 Studio는 새로 제작합니다. CLI와 MCP가 함께 쓰는 모델 카탈로그·연결 확인·프롬프트 합성은 `tools/image_core.py`에 있습니다.
 
 ## 스킬 배포
 
@@ -71,7 +71,7 @@ CLIProxyAPI `routing.strategy: fill-first`에서는 동시 요청이 우선순�
 결론:
 
 - 장당 지연은 동시 수와 거의 무관합니다. 병목은 계정 수가 아니라 클라이언트 동시 수였습니다. 기존 기본값(CLI 4, MCP 2, Studio·메뉴 직렬)이 30장을 수 분~10분으로 늘렸습니다.
-- 기본 동시 수를 CLI/MCP/배치/메뉴/Studio 모두 30(최대 32)으로 올리고, 일시적 실패(HTTP 408/425/429/5xx, 연결 끊김, 타임아웃)는 `gen_image.py` 종료 코드 3으로 구분해 백오프 재시도합니다(`retries` 기본 2).
+- 기본 동시 수를 CLI/MCP/배치(당시 메뉴/Studio 포함) 모두 30(최대 32)으로 올리고, 일시적 실패(HTTP 408/425/429/5xx, 연결 끊김, 타임아웃)는 `gen_image.py` 종료 코드 3으로 구분해 백오프 재시도합니다(`retries` 기본 2).
 - 프록시 설정 변경은 필요하지 않습니다. 한 계정이 사용 한도에 걸리면 `fill-first`가 다음 우선순위 계정으로 넘기고, 클라이언트 재시도가 그 전환을 흡수합니다. 사용 한도 소진 시 전환은 실제로 유도하지 않았으므로 미검증입니다.
 - 관찰: 요청 크기와 무관하게 provider 원본은 항상 `1536x1024`였습니다(1024x1024 요청 포함). 최종 파일은 요청 크기로 크롭/리샘플링됩니다.
 
@@ -101,8 +101,8 @@ python scripts/sync_skills.py --check
 
 ### Endpoint selection
 
-`gen_image.resolve_base_url` is shared by CLI, Studio and the PowerShell menu. It checks the actual hostname: `DESKTOP-SB818KQ` uses `http://127.0.0.1:8317/v1`; other machines default to the Tailscale endpoint. Explicit URL, process environment, then Windows user environment override the default. On the proxy host, the known Tailscale endpoint and localhost alias are normalized to `127.0.0.1`; custom endpoints are preserved.
+`gen_image.resolve_base_url` is shared by the CLI and MCP server. It checks the actual hostname: `DESKTOP-SB818KQ` uses `http://127.0.0.1:8317/v1`; other machines default to the Tailscale endpoint. Explicit URL, process environment, then Windows user environment override the default. On the proxy host, the known Tailscale endpoint and localhost alias are normalized to `127.0.0.1`; custom endpoints are preserved.
 
 ## Gallery storage
 
-All entry points use `<destination-project-or-workspace>/ImageGallery/output/<topic>/` for images and `metadata/<topic>/` for minimal request records. Agent requests explicitly set `topic_root` to the requested project (including newly created projects), or the active workspace when no project is requested. Without a model choice the skill queries `tools/ai_image.py --list-models` and uses `gpt-image-2.5` without a selection question. An explicitly requested model takes priority, and an explicitly selected conversation model carries into follow-ups until changed/reset to the default; no preference file is created. Exact variant IDs are passed unchanged. Ordinary generation writes one image and one JSON, optionally including the provider's `response_model`; Studio uses job.json instead, and MCP state lives under metadata/_mcp. CLI dry-runs write no files. Legacy assets are reorganized with `python tools/organize_gallery.py --workspace <workspace>` (inspect) and `--apply` (move without overwriting).
+All entry points use `<destination-project-or-workspace>/ImageGallery/output/<topic>/` for images and `metadata/<topic>/` for minimal request records. Agent requests explicitly set `topic_root` to the requested project (including newly created projects), or the active workspace when no project is requested. Without a model choice the skill queries `tools/ai_image.py --list-models` and uses `gpt-image-2.5` without a selection question. An explicitly requested model takes priority, and an explicitly selected conversation model carries into follow-ups until changed/reset to the default; no preference file is created. Exact variant IDs are passed unchanged. Ordinary generation writes one image and one JSON, optionally including the provider's `response_model`, and MCP state lives under metadata/_mcp. CLI dry-runs write no files.

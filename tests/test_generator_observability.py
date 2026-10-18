@@ -510,46 +510,6 @@ class GeneratorObservabilityTests(unittest.TestCase):
             prompt = json.loads(proc.stdout.strip().splitlines()[-1])["planned_outputs"][0]
             self.assertEqual(prompt["image_model"], "grok-imagine-image-2.0")
 
-    def test_image_menu_passes_selected_grok_model_to_batch_dry_run(self):
-        marker = time.time_ns()
-        topic = f"grok-menu-test-{marker}"
-        preset = ROOT / "presets" / f"000-{topic}.json"
-        run_dir = ROOT / "runs" / topic
-        output_dir = ROOT / "output" / topic
-        preset.write_text(
-            json.dumps(
-                {
-                    "topic": topic,
-                    "image_model": "gpt-image-2",
-                    "categories": [{"name": "test", "templates": ["diagnostic"]}],
-                }
-            ),
-            encoding="utf-8",
-        )
-        env = os.environ.copy()
-        env["CLIPROXY_API_KEY"] = "test-key"
-        env["CLIPROXY_BASE_URL"] = "http://127.0.0.1:8317/v1"
-        try:
-            proc = subprocess.run(
-                ["pwsh", "-NoProfile", "-File", str(ROOT / "tools" / "Image-Menu.ps1")],
-                input="2\n1\n1\n1\nn\ny\n6\nq\n",
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                env=env,
-                cwd=str(ROOT),
-                timeout=30,
-            )
-
-            self.assertEqual(proc.returncode, 0, proc.stderr)
-            plan_line = next(line for line in proc.stdout.splitlines() if line.startswith("{\"ok\""))
-            prompt = json.loads(plan_line)["planned_outputs"][0]
-            self.assertEqual(prompt["image_model"], "grok-imagine-image-2.0")
-        finally:
-            preset.unlink(missing_ok=True)
-            shutil.rmtree(run_dir, ignore_errors=True)
-            shutil.rmtree(output_dir, ignore_errors=True)
-
     def test_ai_entrypoint_accepts_utf8_bom_spec_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

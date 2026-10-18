@@ -211,7 +211,7 @@ def _emit(obj: dict, exit_code: int) -> int:
 
 def list_models() -> dict:
     """List image models advertised by this proxy, without generating or saving."""
-    from image_studio import check_connection
+    from image_core import check_connection
 
     result = check_connection(resolve_base_url(None), None)
     available = list(dict.fromkeys(
