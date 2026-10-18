@@ -142,6 +142,7 @@ pub struct Reservation {
     pub request_id: String,
     lock: PathBuf,
     part: PathBuf,
+    released: std::sync::atomic::AtomicBool,
 }
 
 fn now_secs() -> f64 {
@@ -163,7 +164,14 @@ pub fn reserve(output: &Path, record: Option<&Path>, lock_dir: &Path) -> Result<
             Ok(mut file) => {
                 file.write_all(content.as_bytes()).map_err(|e| io_error("cannot write lock", &lock, e))?;
                 let part = output.with_file_name(format!(".{name}.{}.part", uuid::Uuid::new_v4().simple()));
-                return Ok(Reservation { output: output.to_path_buf(), record: record.map(Path::to_path_buf), request_id, lock, part });
+                return Ok(Reservation {
+                    output: output.to_path_buf(),
+                    record: record.map(Path::to_path_buf),
+                    request_id,
+                    lock,
+                    part,
+                    released: Default::default(),
+                });
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempt == 0 && lock_is_stale(&lock) => {
                 let _ = std::fs::remove_file(&lock);
@@ -223,7 +231,7 @@ impl Reservation {
         write_json_atomic(path, &rec).map_err(|e| io_error("cannot write record", path, e))
     }
 
-    pub fn publish(self, png: &[u8], mut rec: Record) -> Result<Record, EngineError> {
+    pub fn publish(&self, png: &[u8], mut rec: Record) -> Result<Record, EngineError> {
         if let Some(parent) = self.output.parent() {
             std::fs::create_dir_all(parent).map_err(|e| io_error("cannot create output folder", parent, e))?;
         }
@@ -249,16 +257,27 @@ impl Reservation {
         if let Some(path) = &self.record {
             write_json_atomic(path, &rec).map_err(|e| io_error("cannot write record", path, e))?;
         }
+        self.release();
         Ok(rec)
     }
 
-    pub fn fail(self, mut rec: Record, err: &EngineError) {
+    pub fn fail(&self, mut rec: Record, err: &EngineError) {
         if let Some(path) = &self.record {
             rec.status = Some("failed".into());
             rec.request_id = Some(self.request_id.clone());
             rec.error = Some(err.clone());
             let _ = write_json_atomic(path, &rec);
         }
+        self.release();
+    }
+
+    /// Once only: after release another run may own a lock with the same name.
+    fn release(&self) {
+        if self.released.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return;
+        }
+        let _ = std::fs::remove_file(&self.part);
+        let _ = std::fs::remove_file(&self.lock);
     }
 }
 
@@ -273,7 +292,6 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
 
 impl Drop for Reservation {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.part);
-        let _ = std::fs::remove_file(&self.lock);
+        self.release();
     }
 }

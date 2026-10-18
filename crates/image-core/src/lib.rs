@@ -3,6 +3,7 @@
 pub mod catalog;
 pub mod connection;
 pub mod error;
+pub mod generate;
 pub mod http;
 pub mod normalize;
 pub mod paths;
