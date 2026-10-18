@@ -28,7 +28,7 @@ impl Run {
         }
         let sink = self.events.clone();
         let progress: Progress = Arc::new(move |event| sink.lock().unwrap().push(event));
-        let opts = RunOptions { backoff_base_sec: 0.0, cwd: self.root().to_path_buf() };
+        let opts = RunOptions::new(0.0, self.root().to_path_buf());
         run_spec_with(spec, Arc::new(env), progress, cancel, opts).await
     }
 
@@ -207,12 +207,13 @@ async fn validation_errors_match_python_shape() {
     assert_eq!(out.result["error"], "invalid action 'paint'; expected auto, generate, or edit");
     let out = r.go(spec(json!({"concurrency": "many"})), env(), CancellationToken::new()).await;
     assert_eq!(out.result["error"], "job_timeout_sec, concurrency, and retries must be numbers");
-    for extra in
-        [json!({"profile": "home"}), json!({"mask": "m.png"}), json!({"keep_outside_mask": true}), json!({"remove_background": true})]
-    {
+    for extra in [json!({"mask": "m.png"}), json!({"keep_outside_mask": true}), json!({"remove_background": true})] {
         let out = r.go(spec(extra.clone()), env(), CancellationToken::new()).await;
         assert_eq!((out.exit_code, out.result["error_category"].clone()), (2, json!("unsupported")), "{extra}");
     }
+    // Without a profile store a named profile cannot be found; the environment is never used instead.
+    let out = r.go(spec(json!({"profile": "home"})), env(), CancellationToken::new()).await;
+    assert_eq!((out.exit_code, out.result["error_category"].clone()), (2, json!("invalid_request")), "{}", out.result);
     let out = r.go(spec(json!({"remove_background": false})), env(), CancellationToken::new()).await;
     assert_eq!(out.result["ok"], true, "{}", out.result);
     for extra in [json!({"background": "rainbow"}), json!({"fit": "stretch"})] {
@@ -297,7 +298,7 @@ async fn a_panicking_task_is_reported_as_a_failure_not_dropped() {
     });
     let mut s = spec(json!({"count": 2}));
     s["topic_root"] = json!(tmp.path().display().to_string());
-    let opts = RunOptions { backoff_base_sec: 0.0, cwd: tmp.path().to_path_buf() };
+    let opts = RunOptions::new(0.0, tmp.path().to_path_buf());
     let out = run_spec_with(s, Arc::new(MapEnv::proxy(&p.base_url())), progress, CancellationToken::new(), opts).await;
     assert_eq!(out.result["ok"], false, "{}", out.result);
     let failures = out.result["failures"].as_array().unwrap();

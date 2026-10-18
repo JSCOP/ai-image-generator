@@ -3,6 +3,7 @@
 pub mod adapter;
 pub mod batch;
 pub mod catalog;
+pub mod check;
 pub mod connection;
 pub mod error;
 pub mod generate;

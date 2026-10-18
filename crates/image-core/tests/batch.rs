@@ -48,7 +48,7 @@ async fn batch_dry_run_and_stop_after_max_failures() {
     let progress: Progress = Arc::new(|_| {});
     let preset = repo_root().join("presets/extraction-rpg.json").display().to_string();
     let run = |spec: Value| {
-        let opts = RunOptions { backoff_base_sec: 0.0, cwd: ws.path().to_path_buf() };
+        let opts = RunOptions::new(0.0, ws.path().to_path_buf());
         run_spec_with(spec, Arc::new(MapEnv::proxy(&p.base_url())), progress.clone(), CancellationToken::new(), opts)
     };
     let root = ws.path().display().to_string();

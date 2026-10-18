@@ -1,13 +1,14 @@
 //! JSON spec → parallel generation → result JSON, with the `tools/ai_image.py` contract.
 
-use crate::connection::{resolve_connection, EnvSource};
+use crate::connection::{resolve, Connection, EnvSource, Resolver};
 use crate::error::{Category, EngineError};
 use crate::generate::{generate_one, validate_request, JobContext, JobOk, JobSpec};
 use crate::http::Http;
 use crate::normalize::Fit;
 use crate::paths::{absolute, metadata_path, safe_topic_slug, topic_dirs};
-use crate::profiles::ProviderKind;
+use crate::profiles::{GenerationStatus, ProfileStore, ProviderKind};
 use crate::provider::{Action, Background, ImageRequest};
+use crate::secrets::{KeyringStore, MemoryStore, SecretStore};
 use crate::size::parse_size;
 use crate::store::{inspect_existing, request_hash, Existing};
 use rand::Rng;
@@ -37,13 +38,30 @@ pub struct RunOptions {
     pub backoff_base_sec: f64,
     /// Relative `topic_root`, reference and preset paths resolve against this.
     pub cwd: PathBuf,
+    /// Connection profiles; `None` resolves from the environment only.
+    pub profiles: Option<Arc<ProfileStore>>,
+    /// Where profile keys are read from.
+    pub secrets: Arc<dyn SecretStore>,
 }
 
-/// Reads `AI_IMAGE_RETRY_BACKOFF_SEC` (default 5) and the process working directory.
+impl RunOptions {
+    /// No profile store and an empty in-memory key store.
+    pub fn new(backoff_base_sec: f64, cwd: PathBuf) -> RunOptions {
+        RunOptions { backoff_base_sec, cwd, profiles: None, secrets: Arc::new(MemoryStore::new()) }
+    }
+}
+
+/// Reads `AI_IMAGE_RETRY_BACKOFF_SEC` (default 5), the process working directory, the profile folder
+/// (`ProfileStore::default_dir`) and the Credential Manager key store.
 pub async fn run_spec(spec: Value, env: Arc<dyn EnvSource>, progress: Progress, cancel: CancellationToken) -> RunOutcome {
     let backoff_base_sec = env.process("AI_IMAGE_RETRY_BACKOFF_SEC").and_then(|v| v.trim().parse().ok()).unwrap_or(5.0);
     let cwd = std::env::current_dir().unwrap_or_default();
-    run_spec_with(spec, env, progress, cancel, RunOptions { backoff_base_sec, cwd }).await
+    let mut opts = RunOptions::new(backoff_base_sec, cwd);
+    opts.profiles = ProfileStore::default_dir(env.as_ref()).map(|dir| Arc::new(ProfileStore::open(dir)));
+    if let Ok(keyring) = KeyringStore::system(env.as_ref()) {
+        opts.secrets = Arc::new(keyring);
+    }
+    run_spec_with(spec, env, progress, cancel, opts).await
 }
 
 pub async fn run_spec_with(
@@ -61,14 +79,23 @@ pub async fn run_spec_with(
         let error = format!("unknown mode {}; use 'single', 'jobs' or 'batch'", py_repr(spec.get("mode").unwrap_or(&Value::Null)));
         return RunOutcome { result: json!({"ok": false, "error": error}), exit_code: 1 };
     }
-    let run = Runner { spec, env, progress, cancel, opts };
+    let not_resolved = Err(EngineError::new(Category::Internal, "connection not resolved"));
+    let mut run = Runner { spec, env, progress, cancel, opts, conn: not_resolved };
     let mut result = match run.unsupported_keys() {
         Some(err) => error_result(&err),
-        None => match mode.as_str() {
-            "single" => run.single().await,
-            "jobs" => run.jobs().await,
-            _ => crate::batch::run_batch(&run).await,
-        },
+        None => {
+            let explicit = run.explicit_profile();
+            run.conn = run.resolve_connection(explicit.as_deref());
+            match &run.conn {
+                // A named profile that cannot be used stops the run, dry runs included.
+                Err(err) if explicit.is_some() => error_result(err),
+                _ => match mode.as_str() {
+                    "single" => run.single().await,
+                    "jobs" => run.jobs().await,
+                    _ => crate::batch::run_batch(&run).await,
+                },
+            }
+        }
     };
     let warnings = run.warnings();
     if !warnings.is_empty() {
@@ -84,6 +111,8 @@ pub(crate) struct Runner {
     pub(crate) progress: Progress,
     pub(crate) cancel: CancellationToken,
     pub(crate) opts: RunOptions,
+    /// Resolved once per run (no network). An error surfaces only when a request is about to be sent.
+    pub(crate) conn: Result<Arc<Connection>, EngineError>,
 }
 
 pub(crate) fn error_result(err: &EngineError) -> Value {
@@ -147,6 +176,13 @@ fn now_ts() -> f64 {
     (secs * 1000.0).round() / 1000.0
 }
 
+/// Whether a failure says something about the connection (an HTTP answer, or the request not getting through),
+/// as opposed to a local refusal such as an existing output or a cancellation.
+fn from_provider(err: &EngineError) -> bool {
+    err.http_status.is_some()
+        || matches!(err.category, Category::Network | Category::Dns | Category::Timeout | Category::Tls | Category::Provider)
+}
+
 fn round2(secs: f64) -> f64 {
     (secs * 100.0).round() / 100.0
 }
@@ -182,6 +218,7 @@ pub(crate) struct ItemResult {
     pub(crate) output: String,
     pub(crate) outcome: Result<JobOk, EngineError>,
     pub(crate) retried: u32,
+    pub(crate) model: String,
 }
 
 pub(crate) struct EventNames {
@@ -210,11 +247,11 @@ impl Runner {
 
     fn unsupported_keys(&self) -> Option<EngineError> {
         let jobs = self.spec.get("jobs").and_then(Value::as_array).cloned().unwrap_or_default();
-        let objects = std::iter::once(&self.spec).chain(jobs.iter().filter_map(Value::as_object));
-        for object in objects {
+        let objects = std::iter::once((false, &self.spec)).chain(jobs.iter().filter_map(Value::as_object).map(|job| (true, job)));
+        for (is_job, object) in objects {
             let has = |key: &str| object.get(key).is_some_and(|v| !v.is_null());
-            let message = if has("profile") {
-                "profile is not supported yet (planned for stage 2: connection profiles); set CLIPROXY_BASE_URL and CLIPROXY_API_KEY instead"
+            let message = if is_job && has("profile") {
+                "profile can only be set at the top level of the spec: one run uses one connection"
             } else if has("mask") || has("keep_outside_mask") {
                 "mask editing is not supported yet (planned for stage 4)"
             } else if truthy(object.get("remove_background")) {
@@ -225,6 +262,48 @@ impl Runner {
             return Some(EngineError::new(Category::Unsupported, message));
         }
         None
+    }
+
+    /// Spec `profile` (name or id), when set.
+    fn explicit_profile(&self) -> Option<String> {
+        self.get("profile").filter(|v| truthy(Some(v))).map(py_str)
+    }
+
+    fn resolve_connection(&self, explicit: Option<&str>) -> Result<Arc<Connection>, EngineError> {
+        let resolver = Resolver { env: self.env.as_ref(), profiles: self.opts.profiles.as_deref(), secrets: self.opts.secrets.as_ref() };
+        resolve(&resolver, explicit).map(Arc::new)
+    }
+
+    /// Kind used for offline capability checks. Without a usable connection, stage 1 (CLIProxyAPI) rules apply
+    /// and the connection error is reported when a request would be sent.
+    fn kind(&self) -> ProviderKind {
+        self.conn.as_ref().map(|c| c.kind).unwrap_or(ProviderKind::Cliproxy)
+    }
+
+    /// Updates `status.json` for a profile connection after a real run: ok when at least one image was
+    /// generated, else the first failure that came from the provider or the transport. Best effort.
+    pub(crate) fn record_outcome(&self, ctx: &JobContext, results: &[ItemResult]) {
+        let (Some(store), Some(profile_id)) = (self.opts.profiles.as_ref(), ctx.conn.profile_id.as_deref()) else { return };
+        let generated = results.iter().find(|r| matches!(r.outcome, Ok(JobOk::Generated { .. })));
+        let status = match generated {
+            Some(r) => GenerationStatus { ok: true, at: now_ts(), model: r.model.clone(), category: None, provider_code: None },
+            None => {
+                let failed = results.iter().find_map(|r| match &r.outcome {
+                    Err(err) if from_provider(err) => Some((r, err)),
+                    _ => None,
+                });
+                let Some((r, err)) = failed else { return };
+                GenerationStatus {
+                    ok: false,
+                    at: now_ts(),
+                    model: r.model.clone(),
+                    category: Some(err.category),
+                    provider_code: err.provider_code.clone(),
+                }
+            }
+        };
+        // status.json is a cache; failing to write it must not change the run result.
+        let _ = store.record_generation(profile_id, &status);
     }
 
     fn warnings(&self) -> Vec<String> {
@@ -271,7 +350,8 @@ impl Runner {
             None => Ok(default),
             Some(value) => number(value).map(|n| n.trunc() as i64).ok_or_else(bad),
         };
-        let concurrency = integer("concurrency", DEFAULT_CONCURRENCY)?.clamp(1, MAX_CONCURRENCY) as usize;
+        let default_concurrency = self.conn.as_ref().map(|c| c.concurrency_default as i64).unwrap_or(DEFAULT_CONCURRENCY);
+        let concurrency = integer("concurrency", default_concurrency)?.clamp(1, MAX_CONCURRENCY) as usize;
         let retries = integer("retries", DEFAULT_RETRIES)?.clamp(0, MAX_RETRIES) as u32;
         Ok(Limits { timeout, concurrency, retries })
     }
@@ -308,8 +388,8 @@ impl Runner {
             references: fields.references,
             background,
         };
-        // Stage 1 connections are CLIProxyAPI only; generate_one re-checks against the resolved kind.
-        validate_request(ProviderKind::Cliproxy, &request)?;
+        // Kind–model mismatches and missing capabilities are refused here, before any paid call.
+        validate_request(self.kind(), &request)?;
         Ok((request, fit))
     }
 
@@ -331,10 +411,10 @@ impl Runner {
     }
 
     pub(crate) fn connect(&self, limits: &Limits) -> Result<Arc<JobContext>, EngineError> {
-        let conn = resolve_connection(self.env.as_ref())?;
+        let conn = self.conn.clone()?;
         // The per-image deadline fires first so its message and record win.
         let http = Http::new(limits.timeout.map(|t| t + Duration::from_secs(5)));
-        Ok(Arc::new(JobContext { http: Arc::new(http), conn: Arc::new(conn) }))
+        Ok(Arc::new(JobContext { http: Arc::new(http), conn }))
     }
 
     async fn single(&self) -> Value {
@@ -397,6 +477,7 @@ impl Runner {
             .collect();
         let workers = limits.concurrency.min(count);
         let results = self.execute(items, workers, limits.retries, ctx.clone(), &SINGLE_EVENTS, None).await;
+        self.record_outcome(&ctx, &results);
         let mut outputs = Vec::new();
         let mut failures = Vec::new();
         let mut retried = 0;
@@ -502,7 +583,9 @@ impl Runner {
             source = json!(ctx.conn.source.as_str());
             std::fs::create_dir_all(&output_dir)
                 .map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
-            for r in self.execute(items, workers, limits.retries, ctx, &JOB_EVENTS, None).await {
+            let results = self.execute(items, workers, limits.retries, ctx.clone(), &JOB_EVENTS, None).await;
+            self.record_outcome(&ctx, &results);
+            for r in results {
                 retried += r.retried;
                 let id = r.id.unwrap_or_default();
                 match r.outcome {
@@ -549,7 +632,7 @@ impl Runner {
         for item in items {
             let (semaphore, ctx, cancel, progress) = (semaphore.clone(), ctx.clone(), self.cancel.clone(), self.progress.clone());
             let (backoff, stop) = (self.opts.backoff_base_sec, stop.clone());
-            let owner = (item.index, item.id.clone(), item.job.output.display().to_string());
+            let owner = (item.index, item.id.clone(), item.job.output.display().to_string(), item.job.request.image_model.clone());
             let handle = tasks.spawn(async move { run_item(item, semaphore, ctx, cancel, progress, backoff, retries, names, stop).await });
             owners.insert(handle.id(), owner);
         }
@@ -558,9 +641,9 @@ impl Runner {
             match joined {
                 Ok((_, result)) => results.push(result),
                 Err(err) => {
-                    let Some((index, id, output)) = owners.remove(&err.id()) else { continue };
+                    let Some((index, id, output, model)) = owners.remove(&err.id()) else { continue };
                     let outcome = Err(EngineError::new(Category::Internal, format!("image task stopped unexpectedly: {err}")));
-                    results.push(ItemResult { index, id, output, outcome, retried: 0 });
+                    results.push(ItemResult { index, id, output, outcome, retried: 0, model });
                 }
             }
         }
@@ -600,7 +683,15 @@ async fn run_item(
     stop: Option<Arc<StopAfter>>,
 ) -> ItemResult {
     let output = item.job.output.display().to_string();
-    let finish = |outcome, retried| ItemResult { index: item.index, id: item.id.clone(), output: output.clone(), outcome, retried };
+    let model = item.job.request.image_model.clone();
+    let finish = |outcome, retried| ItemResult {
+        index: item.index,
+        id: item.id.clone(),
+        output: output.clone(),
+        outcome,
+        retried,
+        model: model.clone(),
+    };
     let permit = tokio::select! {
         permit = semaphore.acquire_owned() => permit.ok(),
         _ = cancel.cancelled() => None,

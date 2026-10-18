@@ -335,7 +335,9 @@ async fn run_batch_inner(run: &Runner) -> Result<Value, EngineError> {
         let ctx = run.connect(&limits)?;
         std::fs::create_dir_all(&output_dir)
             .map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
-        for r in run.execute(items, workers, limits.retries, ctx, &JOB_EVENTS, Some(MAX_FAILURES)).await {
+        let results = run.execute(items, workers, limits.retries, ctx.clone(), &JOB_EVENTS, Some(MAX_FAILURES)).await;
+        run.record_outcome(&ctx, &results);
+        for r in results {
             retried += r.retried;
             match r.outcome {
                 Ok(_) => outputs.push(r.output),
