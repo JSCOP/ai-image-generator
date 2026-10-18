@@ -16,7 +16,7 @@ use image_core::runner::{run_spec, Progress};
 use image_core::schema::{examples_json, schema_json};
 use image_core::secrets::{KeyringStore, MemoryStore, SecretStore};
 use serde_json::{json, Value};
-use std::io::{BufRead, Read, Write};
+use std::io::{BufRead, IsTerminal, Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
@@ -30,7 +30,8 @@ const USAGE: &str = "usage: image-cli [--profile NAME] [--spec FILE | --json STR
        image-cli profile default NAME | --none
        image-cli profile check [NAME]
 KIND: cliproxy, openai, gemini, xai, openai_compatible. Keys are never taken as arguments:
---key-stdin reads the first line of stdin, --key-env reads the named environment variable.";
+--key-stdin reads the first line of piped stdin (an interactive terminal is refused: it would echo the key),
+--key-env reads the named environment variable.";
 
 enum Command {
     Spec(String),
@@ -342,12 +343,26 @@ async fn models(profile: Option<&str>) -> (Value, i32) {
 
 /// The new key, read before anything is written. Empty input is an error.
 fn read_key(source: &KeySource) -> Result<Option<Secret>, EngineError> {
+    let stdin = std::io::stdin();
+    let is_terminal = stdin.is_terminal();
+    read_key_from(source, is_terminal, &mut stdin.lock())
+}
+
+fn read_key_from(source: &KeySource, stdin_is_terminal: bool, stdin: &mut dyn BufRead) -> Result<Option<Secret>, EngineError> {
     let raw = match source {
         KeySource::Keep => return Ok(None),
+        // A console would echo the typed key on screen (and into terminal scrollback).
+        KeySource::Stdin if stdin_is_terminal => {
+            return Err(EngineError::new(
+                Category::InvalidRequest,
+                "--key-stdin은 키를 파이프로 받습니다. 터미널에 직접 입력하면 키가 화면에 보이므로 받지 않습니다. 예: \
+                 $k = Read-Host 'API key' -AsSecureString; [System.Net.NetworkCredential]::new('', $k).Password | image-cli profile ... --key-stdin \
+                 (또는 --key-env 변수)",
+            ))
+        }
         KeySource::Stdin => {
             let mut line = String::new();
-            std::io::stdin()
-                .lock()
+            stdin
                 .read_line(&mut line)
                 .map_err(|e| EngineError::new(Category::InvalidRequest, format!("표준입력에서 키를 읽을 수 없습니다: {e}")))?;
             line
@@ -567,6 +582,21 @@ mod tests {
         fn delete(&self, id: &str) -> Result<(), EngineError> {
             self.inner.delete(id)
         }
+    }
+
+    #[test]
+    fn key_stdin_from_an_interactive_terminal_is_refused_without_reading() {
+        let mut typed: &[u8] = b"sk-would-echo\n";
+        let err = read_key_from(&KeySource::Stdin, true, &mut typed).err().expect("refused");
+        assert_eq!(err.category, Category::InvalidRequest);
+        assert!(err.message.contains("--key-stdin") && err.message.contains("Read-Host"), "{}", err.message);
+        assert!(!err.message.contains("sk-would-echo"));
+        assert_eq!(typed, b"sk-would-echo\n", "the terminal line must not be consumed");
+        let mut piped: &[u8] = b"sk-piped\n";
+        assert_eq!(read_key_from(&KeySource::Stdin, false, &mut piped).unwrap().unwrap().expose(), "sk-piped");
+        // --key-env does not care about the terminal.
+        let mut unused: &[u8] = b"";
+        assert!(read_key_from(&KeySource::Keep, true, &mut unused).unwrap().is_none());
     }
 
     fn stored(store: &FaultyStore, id: &str) -> Option<String> {
