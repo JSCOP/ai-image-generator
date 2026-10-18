@@ -45,6 +45,9 @@ pub struct Record {
     pub alpha: Option<AlphaStats>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connection_source: Option<String>,
+    /// Profile id when the connection came from a profile (spec §5.2 "선택 프로필 id").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<EngineError>,
     #[serde(skip_serializing_if = "Option::is_none")]

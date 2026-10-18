@@ -188,11 +188,10 @@ fn now_ts() -> f64 {
     (secs * 1000.0).round() / 1000.0
 }
 
-/// Whether a failure says something about the connection (an HTTP answer, or the request not getting through),
-/// as opposed to a local refusal such as an existing output or a cancellation.
-fn from_provider(err: &EngineError) -> bool {
-    err.http_status.is_some()
-        || matches!(err.category, Category::Network | Category::Dns | Category::Timeout | Category::Tls | Category::Provider)
+/// Whether a failure is a provider answer about generating at all (spec §6.2 "성공/할당량 오류로만 갱신"):
+/// permission, spending/quota or rate-limit HTTP answers. Transport failures, 401, 404, 5xx and local refusals are not.
+fn limits_generation(err: &EngineError) -> bool {
+    err.http_status.is_some() && matches!(err.category, Category::Permission | Category::Quota | Category::RateLimit)
 }
 
 fn round2(secs: f64) -> f64 {
@@ -293,7 +292,7 @@ impl Runner {
     }
 
     /// Updates `status.json` for a profile connection after a real run: ok when at least one image was
-    /// generated, else the first failure that came from the provider or the transport. Best effort.
+    /// generated, else the first permission/quota/rate-limit answer; other failures keep the previous entry. Best effort.
     pub(crate) fn record_outcome(&self, ctx: &JobContext, results: &[ItemResult]) {
         let (Some(store), Some(profile_id)) = (self.opts.profiles.as_ref(), ctx.conn.profile_id.as_deref()) else { return };
         let generated = results.iter().find(|r| matches!(r.outcome, Ok(JobOk::Generated { .. })));
@@ -301,7 +300,7 @@ impl Runner {
             Some(r) => GenerationStatus { ok: true, at: now_ts(), model: r.model.clone(), category: None, provider_code: None },
             None => {
                 let failed = results.iter().find_map(|r| match &r.outcome {
-                    Err(err) if from_provider(err) => Some((r, err)),
+                    Err(err) if limits_generation(err) => Some((r, err)),
                     _ => None,
                 });
                 let Some((r, err)) = failed else { return };

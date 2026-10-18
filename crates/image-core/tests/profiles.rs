@@ -65,6 +65,93 @@ fn official_kinds_fill_default_urls() {
 }
 
 #[test]
+fn gemini_url_with_api_version_path_is_refused() {
+    let (_dir, store) = temp_store();
+    for raw in [
+        "https://generativelanguage.googleapis.com/v1beta",
+        "https://generativelanguage.googleapis.com/v1beta/",
+        "https://generativelanguage.googleapis.com/V1BETA",
+        "https://generativelanguage.googleapis.com/v1beta/models",
+        "https://gw.example.com/gemini/v1beta",
+    ] {
+        let err = store.add("g", ProviderKind::Gemini, Some(raw), None).unwrap_err();
+        assert_eq!(err.category, Category::InvalidRequest, "{raw}");
+        assert!(err.message.contains("/v1beta") && err.message.contains("호스트"), "{}", err.message);
+        assert_eq!(ProviderKind::Gemini.normalize_base_url(raw).unwrap_err().category, Category::InvalidRequest);
+    }
+    assert!(store.load().unwrap().profiles.is_empty());
+    let g = store.add("g", ProviderKind::Gemini, None, None).unwrap();
+    assert_eq!(
+        store.update("g", ProfilePatch { base_url: Some(format!("{}/v1beta", g.base_url)), ..Default::default() }).unwrap_err().category,
+        Category::InvalidRequest
+    );
+    // A path that merely contains the letters is fine.
+    assert!(store.add("g2", ProviderKind::Gemini, Some("https://gw.example.com/v1betas"), None).is_ok());
+}
+
+fn write_profiles(dir: &tempfile::TempDir, value: serde_json::Value) -> PathBuf {
+    let path = dir.path().join("profiles.json");
+    std::fs::write(&path, serde_json::to_string_pretty(&value).unwrap()).unwrap();
+    path
+}
+
+#[test]
+fn hand_edited_bad_entries_are_reported_by_name() {
+    let good = serde_json::json!({"id": "p-00000001", "name": "ok", "kind": "openai", "base_url": "https://api.openai.com/v1"});
+    let cases = [
+        (serde_json::json!({"id": "p-00000002", "name": "bad url", "kind": "cliproxy", "base_url": "http://u:pw@host:1/v1"}), "bad url"),
+        (
+            serde_json::json!({"id": "p-00000002", "name": "gem", "kind": "gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta"}),
+            "gem",
+        ),
+        (
+            serde_json::json!({"id": "p-00000002", "name": "many", "kind": "openai", "base_url": "https://api.openai.com/v1", "concurrency": 0}),
+            "many",
+        ),
+        (
+            serde_json::json!({"id": "p-00000002", "name": "huge", "kind": "openai", "base_url": "https://api.openai.com/v1", "concurrency": 33}),
+            "huge",
+        ),
+        (serde_json::json!({"id": "p-00000002", "name": "  ", "kind": "openai", "base_url": "https://api.openai.com/v1"}), "p-00000002"),
+        (
+            serde_json::json!({"id": "p-00000002", "name": "p-0000abcd", "kind": "openai", "base_url": "https://api.openai.com/v1"}),
+            "p-0000abcd",
+        ),
+        (serde_json::json!({"id": "p-00000002", "name": " padded ", "kind": "openai", "base_url": "https://api.openai.com/v1"}), "padded"),
+        (serde_json::json!({"id": "p-00000002", "name": "OK", "kind": "openai", "base_url": "https://api.openai.com/v1"}), "OK"),
+        (serde_json::json!({"id": "p-00000001", "name": "twin", "kind": "openai", "base_url": "https://api.openai.com/v1"}), "p-00000001"),
+    ];
+    for (bad, label) in cases {
+        let (dir, store) = temp_store();
+        let path = write_profiles(&dir, serde_json::json!({"version": 1, "default": null, "profiles": [good, bad]}));
+        let before = std::fs::read_to_string(&path).unwrap();
+        let err = store.load().unwrap_err();
+        assert_eq!(err.category, Category::InvalidRequest, "{bad}");
+        assert!(err.message.contains("프로필 파일을 읽을 수 없") && err.message.contains(label), "{bad}: {}", err.message);
+        assert!(store.add("new", ProviderKind::Openai, None, None).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), before, "never overwritten");
+    }
+}
+
+#[test]
+fn default_naming_a_missing_profile_means_no_default() {
+    let (dir, store) = temp_store();
+    let entry = serde_json::json!({"id": "p-00000001", "name": "a", "kind": "openai", "base_url": "https://api.openai.com/v1"});
+    write_profiles(&dir, serde_json::json!({"version": 1, "default": "p-deadbeef", "profiles": [entry]}));
+    let file = store.load().unwrap();
+    assert_eq!(file.default, None);
+    assert_eq!(file.profiles.len(), 1);
+    assert_eq!(store.find("a").unwrap().id, "p-00000001");
+    // Edits keep working and write the repaired default.
+    store.add("b", ProviderKind::Xai, None, None).unwrap();
+    store.set_default(Some("a")).unwrap();
+    assert_eq!(store.load().unwrap().default.as_deref(), Some("p-00000001"));
+    write_profiles(&dir, serde_json::json!({"version": 1, "default": "p-deadbeef", "profiles": [entry]}));
+    store.remove("a").unwrap();
+    assert_eq!(store.load().unwrap(), image_core::profiles::ProfileFile { version: 1, default: None, profiles: vec![] });
+}
+
+#[test]
 fn cliproxy_requires_url() {
     let (_dir, store) = temp_store();
     assert_eq!(store.add("x", ProviderKind::Cliproxy, None, None).unwrap_err().category, Category::InvalidRequest);
@@ -207,11 +294,26 @@ fn transport_warning_rules() {
         "http://100.98.54.122:8317/v1",
         "http://desk.tail1234.ts.net:8317/v1",
         "http://[::1]:1/v1",
+        // MagicDNS short names and other single-label LAN hosts.
+        "http://desktop-sb818kq:8317/v1",
+        "http://DESKTOP-SB818KQ:8317/v1",
+        "http://nas/v1",
+        // Tailscale IPv6 (fd7a:115c:a1e0::/48).
+        "http://[fd7a:115c:a1e0::1]:8317/v1",
+        "http://[fd7a:115c:a1e0:ab12:4843:cd96:6258:b240]:8317/v1",
     ] {
         assert!(transport_warning(ok).is_none(), "{ok}");
     }
-    for warn in ["http://example.com/v1", "http://8.8.8.8/v1", "http://100.200.0.1/v1", "http://172.32.0.1/v1", "http://ts.net.evil.com/v1"]
-    {
+    for warn in [
+        "http://example.com/v1",
+        "http://8.8.8.8/v1",
+        "http://100.200.0.1/v1",
+        "http://172.32.0.1/v1",
+        "http://ts.net.evil.com/v1",
+        "http://[fd7a:115c:a1e1::1]/v1",
+        "http://[2001:db8::1]/v1",
+        "http://desktop.example/v1",
+    ] {
         assert!(transport_warning(warn).is_some(), "{warn}");
     }
 }

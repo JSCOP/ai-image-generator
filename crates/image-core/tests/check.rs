@@ -72,6 +72,33 @@ async fn check_reports_each_stage() {
 }
 
 #[tokio::test]
+async fn only_401_means_the_key_was_refused() {
+    let cases: [(u16, &str, Category, bool); 6] = [
+        (401, r#"{"error":{"message":"invalid api key"}}"#, Category::Auth, false),
+        (403, r#"{"error":{"code":"personal-team-blocked","message":"team policy"}}"#, Category::Permission, true),
+        (402, r#"{"error":{"message":"payment required"}}"#, Category::Quota, true),
+        (429, r#"{"error":{"message":"slow down"}}"#, Category::RateLimit, true),
+        (404, r#"{"error":{"message":"no such route"}}"#, Category::NotFound, false),
+        (503, r#"{"error":{"message":"overloaded"}}"#, Category::Provider, false),
+    ];
+    for (status, body, category, authenticated) in cases {
+        let p = FakeProvider::start(move |_| Reply::json(status, body));
+        let conn = Connection::cliproxy(p.base_url(), Some(Secret::new("k")), "process_env");
+        let r = check_connection(&http(), &conn, None).await;
+        let err = r.error.as_ref().unwrap();
+        assert!(r.reachable && !r.models_listed, "{status}");
+        assert_eq!(r.authenticated, authenticated, "{status}");
+        assert_eq!(err.category, category, "{status}");
+        assert_eq!(err.http_status, Some(status));
+        if status != 401 {
+            // Nothing in the report may blame the key for a path or server problem.
+            let text = err.message.to_lowercase();
+            assert!(!text.contains("키") && !text.contains("key"), "{status}: {text}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn check_never_generates() {
     let p = FakeProvider::start(|_| models_reply());
     let conn = Connection::cliproxy(p.base_url(), Some(Secret::new("k")), "process_env");

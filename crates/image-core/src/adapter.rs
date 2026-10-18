@@ -62,9 +62,20 @@ pub fn model_supported(kind: ProviderKind, model: &str) -> Result<(), EngineErro
                 _ => Ok(()),
             }
         }
+        ProviderKind::Openai if lower(model) == "gpt-image-2.5" => {
+            // Not an official id (only -sunburst/-flare and their snapshots); never swapped silently.
+            return Err(EngineError::new(
+                Category::Unsupported,
+                format!(
+                    "{model} 모델은 {} 프로필에서 쓸 수 없습니다(OpenAI 공식 API에 없는 ID). gpt-image-2.5-sunburst 또는 gpt-image-2.5-flare를 지정해 주세요.",
+                    kind.label()
+                ),
+            ));
+        }
         ProviderKind::Openai => (is_gpt_image(model), "gpt-image-*"),
         ProviderKind::Gemini => (backend(model) == Backend::Gemini, "gemini-*image*"),
-        ProviderKind::Xai => (lower(model).starts_with("grok-imagine-"), "grok-imagine-*"),
+        // Video models (grok-imagine-video*) share the prefix but are not image models.
+        ProviderKind::Xai => (lower(model).starts_with("grok-imagine-image"), "grok-imagine-image*"),
     };
     if ok {
         Ok(())
@@ -293,7 +304,7 @@ pub fn extract_image(kind: ProviderKind, backend: &Backend, body: &[u8]) -> Resu
                 .filter_map(|p| p.get("inlineData").or_else(|| p.get("inline_data")))
                 .find_map(|inline| inline["data"].as_str().map(str::to_string));
             if data.is_none() && kind == ProviderKind::Gemini {
-                if let Some(err) = gemini_block(candidates()) {
+                if let Some(err) = gemini_block(candidates()).or_else(|| gemini_prompt_block(&response)) {
                     return Err(err);
                 }
             }
@@ -325,6 +336,18 @@ fn gemini_block<'a>(mut candidates: impl Iterator<Item = &'a Value>) -> Option<E
         err.provider_code = Some(reason.to_string());
         Some(err)
     })
+}
+
+/// The prompt itself was blocked (`promptFeedback.blockReason`, no candidates): asking again will not help.
+fn gemini_prompt_block(response: &Value) -> Option<EngineError> {
+    let reason = response["promptFeedback"]["blockReason"].as_str().map(str::trim).filter(|r| !r.is_empty())?;
+    let mut err = EngineError::new(
+        Category::Provider,
+        format!("Gemini가 요청을 차단해 이미지를 만들지 않았습니다(blockReason {reason}). 프롬프트나 참조 이미지를 바꿔 주세요."),
+    )
+    .retryable(false);
+    err.provider_code = Some(reason.to_string());
+    Some(err)
 }
 
 /// Model ids the connection lists. Official kinds return image models only; proxies return everything (at most 1000).

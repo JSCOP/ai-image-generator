@@ -103,6 +103,7 @@ pub async fn generate_one(ctx: &JobContext, job: &JobSpec, cancel: &Cancellation
         background: Some(req.background.as_str().into()),
         fit: Some(job.fit.as_str().into()),
         connection_source: Some(ctx.conn.source.clone()),
+        profile_id: ctx.conn.profile_id.clone(),
         engine: Some(ENGINE.into()),
         ..Record::default()
     };

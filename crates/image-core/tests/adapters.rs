@@ -363,3 +363,56 @@ fn capability_table() {
     assert!(model_supported(OpenaiCompatible, "gemini-3.1-flash-image").is_ok());
     assert_eq!(model_supported(Cliproxy, "gpt-5.5").unwrap_err().category, Category::Unsupported);
 }
+
+#[test]
+fn openai_refuses_bare_gpt_image_2_5_with_a_hint() {
+    use ProviderKind::*;
+    for model in ["gpt-image-2.5", "GPT-Image-2.5"] {
+        let err = model_supported(Openai, model).unwrap_err();
+        assert_eq!(err.category, Category::Unsupported, "{model}");
+        assert!(err.message.contains("gpt-image-2.5-sunburst") && err.message.contains("gpt-image-2.5-flare"), "{}", err.message);
+    }
+    for model in ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare-2026-09-08", "gpt-image-2", "gpt-image-1-mini"] {
+        assert!(model_supported(Openai, model).is_ok(), "{model}");
+    }
+    // Proxies keep accepting the bare id (CLIProxyAPI serves it).
+    assert!(model_supported(Cliproxy, "gpt-image-2.5").is_ok());
+    assert!(model_supported(OpenaiCompatible, "gpt-image-2.5").is_ok());
+}
+
+#[tokio::test]
+async fn openai_bare_gpt_image_2_5_sends_nothing() {
+    let p = FakeProvider::start(|_| official_openai_reply(&png_bytes(8, 8, [1, 1, 1, 255])));
+    let run = generate(conn(ProviderKind::Openai, p.base_url()), req("gpt-image-2.5", "1024x1024", vec![])).await;
+    assert_eq!(run.result.unwrap_err().category, Category::Unsupported);
+    assert!(p.requests().is_empty());
+}
+
+#[test]
+fn xai_accepts_image_models_only() {
+    use ProviderKind::*;
+    for model in ["grok-imagine-image", "grok-imagine-image-2.0", "grok-imagine-image-quality", "Grok-Imagine-Image-Pro"] {
+        assert!(model_supported(Xai, model).is_ok(), "{model}");
+    }
+    for model in ["grok-imagine-video", "grok-imagine-video-1.5", "grok-imagine-video-1.5-lite", "grok-imagine-"] {
+        let err = model_supported(Xai, model).unwrap_err();
+        assert_eq!(err.category, Category::Unsupported, "{model}");
+        assert!(err.message.contains("grok-imagine-image"), "{}", err.message);
+    }
+}
+
+#[tokio::test]
+async fn gemini_prompt_block_is_structured_and_not_retryable() {
+    for reason in ["SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST"] {
+        let reply = json!({"promptFeedback": {"blockReason": reason}, "modelVersion": "gemini-3.1-flash-image"}).to_string();
+        let p = FakeProvider::start(move |_| Reply::json(200, &reply));
+        let run = generate(conn(ProviderKind::Gemini, root(&p)), req("gemini-3.1-flash-image", "1024x1024", vec![])).await;
+        let err = run.result.as_ref().unwrap_err().clone();
+        assert_eq!(err.category, Category::Provider);
+        assert_eq!(err.provider_code.as_deref(), Some(reason));
+        assert!(!err.retryable);
+        assert!(err.message.contains("차단"), "{}", err.message);
+        assert!(!run.out().exists());
+        assert_eq!(run.record()["error"]["provider_code"], reason);
+    }
+}

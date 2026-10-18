@@ -76,11 +76,21 @@ impl ProviderKind {
 
     /// Validated address; `/v1` is added for OpenAI-style kinds only (spec §6.1).
     pub fn normalize_base_url(self, raw: &str) -> Result<String, EngineError> {
-        let result = match self {
+        let base = match self {
             ProviderKind::Gemini => validate_base_url(raw),
             _ => normalize_base_url(raw),
-        };
-        result.map_err(invalid)
+        }
+        .map_err(invalid)?;
+        // The adapter adds `/v1beta/...` itself; a pasted API path would be doubled, and Gemini addresses are never rewritten.
+        if self == ProviderKind::Gemini {
+            let path = reqwest::Url::parse(&base).map(|u| u.path().to_ascii_lowercase()).unwrap_or_default();
+            if path.ends_with("/v1beta") || path.contains("/v1beta/") {
+                return Err(invalid(
+                    "Gemini 주소에는 /v1beta 경로를 넣지 않습니다. 호스트 주소만 입력해 주세요(예: https://generativelanguage.googleapis.com).",
+                ));
+            }
+        }
+        Ok(base)
     }
 }
 
@@ -199,11 +209,16 @@ impl ProfileStore {
             Some(v) => return Err(unreadable(&path, &format!("프로필 파일 버전 {v}은(는) 지원하지 않습니다(지원: {FILE_VERSION})"))),
             None => return Err(unreadable(&path, "version 항목이 없습니다")),
         }
-        let file: ProfileFile = serde_json::from_value(value).map_err(|e| unreadable(&path, &e.to_string()))?;
-        if let Some(default) = &file.default {
-            if !file.profiles.iter().any(|p| &p.id == default) {
-                return Err(unreadable(&path, &format!("기본 프로필 {default}이(가) 목록에 없습니다")));
-            }
+        let mut file: ProfileFile = serde_json::from_value(value).map_err(|e| unreadable(&path, &e.to_string()))?;
+        // The file may be edited by hand: every entry must pass the same rules as `add`.
+        for (index, profile) in file.profiles.iter().enumerate() {
+            check_entry(&file.profiles[..index], profile).map_err(|e| {
+                unreadable(&path, &format!("{}번째 프로필(id {:?}, 이름 {:?}): {}", index + 1, profile.id, profile.name, e.message))
+            })?;
+        }
+        // A default naming no listed profile means "no default", so the other entries stay usable.
+        if file.default.as_ref().is_some_and(|default| !file.profiles.iter().any(|p| &p.id == default)) {
+            file.default = None;
         }
         Ok(file)
     }
@@ -373,8 +388,10 @@ pub fn transport_warning(base_url: &str) -> Option<String> {
             let [a, b, ..] = ip.octets();
             ip.is_loopback() || ip.is_private() || (a == 100 && (64..=127).contains(&b))
         }
-        Ok(IpAddr::V6(ip)) => ip.is_loopback(),
-        Err(_) => host == "localhost" || host.ends_with(".localhost") || host.ends_with(".ts.net"),
+        // Tailscale IPv6 addresses are fd7a:115c:a1e0::/48.
+        Ok(IpAddr::V6(ip)) => ip.is_loopback() || ip.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0],
+        // A single-label name (no dot, e.g. MagicDNS `desktop-sb818kq`) only resolves inside the local or tailnet DNS.
+        Err(_) => !host.contains('.') || host.ends_with(".localhost") || host.ends_with(".ts.net"),
     };
     if trusted {
         return None;
@@ -399,6 +416,26 @@ fn clean_name(raw: &str) -> Result<String, EngineError> {
         return Err(invalid("프로필 이름을 id 형식(p-와 8자리 16진수)으로 지을 수 없습니다."));
     }
     Ok(name.to_string())
+}
+
+/// Rules for one stored entry; `earlier` are the entries before it (ids and names must stay unique).
+fn check_entry(earlier: &[Profile], profile: &Profile) -> Result<(), EngineError> {
+    if profile.id.trim().is_empty() || profile.id.chars().any(char::is_control) {
+        return Err(invalid("id가 비어 있거나 제어 문자가 있습니다."));
+    }
+    if earlier.iter().any(|p| p.id == profile.id) {
+        return Err(invalid("같은 id의 프로필이 이미 있습니다."));
+    }
+    let name = clean_name(&profile.name)?;
+    if name != profile.name {
+        return Err(invalid("프로필 이름 앞뒤에 공백이 있습니다."));
+    }
+    let folded = name.to_lowercase();
+    if earlier.iter().any(|p| p.name.to_lowercase() == folded) {
+        return Err(invalid("같은 이름의 프로필이 이미 있습니다."));
+    }
+    profile.kind.normalize_base_url(&profile.base_url)?;
+    check_concurrency(profile.concurrency)
 }
 
 fn looks_like_id(name: &str) -> bool {

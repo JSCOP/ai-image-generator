@@ -58,8 +58,9 @@ pub async fn check_connection(http: &Http, conn: &Connection, store: Option<&Pro
         Err(err) => {
             // Any HTTP answer (redirects included) means the server was reached.
             report.reachable = err.http_status.is_some();
-            // A quota or rate-limit answer is given only after the key was accepted.
-            report.authenticated = report.reachable && matches!(err.category, Category::Quota | Category::RateLimit);
+            // Permission, quota and rate-limit answers come after the key was accepted; only 401 refuses it.
+            // Anything else (404, 5xx, redirects) proves nothing about the key either way.
+            report.authenticated = report.reachable && matches!(err.category, Category::Permission | Category::Quota | Category::RateLimit);
             report.error = Some(err);
         }
     }

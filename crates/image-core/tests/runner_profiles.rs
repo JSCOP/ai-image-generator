@@ -138,12 +138,92 @@ async fn official_profile_defaults_to_four_workers() {
     let p = ok_provider(300);
     let s = Setup::new();
     s.add("openai", ProviderKind::Openai, Some(&p.base_url()), Some("sk-test"));
-    let out = s.go(spec(json!({"profile": "openai", "count": 6})), MapEnv::new(&[], &[])).await;
+    let out = s.go(spec(json!({"profile": "openai", "count": 6, "image_model": "gpt-image-2.5-flare"})), MapEnv::new(&[], &[])).await;
     assert_eq!(out.exit_code, 0, "{}", out.result);
     assert_eq!(out.result["concurrency"], 4);
     assert_eq!(p.peak_concurrency(), 4);
     assert_eq!(p.requests().len(), 6);
     // The spec's own concurrency still wins.
-    let out = s.go(spec(json!({"profile": "openai", "count": 3, "concurrency": 2, "topic": "c2"})), MapEnv::new(&[], &[])).await;
+    let out = s
+        .go(
+            spec(json!({"profile": "openai", "count": 3, "concurrency": 2, "topic": "c2", "image_model": "gpt-image-2"})),
+            MapEnv::new(&[], &[]),
+        )
+        .await;
     assert_eq!(out.result["concurrency"], 2, "{}", out.result);
+}
+
+#[tokio::test]
+async fn openai_profile_refuses_the_bare_default_model_offline() {
+    let p = ok_provider(0);
+    let s = Setup::new();
+    let id = s.add("openai", ProviderKind::Openai, Some(&p.base_url()), Some("sk-test"));
+    // No image_model: the runner default gpt-image-2.5 does not exist on the official API.
+    for extra in [json!({"profile": "openai"}), json!({"profile": "openai", "image_model": "gpt-image-2.5", "dry_run": true})] {
+        let out = s.go(spec(extra), MapEnv::new(&[], &[])).await;
+        assert_eq!(out.exit_code, 2, "{}", out.result);
+        assert_eq!(out.result["error_category"], "unsupported", "{}", out.result);
+        let message = out.result["error"].as_str().unwrap();
+        assert!(message.contains("gpt-image-2.5-sunburst") && message.contains("gpt-image-2.5-flare"), "{message}");
+    }
+    assert!(p.requests().is_empty());
+    assert!(!s.store.generation_status().unwrap().contains_key(&id));
+}
+
+#[tokio::test]
+async fn record_carries_the_profile_id_only_for_profiles() {
+    let p = ok_provider(0);
+    let s = Setup::new();
+    let id = s.add("local", ProviderKind::Cliproxy, Some(&p.base_url()), None);
+    let read_record = |out: &RunOutcome| -> Value {
+        let dir = std::path::PathBuf::from(out.result["metadata_dir"].as_str().unwrap());
+        let file =
+            std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).find(|p| p.extension().is_some_and(|e| e == "json")).unwrap();
+        serde_json::from_slice(&std::fs::read(file).unwrap()).unwrap()
+    };
+    let out = s.go(spec(json!({"profile": "local"})), MapEnv::new(&[], &[])).await;
+    assert_eq!(out.exit_code, 0, "{}", out.result);
+    let record = read_record(&out);
+    assert_eq!(record["profile_id"], json!(id));
+    assert_eq!(record["connection_source"], "profile:local");
+    let out = s.go(spec(json!({"topic": "env"})), MapEnv::proxy(&p.base_url())).await;
+    assert_eq!(out.exit_code, 0, "{}", out.result);
+    let record = read_record(&out);
+    assert!(record.get("profile_id").is_none(), "{record}");
+}
+
+#[tokio::test]
+async fn last_generation_ignores_transport_and_server_failures() {
+    let ok = ok_provider(0);
+    let s = Setup::new();
+    let id = s.add("p", ProviderKind::Cliproxy, Some(&ok.base_url()), None);
+    let run = |topic: &str| spec(json!({"profile": "p", "topic": topic, "image_model": "gpt-image-2"}));
+    let out = s.go(run("ok"), MapEnv::new(&[], &[])).await;
+    assert_eq!(out.exit_code, 0, "{}", out.result);
+    let first = s.store.generation_status().unwrap().remove(&id).unwrap();
+    assert!(first.ok);
+
+    // 5xx, 404, 401 and an unreachable server say nothing about "can really generate".
+    for reply in [(503, r#"{"error":{"message":"overloaded"}}"#), (404, "not found"), (401, r#"{"error":{"message":"bad"}}"#)] {
+        let bad = FakeProvider::start(move |_| Reply::json(reply.0, reply.1));
+        s.store.update("p", image_core::profiles::ProfilePatch { base_url: Some(bad.base_url()), ..Default::default() }).unwrap();
+        let out = s.go(run(&format!("h{}", reply.0)), MapEnv::new(&[], &[])).await;
+        assert_eq!(out.exit_code, 2, "{}", out.result);
+        assert_eq!(s.store.generation_status().unwrap().remove(&id).unwrap(), first, "HTTP {}", reply.0);
+    }
+    let closed = test_fixture::closed_base_url();
+    s.store.update("p", image_core::profiles::ProfilePatch { base_url: Some(closed), ..Default::default() }).unwrap();
+    let out = s.go(run("net"), MapEnv::new(&[], &[])).await;
+    assert_eq!(out.exit_code, 2, "{}", out.result);
+    assert_eq!(s.store.generation_status().unwrap().remove(&id).unwrap(), first, "network failure");
+
+    // A permission / spending answer does update it.
+    let blocked = FakeProvider::start(|_| Reply::json(403, r#"{"error":{"code":"personal-team-blocked","message":"policy"}}"#));
+    s.store.update("p", image_core::profiles::ProfilePatch { base_url: Some(blocked.base_url()), ..Default::default() }).unwrap();
+    let out = s.go(run("perm"), MapEnv::new(&[], &[])).await;
+    assert_eq!(out.exit_code, 2, "{}", out.result);
+    let last = s.store.generation_status().unwrap().remove(&id).unwrap();
+    assert!(!last.ok);
+    assert_eq!(serde_json::to_value(last.category).unwrap(), json!("permission"));
+    assert_eq!(last.provider_code.as_deref(), Some("personal-team-blocked"));
 }

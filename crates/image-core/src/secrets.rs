@@ -113,7 +113,9 @@ mod platform {
     /// Describe a keyring error without any payload that could hold key bytes.
     pub(super) fn map_error(err: Error) -> EngineError {
         let detail = match &err {
-            Error::TooLong(..) => return too_long(),
+            // Only the password/secret limit is about the key; other attributes are named without their value.
+            Error::TooLong(attr, _) if attr.starts_with("password") || attr == "secret" => return too_long(),
+            Error::TooLong(attr, _) => format!("'{attr}' 값이 너무 깁니다"),
             Error::PlatformFailure(e) => format!("플랫폼 오류 ({e})"),
             Error::NoStorageAccess(e) => format!("저장소에 접근할 수 없음 ({e})"),
             Error::BadEncoding(_) | Error::BadDataFormat(..) => "저장된 키 형식이 올바르지 않음".to_string(),
@@ -126,6 +128,27 @@ mod platform {
 
     pub(super) fn is_no_entry(err: &Error) -> bool {
         matches!(err, Error::NoEntry)
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::platform::map_error;
+    use crate::error::Category;
+    use keyring_core::Error;
+
+    #[test]
+    fn too_long_names_the_attribute_unless_it_is_the_key() {
+        for attr in ["password encoded as UTF-16", "secret"] {
+            let err = map_error(Error::TooLong(attr.to_string(), 2560));
+            assert_eq!(err.category, Category::InvalidRequest, "{attr}");
+            assert!(err.message.contains("키가 너무 깁니다"), "{}", err.message);
+        }
+        for attr in ["user", "target", "target_alias", "comment"] {
+            let err = map_error(Error::TooLong(attr.to_string(), 513));
+            assert_eq!(err.category, Category::Internal, "{attr}");
+            assert_eq!(err.message, format!("자격 증명 관리자 오류: '{attr}' 값이 너무 깁니다"));
+        }
     }
 }
 
