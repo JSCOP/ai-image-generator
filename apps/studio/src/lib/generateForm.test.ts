@@ -414,3 +414,10 @@ describe('run header', () => {
     expect(input.resume).toBe(false);
   });
 });
+
+describe('emptyForm', () => {
+  it('starts at the project default for final images: 1920x1080, high quality, one image', () => {
+    const f = emptyForm();
+    expect([f.size, f.quality, f.count]).toEqual(['1920x1080', 'high', 1]);
+  });
+});

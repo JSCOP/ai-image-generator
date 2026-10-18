@@ -148,7 +148,7 @@ pnpm --dir apps/studio dev                           # 브라우저만으로 화
 
 앱 설정은 `%APPDATA%\ImageStudio\settings.json`(첫 실행 때 생김, `IMAGE_STUDIO_HOME`이 있으면 그 폴더)에 저장됩니다. 생성 결과는 `<작업 폴더>\ImageGallery\output\<주제>\`에 저장됩니다.
 
-스크린샷(목업 응답, 1440×900 / 1100×700): [생성 중](apps/studio/docs/screenshots/generate-running-1440.png) · [생성 완료](apps/studio/docs/screenshots/generate-done-1440.png) · [투명 생성](apps/studio/docs/screenshots/generate-done-1100.png) · [갤러리](apps/studio/docs/screenshots/gallery-1440.png) · [연결 확인](apps/studio/docs/screenshots/connections-1440.png) · [연결 확인 실패](apps/studio/docs/screenshots/connections-1100.png) · [첫 실행](apps/studio/docs/screenshots/first-run-generate-1440.png)
+스크린샷(목업 응답, 1440×900 / 1100×700): [빈 생성 화면](apps/studio/docs/screenshots/generate-empty-1440.png) · [생성 중](apps/studio/docs/screenshots/generate-running-1440.png) · [생성 완료](apps/studio/docs/screenshots/generate-done-1440.png) · [투명 생성](apps/studio/docs/screenshots/generate-done-1100.png) · [갤러리](apps/studio/docs/screenshots/gallery-1440.png) · [연결 확인](apps/studio/docs/screenshots/connections-1440.png) · [연결 확인 실패](apps/studio/docs/screenshots/connections-1100.png) · [첫 실행](apps/studio/docs/screenshots/first-run-generate-1440.png)
 
 검증(2026-10-19): `cargo test --workspace`, `pnpm --dir apps/studio test`·`check`·`build`, 디버그 앱 실행(창 표시, 10초 유지, 첫 실행 settings.json 생성), 앱 서비스 경로로 실제 1장 생성(`cargo test -p studio --test real_proxy -- --ignored --test-threads=1`, `local` 프로필, `gpt-image-2.5` low 1024×1024 → `ImageGallery/output/studio-app-smoke-20261018/`). 이 테스트는 실제 비용이 드는 1장을 만들고, 같은 폴더가 이미 있으면 덮어쓰지 않고 멈춥니다.
 

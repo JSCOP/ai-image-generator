@@ -71,7 +71,7 @@ export function emptyForm(): GenerateForm {
     model: '',
     size: '1920x1080',
     customSize: '',
-    quality: 'medium',
+    quality: 'high',
     count: 1,
     references: [],
     transparent: false,
