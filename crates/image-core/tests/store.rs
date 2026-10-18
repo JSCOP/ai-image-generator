@@ -2,7 +2,7 @@ use image_core::error::{Category, EngineError};
 use image_core::normalize::Fit;
 use image_core::provider::{Action, Background, ImageRequest};
 use image_core::size::Size;
-use image_core::store::{inspect_existing, request_hash, reserve, sha256_hex, write_json_atomic, Existing, Record};
+use image_core::store::{inspect_existing, request_hash, reserve, sha256_hex, take_over_stale_lock, write_json_atomic, Existing, Record};
 use std::path::{Path, PathBuf};
 use test_fixture::png_bytes;
 
@@ -138,7 +138,7 @@ fn inspect_rules() {
     let mut pending = record(&d.out, "h");
     pending.status = Some("pending".into());
     write_json_atomic(&d.rec, &pending).unwrap();
-    assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::Reusable));
+    assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::NeedsFinalize));
     write_json_atomic(&d.rec, &complete).unwrap();
     std::fs::write(&d.out, b"tampered").unwrap();
     assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::Corrupt(_)));
@@ -170,4 +170,70 @@ fn request_hash_changes_with_prompt_model_size_refs_background_fit() {
     assert_ne!(base, with_ref);
     std::fs::write(&reference, b"two").unwrap();
     assert_ne!(with_ref, request_hash(&r, Fit::Cover).unwrap());
+}
+
+fn lock_path(d: &Dirs) -> PathBuf {
+    d.lock_dir.join("a.png.lock")
+}
+
+#[test]
+fn takeover_does_not_steal_a_lock_that_changed_owner() {
+    let d = dirs();
+    std::fs::create_dir_all(&d.lock_dir).unwrap();
+    let dead = br#"{"pid": 4294967000, "request_id": "dead", "created_at": 1}"#;
+    let live = format!(r#"{{"pid": {}, "request_id": "live", "created_at": 2}}"#, std::process::id());
+    std::fs::write(lock_path(&d), &live).unwrap();
+    assert!(!take_over_stale_lock(&lock_path(&d), dead), "content changed since judged stale");
+    assert_eq!(std::fs::read_to_string(lock_path(&d)).unwrap(), live);
+    std::fs::write(lock_path(&d), dead).unwrap();
+    assert!(take_over_stale_lock(&lock_path(&d), dead));
+    assert!(!lock_path(&d).exists());
+}
+
+#[test]
+fn release_leaves_a_lock_owned_by_another_run() {
+    let d = dirs();
+    let r = reserve(&d.out, Some(&d.rec), &d.lock_dir).unwrap();
+    std::fs::write(lock_path(&d), r#"{"pid": 1, "request_id": "someone-else", "created_at": 3}"#).unwrap();
+    drop(r);
+    assert!(lock_path(&d).exists());
+}
+
+#[test]
+fn conflicting_publish_keeps_the_other_runs_complete_record() {
+    let d = dirs();
+    let r = reserve(&d.out, Some(&d.rec), &d.lock_dir).unwrap();
+    let png = png_bytes(8, 8, [1, 1, 1, 255]);
+    std::fs::write(&d.out, &png).unwrap();
+    let mut other = record(&d.out, "h");
+    other.status = Some("complete".into());
+    other.sha256 = Some(sha256_hex(&png));
+    write_json_atomic(&d.rec, &other).unwrap();
+    let err = r.publish(&png_bytes(8, 8, [2, 2, 2, 255]), record(&d.out, "h")).unwrap_err();
+    r.fail(record(&d.out, "h"), &err);
+    assert_eq!(read_json(&d.rec)["status"], "complete");
+    assert_eq!(std::fs::read(&d.out).unwrap(), png);
+}
+
+#[test]
+fn pending_or_failed_record_with_matching_image_needs_finalize() {
+    let d = dirs();
+    let png = png_bytes(8, 8, [1, 1, 1, 255]);
+    std::fs::write(&d.out, &png).unwrap();
+    for status in ["pending", "failed"] {
+        let mut rec = record(&d.out, "h");
+        rec.status = Some(status.into());
+        write_json_atomic(&d.rec, &rec).unwrap();
+        assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::NeedsFinalize), "{status}");
+    }
+    let r = reserve(&d.out, Some(&d.rec), &d.lock_dir).unwrap();
+    let done = r.finalize_existing().unwrap();
+    let saved = read_json(&d.rec);
+    assert_eq!(saved["status"], "complete");
+    assert_eq!(saved["sha256"], sha256_hex(&png));
+    assert_eq!(saved["saved_size"], "8x8");
+    assert!(saved.get("error").is_none());
+    assert_eq!(done.status.as_deref(), Some("complete"));
+    assert!(!lock_path(&d).exists());
+    assert!(matches!(inspect_existing(&d.out, Some(&d.rec), "h"), Existing::Reusable));
 }

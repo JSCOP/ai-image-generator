@@ -116,11 +116,11 @@ ai-image-generator/
 - 오류 구조: `category`(network/dns/timeout/tls/auth/permission/quota/rate_limit/conflict/cancelled/not_found/redirect/unsupported/invalid_request/provider/internal), `provider_code`(예: `personal-team-blocked:spending-limit`), `http_status`, `retryable`, `message`. 401/403을 모두 "키 오류"로 묶지 않는다.
 
 **저장·재개 (DB 없이 파일로)**
-1. **예약**: 출력 경로를 정한 뒤 `metadata/<topic>/<파일>.json.lock`을 배타 생성(create_new)으로 만든다. 실패하면 다른 작업이 쓰는 중이므로 그 번호는 API 호출 없이 실패(`category:"conflict"`)로 보고한다. 파일 이름은 바꾸지 않는다(결정적 이름 유지).
+1. **예약**: 출력 경로를 정한 뒤 `metadata/<topic>/<이미지 파일명>.lock`(예: `a.png.lock`)을 배타 생성(create_new)으로 만든다. 실패하면 다른 작업이 쓰는 중이므로 그 번호는 API 호출 없이 실패(`category:"conflict"`)로 보고한다. 파일 이름은 바꾸지 않는다(결정적 이름 유지).
 2. **요청 기록**: 기록 JSON을 `status:"pending"`, `request_id`(UUID), 요청 해시(프롬프트·모델·크기·참조 해시 등)로 원자적 쓰기.
 3. **이미지 저장**: 같은 폴더의 임시 파일(`.<파일>.part`)에 쓰고, 다시 디코딩해 크기·알파·해시를 확인한 뒤 rename으로 최종 이름에 공개.
-4. **완료 기록**: 기록 JSON을 `status:"complete"`, `sha256`, `width`, `height`로 원자적 갱신 후 lock 삭제. 실패 시 `status:"failed"`와 오류 구조를 남기고 이미지는 만들지 않는다.
-- resume은 **기록이 complete + 요청 해시 일치 + 이미지 해시 일치**일 때만 건너뛴다. 해시가 다르거나 손상됐으면 그 번호는 건드리지 않고 오류로 보고한다(덮어쓰기 금지 원칙). 오래된 lock(프로세스 없음)은 정리 후 재시도한다.
+4. **완료 기록**: 기록 JSON을 `status:"complete"`, `sha256`, `saved_size`로 원자적 갱신 후 자기 lock만 삭제. 실패 시 `status:"failed"`와 오류 구조를 남기고 이미지는 만들지 않는다.
+- resume은 **기록이 complete + 요청 해시 일치 + 이미지 해시 일치**일 때만 건너뛴다. 기록이 pending/failed인데 요청 해시가 같고 이미지가 열리면(공개와 기록 사이의 중단) 기록을 complete로 다시 쓴 뒤 건너뛴다. 해시가 다르거나 손상됐으면 그 번호는 건드리지 않고 오류로 보고한다(덮어쓰기 금지 원칙). 오래된 lock(프로세스 없음)은 정리 후 재시도한다.
 - Python이 만든 기존 기록(`status` 없음)은 "이미지 파일이 열리면 완료"로 간주하는 호환 규칙을 둔다.
 
 **합격 fixture**: 다른 호스트/포트로 302 → 목적지에 인증 요청 0건(조회·생성·편집 모두). 같은 경로 동시 시작, 저장 중 강제 종료(.part 잔존), 손상 이미지, 다른 프롬프트의 resume이 결과를 잘못 재사용하지 않음.

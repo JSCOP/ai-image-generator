@@ -90,6 +90,9 @@ pub fn write_json_atomic(path: &Path, value: &impl Serialize) -> std::io::Result
 pub enum Existing {
     Absent,
     Reusable,
+    /// Image and a pending/failed record for this request: a crash between publishing and
+    /// recording. Reuse it after rewriting the record as complete (`Reservation::finalize_existing`).
+    NeedsFinalize,
     Mismatch(String),
     Corrupt(String),
 }
@@ -121,10 +124,13 @@ pub fn inspect_existing(output: &Path, record: Option<&Path>, request_hash: &str
             }
         }
     }
-    if decodes(output) {
+    if !decodes(output) {
+        return corrupt();
+    }
+    if status == "complete" {
         Existing::Reusable
     } else {
-        corrupt()
+        Existing::NeedsFinalize
     }
 }
 
@@ -166,9 +172,12 @@ pub fn reserve(output: &Path, record: Option<&Path>, lock_dir: &Path) -> Result<
                     released: Default::default(),
                 });
             }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempt == 0 && lock_is_stale(&lock) => {
-                let _ = std::fs::remove_file(&lock);
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && attempt == 0 => match stale_lock_content(&lock) {
+                Some(judged) => {
+                    take_over_stale_lock(&lock, &judged);
+                }
+                None => break,
+            },
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => break,
             Err(e) => return Err(io_error("cannot create lock", &lock, e)),
         }
@@ -176,9 +185,11 @@ pub fn reserve(output: &Path, record: Option<&Path>, lock_dir: &Path) -> Result<
     Err(EngineError::new(Category::Conflict, format!("output is being written by another run: {}", output.display())))
 }
 
-fn lock_is_stale(lock: &Path) -> bool {
-    let parsed: Option<Value> = std::fs::read(lock).ok().and_then(|b| serde_json::from_slice(&b).ok());
-    match parsed.and_then(|v| v["pid"].as_u64()) {
+/// The lock's bytes when its owner is gone, so a takeover can check nothing changed meanwhile.
+fn stale_lock_content(lock: &Path) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(lock).ok()?;
+    let parsed: Option<Value> = serde_json::from_slice(&bytes).ok();
+    let stale = match parsed.and_then(|v| v["pid"].as_u64()) {
         Some(pid) => !process_alive(pid),
         // Unreadable lock: a writer may be between create and write, so only reclaim old ones.
         None => std::fs::metadata(lock)
@@ -186,7 +197,25 @@ fn lock_is_stale(lock: &Path) -> bool {
             .ok()
             .and_then(|t| t.elapsed().ok())
             .is_some_and(|age| age > Duration::from_secs(10)),
+    };
+    stale.then_some(bytes)
+}
+
+/// Remove a lock judged stale, but only if it still holds the judged bytes. Moving it aside
+/// first means two runs racing for the same stale lock cannot delete each other's new lock.
+#[doc(hidden)]
+pub fn take_over_stale_lock(lock: &Path, judged: &[u8]) -> bool {
+    let aside = lock.with_extension(format!("{}.stale", uuid::Uuid::new_v4().simple()));
+    if std::fs::rename(lock, &aside).is_err() {
+        return false;
     }
+    let same = std::fs::read(&aside).is_ok_and(|bytes| bytes == judged);
+    if !same {
+        // We moved a live run's lock: put it back (never over a newer one).
+        let _ = std::fs::hard_link(&aside, lock);
+    }
+    let _ = std::fs::remove_file(&aside);
+    same
 }
 
 #[cfg(windows)]
@@ -255,8 +284,10 @@ impl Reservation {
         Ok(rec)
     }
 
+    /// Records the failure, unless an image now sits at the output: then the record belongs to
+    /// whoever published it (another run, or ours if only the record write failed).
     pub fn fail(&self, mut rec: Record, err: &EngineError) {
-        if let Some(path) = &self.record {
+        if let Some(path) = self.record.as_ref().filter(|_| !self.output.exists()) {
             rec.status = Some("failed".into());
             rec.request_id = Some(self.request_id.clone());
             rec.error = Some(err.clone());
@@ -265,13 +296,37 @@ impl Reservation {
         self.release();
     }
 
-    /// Once only: after release another run may own a lock with the same name.
+    /// Reuse an image whose record was left pending/failed: rewrite the record as complete.
+    pub fn finalize_existing(&self) -> Result<Record, EngineError> {
+        let bytes = std::fs::read(&self.output).map_err(|e| io_error("cannot read existing image", &self.output, e))?;
+        let image = image::load_from_memory(&bytes).map_err(|e| {
+            EngineError::new(Category::Conflict, format!("existing output is not a valid image: {}: {e}", self.output.display()))
+        })?;
+        let mut rec: Record = match &self.record {
+            Some(path) => std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default(),
+            None => Record::default(),
+        };
+        rec.status = Some("complete".into());
+        rec.sha256 = Some(sha256_hex(&bytes));
+        rec.saved_size = Some(format!("{}x{}", image.width(), image.height()));
+        rec.error = None;
+        if let Some(path) = &self.record {
+            write_json_atomic(path, &rec).map_err(|e| io_error("cannot write record", path, e))?;
+        }
+        self.release();
+        Ok(rec)
+    }
+
+    /// Once only, and only our own lock: a stale-lock takeover may have given the name to another run.
     fn release(&self) {
         if self.released.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
         let _ = std::fs::remove_file(&self.part);
-        let _ = std::fs::remove_file(&self.lock);
+        let owner: Option<Value> = std::fs::read(&self.lock).ok().and_then(|b| serde_json::from_slice(&b).ok());
+        if owner.is_some_and(|v| v["request_id"].as_str() == Some(self.request_id.as_str())) {
+            let _ = std::fs::remove_file(&self.lock);
+        }
     }
 }
 

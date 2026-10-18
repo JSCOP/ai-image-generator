@@ -269,3 +269,23 @@ async fn job_timeout_is_recorded_as_retryable_timeout() {
     s.assert_clean();
     assert_eq!(s.record()["status"], "failed");
 }
+
+#[tokio::test]
+async fn resume_finishes_a_pending_record_left_by_a_crash() {
+    let p = FakeProvider::start(|_| openai_image_reply(&png_bytes(8, 8, [0, 0, 0, 255])));
+    let s = setup(&p);
+    let cancel = CancellationToken::new();
+    generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "8x8"), Fit::Cover, true), &cancel).await.unwrap();
+    // Simulate a crash between publishing the image and writing the complete record.
+    let mut rec = s.record();
+    rec["status"] = Value::from("pending");
+    rec.as_object_mut().unwrap().remove("sha256");
+    std::fs::write(s.rec(), rec.to_string()).unwrap();
+    let ok = generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "8x8"), Fit::Cover, true), &cancel).await.unwrap();
+    assert!(matches!(ok, JobOk::Skipped { .. }));
+    assert_eq!(p.requests().len(), 1);
+    let rec = s.record();
+    assert_eq!(rec["status"], "complete");
+    assert!(rec["sha256"].is_string());
+    assert!(!s.lock_dir().join("a.png.lock").exists());
+}

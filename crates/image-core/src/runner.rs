@@ -542,15 +542,24 @@ impl Runner {
         let semaphore = Arc::new(Semaphore::new(workers.max(1)));
         let stop = stop_after.map(|limit| Arc::new(StopAfter { limit, failed: AtomicUsize::new(0), token: CancellationToken::new() }));
         let mut tasks = tokio::task::JoinSet::new();
+        // A task that panics still owes the caller a result for its image.
+        let mut owners = std::collections::HashMap::new();
         for item in items {
             let (semaphore, ctx, cancel, progress) = (semaphore.clone(), ctx.clone(), self.cancel.clone(), self.progress.clone());
             let (backoff, stop) = (self.opts.backoff_base_sec, stop.clone());
-            tasks.spawn(async move { run_item(item, semaphore, ctx, cancel, progress, backoff, retries, names, stop).await });
+            let owner = (item.index, item.id.clone(), item.job.output.display().to_string());
+            let handle = tasks.spawn(async move { run_item(item, semaphore, ctx, cancel, progress, backoff, retries, names, stop).await });
+            owners.insert(handle.id(), owner);
         }
         let mut results = Vec::new();
-        while let Some(joined) = tasks.join_next().await {
-            if let Ok(result) = joined {
-                results.push(result);
+        while let Some(joined) = tasks.join_next_with_id().await {
+            match joined {
+                Ok((_, result)) => results.push(result),
+                Err(err) => {
+                    let Some((index, id, output)) = owners.remove(&err.id()) else { continue };
+                    let outcome = Err(EngineError::new(Category::Internal, format!("image task stopped unexpectedly: {err}")));
+                    results.push(ItemResult { index, id, output, outcome, retried: 0 });
+                }
             }
         }
         results

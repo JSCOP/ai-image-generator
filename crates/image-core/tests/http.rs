@@ -72,6 +72,21 @@ fn connection_resolution_order_and_no_default() {
     assert_eq!(c.source, "process_env");
     assert_eq!(format!("{:?}", c.api_key), "Some(***)");
     assert_eq!(c.api_key.as_ref().unwrap().expose(), "k");
+    let c = resolve_connection(&MapEnv::new(
+        &[
+            ("CLIPROXY_BASE_URL", "http://a:1"),
+            (
+                "CLIPROXY_API_KEY",
+                "  k2 
+",
+            ),
+        ],
+        &[],
+    ))
+    .unwrap();
+    assert_eq!(c.api_key.unwrap().expose(), "k2");
+    let c = resolve_connection(&MapEnv::new(&[("CLIPROXY_BASE_URL", "http://a:1"), ("CLIPROXY_API_KEY", "   ")], &[])).unwrap();
+    assert!(c.api_key.is_none());
     let c = resolve_connection(&MapEnv::new(&[("OPENAI_API_KEY", "o")], &[("CLIPROXY_BASE_URL", "http://b:2"), ("CLIPROXY_API_KEY", "u")]))
         .unwrap();
     assert_eq!((c.base_url.as_str(), c.source, c.api_key.unwrap().expose()), ("http://b:2/v1", "user_env", "o"));

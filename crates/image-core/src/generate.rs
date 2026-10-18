@@ -106,6 +106,11 @@ pub async fn generate_one(ctx: &JobContext, job: &JobSpec, cancel: &Cancellation
             ))
         }
         Existing::Reusable => return Ok(JobOk::Skipped { output: job.output.clone() }),
+        Existing::NeedsFinalize => {
+            let reservation = reserve(&job.output, job.record.as_deref(), &job.lock_dir)?;
+            reservation.finalize_existing()?;
+            return Ok(JobOk::Skipped { output: job.output.clone() });
+        }
         Existing::Mismatch(message) | Existing::Corrupt(message) => return Err(EngineError::new(Category::Conflict, message)),
     }
     if cancel.is_cancelled() {

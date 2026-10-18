@@ -111,6 +111,9 @@ pub fn resolve_connection(env: &dyn EnvSource) -> Result<Connection, EngineError
         .or_else(|| env.process("OPENAI_API_KEY"))
         .or_else(|| env.user("CLIPROXY_API_KEY"))
         .or_else(|| env.user("OPENAI_API_KEY"))
+        // A pasted key often carries a newline; it would otherwise fail as a bogus header.
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
         .map(Secret::new);
     Ok(Connection { base_url, api_key, source })
 }

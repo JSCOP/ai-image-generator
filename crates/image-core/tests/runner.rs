@@ -285,3 +285,23 @@ async fn resume_after_cancel_regenerates_only_missing() {
     assert_eq!(p.requests().len(), 3);
     assert_eq!(r.events("image_skipped").len(), 1);
 }
+
+#[tokio::test]
+async fn a_panicking_task_is_reported_as_a_failure_not_dropped() {
+    let p = ok_provider(0);
+    let tmp = tempfile::tempdir().unwrap();
+    let progress: Progress = Arc::new(|event: Value| {
+        if event["event"] == "image_started" && event["index"] == 2 {
+            panic!("boom in progress sink");
+        }
+    });
+    let mut s = spec(json!({"count": 2}));
+    s["topic_root"] = json!(tmp.path().display().to_string());
+    let opts = RunOptions { backoff_base_sec: 0.0, cwd: tmp.path().to_path_buf() };
+    let out = run_spec_with(s, Arc::new(MapEnv::proxy(&p.base_url())), progress, CancellationToken::new(), opts).await;
+    assert_eq!(out.result["ok"], false, "{}", out.result);
+    let failures = out.result["failures"].as_array().unwrap();
+    assert_eq!(failures.len(), 1);
+    assert_eq!(failures[0]["index"], 2);
+    assert_eq!(failures[0]["error"]["category"], "internal");
+}
