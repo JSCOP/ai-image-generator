@@ -25,11 +25,14 @@
     <span class="where">{TITLES[app.screen]}</span>
   </div>
 
-  <button type="button" class="conn" class:none={!active} onclick={() => navigate('connections')} title="연결 화면 열기">
+  <button type="button" class="conn" class:none={!active && !app.connectionsError} class:broken={!!app.connectionsError} onclick={() => navigate('connections')} title="연결 화면 열기">
     {#if active}
       <StageBadges {stages} compact />
       <span class="cname ellipsis">{active.name}</span>
       <span class="kind">{active.kindLabel}</span>
+    {:else if app.connectionsError}
+      <span class="fail-dot" aria-hidden="true"></span>
+      <span>연결 정보를 읽지 못했습니다</span>
     {:else if app.connections}
       <span class="warn-dot" aria-hidden="true"></span>
       <span>연결 없음 · 추가하기</span>
@@ -100,6 +103,16 @@
     color: var(--muted);
     font-size: 12px;
     white-space: nowrap;
+  }
+  .conn.broken {
+    border-color: rgba(239, 68, 68, 0.5);
+    color: #fca5a5;
+  }
+  .fail-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--error);
   }
   .warn-dot {
     width: 8px;

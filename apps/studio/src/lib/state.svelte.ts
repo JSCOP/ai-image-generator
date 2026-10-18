@@ -11,7 +11,10 @@ export const app = $state({
   connections: null as ConnectionsView | null,
   /** Last check result per connection: profile name, or "env". */
   checks: {} as Record<string, ConnectionReport>,
+  /** Why connections could not be loaded (e.g. a broken profiles.json); the other screens keep working. */
+  connectionsError: null as ServiceError | null,
   loading: true,
+  /** App info or settings failed: the only full-screen error. */
   loadError: null as ServiceError | null,
 });
 
@@ -19,18 +22,32 @@ export function navigate(screen: Screen): void {
   app.screen = screen;
 }
 
-/** First load: app info, settings and connections; opens the connections screen when there is none. */
+/**
+ * First load: app info and settings are required; connections load on their own path so a broken
+ * profiles.json leaves the gallery and generate screens usable. Opens the connections screen when there is none.
+ */
 export async function loadApp(): Promise<void> {
   app.loading = true;
   app.loadError = null;
+  const pending = api.connections();
+  pending.catch(() => {}); // handled below; avoids an unhandled rejection while info/settings load
   try {
-    const [info, settings, connections] = await Promise.all([api.appInfo(), api.getSettings(), api.connections()]);
+    const [info, settings] = await Promise.all([api.appInfo(), api.getSettings()]);
     app.info = info;
     app.settings = settings;
-    app.connections = connections;
-    app.screen = firstScreen(connections);
   } catch (e) {
     app.loadError = api.toServiceError(e);
+    app.loading = false;
+    return;
+  }
+  try {
+    const connections = await pending;
+    app.connections = connections;
+    app.connectionsError = null;
+    app.screen = firstScreen(connections);
+  } catch (e) {
+    app.connections = null;
+    app.connectionsError = api.toServiceError(e);
   } finally {
     app.loading = false;
   }
@@ -39,8 +56,10 @@ export async function loadApp(): Promise<void> {
 export async function refreshConnections(): Promise<void> {
   try {
     app.connections = await api.connections();
+    app.connectionsError = null;
   } catch (e) {
-    toastError(api.toServiceError(e));
+    app.connectionsError = api.toServiceError(e);
+    toastError(app.connectionsError);
   }
 }
 

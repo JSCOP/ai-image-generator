@@ -1,4 +1,4 @@
-// Development-only fake backend: `pnpm dev` + `?mock=1` (or `?mock=empty` for a first run without any connection).
+// Development-only fake backend: `pnpm dev` + `?mock=1` (or `?mock=empty` for a first run without any connection, `?mock=broken` for an unreadable profiles.json).
 // main.ts imports this file only under import.meta.env.DEV, so production builds never contain it or its images.
 // No real file, key or provider is touched; everything lives in memory.
 
@@ -128,7 +128,7 @@ interface MockRun {
   cancelled: boolean;
 }
 
-/** Installs the fake backend. `mode` is the ?mock= value ("empty" = no connection yet). */
+/** Installs the fake backend. `mode` is the ?mock= value ("empty" = no connection yet, "broken" = connections fail). */
 export function installMock(mode: string | null): void {
   const empty = mode === 'empty';
   let profiles: ProfileView[] = empty
@@ -312,7 +312,10 @@ export function installMock(mode: string | null): void {
       settings = a.settings as Settings;
       return null;
     },
-    connections: () => view(),
+    connections: () => {
+      if (mode === 'broken') throw fail('invalid_request', `${HOME}\\profiles.json을 읽을 수 없습니다: line 4 column 3, 같은 이름의 연결이 있습니다: local`);
+      return view();
+    },
     save_profile: (a) => saveProfile(a.input as ProfileInput),
     remove_profile: (a) => {
       const p = find(a.id as string);
