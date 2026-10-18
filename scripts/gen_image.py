@@ -90,6 +90,17 @@ class TransientError(RuntimeError):
     """A failure that may succeed when the same request is retried."""
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Do not follow redirects: the Authorization header would travel to another host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: N802
+        return None
+
+
+def open_no_redirect(request: urllib.request.Request, timeout: float):
+    return urllib.request.build_opener(NoRedirect).open(request, timeout=timeout)
+
+
 @dataclass(frozen=True)
 class GenerateImageOptions:
     prompt: str
@@ -356,7 +367,7 @@ def _call_json_blocking(url: str, payload: dict[str, object], args: GenerateImag
         headers=headers,
     )
     try:
-        with urllib.request.urlopen(request, timeout=args.timeout) as response:
+        with open_no_redirect(request, args.timeout) as response:
             return response.read(), response.status
     except urllib.error.HTTPError as exc:
         return exc.read() or b"", exc.code
@@ -525,7 +536,7 @@ def _call_cliproxy_blocking(args: GenerateImageOptions) -> tuple[bytes, int]:
 
     request = urllib.request.Request(url, data=body, method="POST", headers=headers)
     try:
-        with urllib.request.urlopen(request, timeout=args.timeout) as response:
+        with open_no_redirect(request, args.timeout) as response:
             return response.read(), response.status
     except urllib.error.HTTPError as exc:
         return exc.read() or b"", exc.code
@@ -639,6 +650,13 @@ def main() -> int:
         events_path = Path(args.events)
         events_path.parent.mkdir(parents=True, exist_ok=True)
         _ = events_path.write_bytes(body_bytes)
+
+    if 300 <= status < 400:
+        _ = sys.stderr.write(
+            f"CLIProxyAPI redirected to another address (HTTP {status}); not following it so the "
+            "API key stays on the configured host. Check CLIPROXY_BASE_URL.\n"
+        )
+        return 1
 
     if status != 200:
         _ = sys.stderr.write(

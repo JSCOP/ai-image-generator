@@ -143,13 +143,6 @@ def compose_prompt(prompt: str, positive: str, negative: str) -> str:
 
 
 # --- 연결 확인 ---
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    """리다이렉트를 따르지 않음: Authorization 키가 다른 호스트로 넘어가지 않게."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: N802
-        return None
-
-
 def check_connection(base_url: str, api_key: str | None) -> dict[str, Any]:
     key = (api_key or "").strip() or resolve_api_key()
 
@@ -173,9 +166,8 @@ def check_connection(base_url: str, api_key: str | None) -> dict[str, Any]:
         headers={"Authorization": f"Bearer {key}", "Accept": "application/json"},
         method="GET",
     )
-    opener = urllib.request.build_opener(_NoRedirect)
     try:
-        with opener.open(req, timeout=CONNECTION_TIMEOUT) as resp:
+        with gen_image.open_no_redirect(req, CONNECTION_TIMEOUT) as resp:
             status = resp.status
             body = resp.read(2 * 1024 * 1024)
     except urllib.error.HTTPError as exc:
