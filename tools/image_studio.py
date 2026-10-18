@@ -89,7 +89,10 @@ SIZE_LABELS = {
     "3840x2160": "3840×2160 4K 와이드",
 }
 DEFAULTS = {"image_model": gen_image.DEFAULT_IMAGE_MODEL, "size": "1920x1080", "quality": "high"}
-LIMITS = {"reference_count": 4, "reference_bytes": 10485760}  # 개수, 파일당 바이트
+LIMITS = {"reference_count": 4, "reference_bytes": 10485760, "max_count": 50}  # 개수, 파일당 바이트, 작업당 장수
+# 한 계정이 gpt-image-2.5 동시 30장을 지연 없이 처리함을 확인(2026-10-18). 작업 안 장수는 이 수만큼 동시에 요청한다.
+STUDIO_CONCURRENCY = 30
+STUDIO_RETRIES = 2
 
 FINAL_SIZE_NOTE = (
     "최종 파일은 요청한 크기로 정확히 저장됩니다(제공자 원본과 다르면 크롭/리샘플). "
@@ -409,6 +412,7 @@ def public_job(rec: dict[str, Any]) -> dict[str, Any]:
         "size": rec["size"],
         "quality": rec["quality"],
         "reference_count": rec["reference_count"],
+        "count": rec.get("count", 1),
         "elapsed_sec": elapsed,
         "images": rec.get("images", []),
         "progress": rec.get("progress", {"stage": rec["status"]}),
@@ -467,7 +471,7 @@ def load_history() -> None:
             _JOBS[data["id"]] = data
 
 
-# --- 생성 워커 (단일 활성, ai_image.py 서브프로세스) ---
+# --- 생성 워커 (단일 활성 작업, 작업 안에서 여러 장을 병렬 생성하는 ai_image.py 서브프로세스) ---
 
 def fail_job_memory(job_id: str, error: str, elapsed: float) -> None:
     with _LOCK:
@@ -516,6 +520,34 @@ def run_generation(job_id: str) -> None:
             _STARTS.pop(job_id, None)
 
 
+def _track_progress(job_id: str, stream: Any, total: int) -> None:
+    """ai_image.py stderr 진행 이벤트(JSON 줄)를 읽어 완료/실패 장수를 작업 기록에 반영."""
+    completed = failed = retries = 0
+    for line in stream:
+        try:
+            event = json.loads(line)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        kind = event.get("event") if isinstance(event, dict) else None
+        if kind in ("image_finished", "image_skipped"):
+            completed += 1
+        elif kind == "image_failed":
+            failed += 1
+        elif kind == "retry":
+            retries += 1
+        else:
+            continue
+        with _LOCK:
+            running = _JOBS.get(job_id, {}).get("status") == "running"
+        if not running:
+            continue
+        try:
+            update_job(job_id, progress={"stage": "running", "completed": completed,
+                                         "failed": failed, "retries": retries, "total": total})
+        except OSError:
+            pass
+
+
 def _execute(job_id: str, rec: dict[str, Any], started: float) -> None:
     directory = job_dir(job_id)
     refs_directory = record_dir(job_id) / "refs"
@@ -523,13 +555,19 @@ def _execute(job_id: str, rec: dict[str, Any], started: float) -> None:
     ref_paths = [str(p.resolve()) for p in refs if p.is_file()]
     composed = compose_prompt(rec["prompt"], rec["positive"], rec["negative"])
     action = "edit" if (ref_paths and rec["image_model"] in GPT_EDIT_MODELS) else "generate"
+    count = int(rec.get("count", 1))
     update_job(job_id, action=action, reference_images=ref_paths,
-               composed_prompt=composed, output=str(directory / "image.png"))
+               composed_prompt=composed, output=str(directory / "image.png"),
+               progress={"stage": "running", "completed": 0, "failed": 0, "retries": 0, "total": count})
     timeout_sec = job_timeout()
+    concurrency = min(count, STUDIO_CONCURRENCY)
     spec = {
         "mode": "single",
         "prompt": composed,
         "topic": job_id,
+        "count": count,
+        "concurrency": concurrency,
+        "retries": STUDIO_RETRIES,
         "size": rec["size"],
         "quality": rec["quality"],
         "image_model": rec["image_model"],
@@ -549,26 +587,44 @@ def _execute(job_id: str, rec: dict[str, Any], started: float) -> None:
         env["CLIPROXY_API_KEY"] = key
     else:
         env.pop("CLIPROXY_API_KEY", None)
+    # 각 장은 ai_image.py가 장당 타임아웃·재시도로 제한한다. 전체 상한은 그 최악값 + 여유.
+    waves = -(-count // concurrency)
+    overall_timeout = waves * timeout_sec * (STUDIO_RETRIES + 1) + 120
+    stdout_parts: list[str] = []
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             [sys.executable, str(AI_IMAGE)],
-            input=json.dumps(spec, ensure_ascii=False),
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             cwd=str(ROOT),
             env=env,
-            timeout=timeout_sec + 120,
         )
-    except subprocess.TimeoutExpired:
-        update_job(
-            job_id,
-            status="failed",
-            error="생성 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
-            elapsed_sec=round(time.time() - started, 2),
-            progress={"stage": "failed"},
-        )
-        return
+        readers = [
+            threading.Thread(target=lambda: stdout_parts.append(proc.stdout.read()), daemon=True),
+            threading.Thread(target=_track_progress, args=(job_id, proc.stderr, count), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
+        proc.stdin.write(json.dumps(spec, ensure_ascii=False))
+        proc.stdin.close()
+        try:
+            proc.wait(timeout=overall_timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+            update_job(
+                job_id,
+                status="failed",
+                error="생성 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+                elapsed_sec=round(time.time() - started, 2),
+                progress={"stage": "failed"},
+            )
+            return
+        for reader in readers:
+            reader.join(timeout=10)
     except Exception:
         update_job(
             job_id,
@@ -581,53 +637,65 @@ def _execute(job_id: str, rec: dict[str, Any], started: float) -> None:
 
     outputs: list[str] = []
     try:
-        result = json.loads((proc.stdout or "").strip().splitlines()[-1])
+        result = json.loads("".join(stdout_parts).strip().splitlines()[-1])
         if isinstance(result, dict):
             outputs = [str(p) for p in (result.get("outputs") or []) if isinstance(p, str)]
     except (IndexError, json.JSONDecodeError, AttributeError):
         result = {}
+    if not isinstance(result, dict):
+        result = {}
     elapsed = round(time.time() - started, 2)
-    source = next((Path(p) for p in outputs if Path(p).is_file()), None)
+    sources = sorted(Path(p) for p in outputs if Path(p).is_file())
     failure_reasons = [
         failure.get("reason", "") for failure in result.get("failures", [])
         if isinstance(failure, dict) and isinstance(failure.get("reason"), str)
     ]
     failure_text = "\n".join(failure_reasons) or result.get("error", "")
-    if proc.returncode == 0 and result.get("ok") and source is not None:
-        try:
-            dest = directory / "image.png"
+    images: list[dict[str, Any]] = []
+    try:
+        for source in sources:
+            # 1장은 기존 이름(image.png) 유지, 여러 장은 원래 번호를 살려 image_NNN.png
+            number = re.search(r"_(\d{3})$", source.stem)
+            index = int(number.group(1)) if number else len(images) + 1
+            name = "image.png" if count == 1 else f"image_{index:03d}.png"
+            dest = directory / name
             if source.resolve() != dest.resolve():
                 shutil.move(str(source), str(dest))
             with Image.open(dest) as im:
                 width, height = im.size
-            update_job(
-                job_id,
-                status="succeeded",
-                elapsed_sec=elapsed,
-                images=[{
-                    "url": f"/files/{job_id}/image.png",
-                    "name": "image.png",
-                    "width": width,
-                    "height": height,
-                }],
-                progress={"stage": "succeeded"},
-                composed_prompt=composed,
-            )
-        except Exception:
-            update_job(
-                job_id,
-                status="failed",
-                error="결과 파일을 저장하지 못했습니다. 다시 시도해 주세요.",
-                elapsed_sec=elapsed,
-                progress={"stage": "failed"},
-            )
-    else:
+            images.append({"url": f"/files/{job_id}/{name}", "name": name, "width": width, "height": height})
+    except Exception:
         update_job(
             job_id,
             status="failed",
-            error=sanitize_failure(proc.returncode, failure_text, key),
+            error="결과 파일을 저장하지 못했습니다. 다시 시도해 주세요.",
             elapsed_sec=elapsed,
+            images=images,
             progress={"stage": "failed"},
+        )
+        return
+    final_progress = {"completed": len(images), "failed": count - len(images),
+                      "retries": int(result.get("retried") or 0), "total": count}
+    if proc.returncode == 0 and result.get("ok") and len(images) == count:
+        update_job(
+            job_id,
+            status="succeeded",
+            elapsed_sec=elapsed,
+            images=images,
+            progress={"stage": "succeeded", **final_progress},
+            composed_prompt=composed,
+        )
+    else:
+        error = sanitize_failure(proc.returncode, failure_text, key)
+        if images:
+            error = f"{count}장 중 {count - len(images)}장 실패 — {error}"
+        update_job(
+            job_id,
+            status="failed",
+            error=error,
+            elapsed_sec=elapsed,
+            images=images,
+            progress={"stage": "failed", **final_progress},
         )
 
 
@@ -1091,6 +1159,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json({"ok": False, "error": f"지원하지 않는 품질입니다: {quality}"},
                            HTTPStatus.BAD_REQUEST)
             return
+        count = data.get("count", 1)
+        if type(count) is not int or not 1 <= count <= LIMITS["max_count"]:
+            self.send_json({"ok": False, "error": f"장수는 1~{LIMITS['max_count']} 사이의 정수여야 합니다."},
+                           HTTPStatus.BAD_REQUEST)
+            return
         refs = data.get("references", [])
         if refs is None:
             refs = []
@@ -1141,6 +1214,7 @@ class Handler(BaseHTTPRequestHandler):
             "size": size,
             "quality": quality,
             "reference_count": len(decoded),
+            "count": count,
             "elapsed_sec": 0.0,
             "images": [],
             "progress": {"stage": "queued"},

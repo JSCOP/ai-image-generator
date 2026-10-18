@@ -36,7 +36,11 @@ Spec keys (all in one flat object):
                       output -> ImageGallery/output/<topic_slug>/<id>.png
   prompt_prefix     string prepended to every job's prompt (mode=jobs)
   prompt_suffix     string appended to every job's prompt (mode=jobs)
-  concurrency       int (default 4, max useful ~8; applies to single count, jobs, and batch)
+  concurrency       int (default 30, clamped to 1..32; applies to single count, jobs, and batch).
+                    One CLIProxyAPI account served 30 simultaneous gpt-image-2.5 requests without
+                    slowdown (2026-10-18), so the client, not the account count, sets the limit.
+  retries           int (default 2, 0..5) extra attempts per image after a transient failure
+                    (HTTP 408/425/429/5xx, connection loss, timeout), with exponential backoff
   resume            bool (default false)
   dry_run           bool (default false)
   job_timeout_sec   per-image wall-clock timeout seconds (default CLIPROXY_TIMEOUT or 600; <=0 disables)
@@ -51,6 +55,8 @@ Output (one JSON line on stdout):
     "topic_dir":   absolute path (single: topic folder, batch: output topic folder),
     "output_dir":  absolute output directory,
     "elapsed_sec": float,
+    "concurrency": int,    // effective parallel workers (single/jobs)
+    "retried":     int,    // retry attempts spent on transient failures (single/jobs)
     "error":       "..."   // only when ok=false at top level
   }
 
@@ -61,6 +67,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -72,10 +79,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from gallery import topic_dirs
-from gen_image import DEFAULT_IMAGE_MODEL, image_backend, resolve_base_url
+from gen_image import DEFAULT_IMAGE_MODEL, EXIT_TRANSIENT, image_backend, resolve_base_url
 GEN_IMAGE = ROOT / "scripts" / "gen_image.py"
 GEN_BATCH = ROOT / "scripts" / "gen_batch.py"
 DEFAULT_TOPIC = "image-request"
+DEFAULT_CONCURRENCY = 30
+MAX_CONCURRENCY = 32
+DEFAULT_RETRIES = 2
+MAX_RETRIES = 5
+RETRY_BACKOFF_SEC = float(os.environ.get("AI_IMAGE_RETRY_BACKOFF_SEC", "5"))
+EXIT_CHILD_TIMEOUT = 124
 
 
 SCHEMA = {
@@ -112,7 +125,9 @@ SCHEMA = {
     },
     "prompt_prefix": {"type": "string", "description": "shared preamble prepended to each job's prompt (mode=jobs)"},
     "prompt_suffix": {"type": "string", "description": "shared suffix appended to each job's prompt (mode=jobs)"},
-    "concurrency": {"type": "integer", "default": 4},
+    "concurrency": {"type": "integer", "default": DEFAULT_CONCURRENCY, "min": 1, "max": MAX_CONCURRENCY},
+    "retries": {"type": "integer", "default": DEFAULT_RETRIES, "min": 0, "max": MAX_RETRIES,
+                "description": "extra attempts after HTTP 408/425/429/5xx, connection loss, or timeout"},
     "resume": {"type": "boolean", "default": False},
     "dry_run": {"type": "boolean", "default": False},
     "seed": {"type": "integer", "optional": True},
@@ -146,7 +161,7 @@ EXAMPLES = {
         "mode": "batch",
         "preset": "presets/extraction-rpg.json",
         "count": 50,
-        "concurrency": 8,
+        "concurrency": 16,
         "resume": True,
     },
     "jobs_with_per_image_refs": {
@@ -154,7 +169,7 @@ EXAMPLES = {
         "topic": "airport-topview-eagle-batch10",
         "size": "1920x1088",
         "quality": "high",
-        "concurrency": 4,
+        "concurrency": 10,
         "prompt_prefix": "Strict vertical orthographic top-down view of the EXACT physical airport space shown in the reference photo.",
         "prompt_suffix": "Constraints: no invented columns, no extra walls, no unrelated furniture.",
         "jobs": [
@@ -235,6 +250,29 @@ def _resolve_job_timeout(spec: dict) -> float | None:
     return timeout if timeout > 0 else None
 
 
+def _resolve_concurrency(spec: dict) -> int:
+    return min(MAX_CONCURRENCY, max(1, int(spec.get("concurrency", DEFAULT_CONCURRENCY))))
+
+
+def _resolve_retries(spec: dict) -> int:
+    return min(MAX_RETRIES, max(0, int(spec.get("retries", DEFAULT_RETRIES))))
+
+
+def _run_with_retries(cmd: list[str], timeout_sec: float | None, retries: int, event: dict) -> tuple[int, str, int]:
+    """Run one generation, retrying transient failures. Returns (rc, last line, retries used)."""
+    attempt = 0
+    while True:
+        rc, last = _run_child(cmd, timeout_sec)
+        if rc not in (EXIT_TRANSIENT, EXIT_CHILD_TIMEOUT) or attempt >= retries:
+            return rc, last, attempt
+        attempt += 1
+        # Jitter keeps a wave of rate-limited workers from retrying in lockstep.
+        delay = min(60.0, RETRY_BACKOFF_SEC * 2 ** (attempt - 1)) + random.uniform(0, RETRY_BACKOFF_SEC / 2)
+        _emit_progress({**event, "event": "retry", "attempt": attempt, "retries": retries,
+                        "delay_sec": round(delay, 2), "reason": last[:300]})
+        time.sleep(delay)
+
+
 def _validate_action(action: str) -> str | None:
     if action not in ("auto", "generate", "edit"):
         return f"invalid action {action!r}; expected auto, generate, or edit"
@@ -285,15 +323,16 @@ def run_single(spec: dict) -> dict:
     model = spec.get("model")
     image_model = spec.get("image_model") or os.environ.get("CLIPROXY_IMAGE_MODEL") or DEFAULT_IMAGE_MODEL
     action = str(spec.get("action") or "generate")
-    concurrency = max(1, int(spec.get("concurrency", 4)))
     resume = bool(spec.get("resume"))
     refs = [_resolve_under_root(r) for r in list(spec.get("reference_images") or [])]
     topic_root = _resolve_under_root(spec.get("topic_root"))
     output_dir, metadata_dir = topic_dirs(topic_root, topic_slug)
     try:
         timeout_sec = _resolve_job_timeout(spec)
+        concurrency = _resolve_concurrency(spec)
+        retries = _resolve_retries(spec)
     except (TypeError, ValueError):
-        return {"ok": False, "error": "job_timeout_sec must be a number"}
+        return {"ok": False, "error": "job_timeout_sec, concurrency, and retries must be numbers"}
 
     err = _validate_size(size)
     if err:
@@ -316,8 +355,9 @@ def run_single(spec: dict) -> dict:
     started = time.time()
     outputs: list[str] = []
     failures: list[dict] = []
+    retried = 0
 
-    def _one(i: int) -> tuple[int, int, str, str]:
+    def _one(i: int) -> tuple[int, int, str, str, int]:
         # Use topic_slug (not raw topic) so filenames cannot contain path separators.
         # Previously this used raw topic, which on Windows caused the file to land
         # outside ImageGallery/output/<topic_slug>/ when topic contained "/".
@@ -325,7 +365,7 @@ def run_single(spec: dict) -> dict:
         out_path = str((output_dir / name).resolve())
         if resume and Path(out_path).is_file():
             _emit_progress({"event": "image_skipped", "mode": "single", "index": i, "output": out_path})
-            return i, 0, out_path, ""
+            return i, 0, out_path, "", 0
         _emit_progress({"event": "image_started", "mode": "single", "index": i, "output": out_path})
         image_started = time.time()
         cmd = [
@@ -344,16 +384,17 @@ def run_single(spec: dict) -> dict:
             cmd.append("--no-metadata")
         for r in refs:
             cmd += ["--reference-image", str(r)]
-        rc, last = _run_child(cmd, timeout_sec)
+        rc, last, used = _run_with_retries(cmd, timeout_sec, retries, {"mode": "single", "index": i, "output": out_path})
         event = "image_finished" if rc == 0 else "image_failed"
         _emit_progress({"event": event, "mode": "single", "index": i, "output": out_path, "elapsed_sec": round(time.time() - image_started, 2), "reason": last[:300] if rc else ""})
-        return i, rc, out_path, last
+        return i, rc, out_path, last, used
 
     workers = min(concurrency, count)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = [pool.submit(_one, i) for i in range(1, count + 1)]
         for f in as_completed(futs):
-            i, rc, path, last = f.result()
+            i, rc, path, last, used = f.result()
+            retried += used
             if rc == 0:
                 outputs.append(path)
             else:
@@ -367,6 +408,8 @@ def run_single(spec: dict) -> dict:
         "topic_dir": str(output_dir.resolve()),
         "output_dir": str(output_dir.resolve()),
         "metadata_dir": str(metadata_dir),
+        "concurrency": workers,
+        "retried": retried,
         "elapsed_sec": round(time.time() - started, 2),
     }
 
@@ -389,7 +432,7 @@ def run_jobs(spec: dict) -> dict:
       reference_images   default refs if a job omits its own
       size, quality      defaults (size 1920x1080, quality high)
       image_model        default provider model; each job may override it
-      concurrency        parallel workers (default 4)
+      concurrency        parallel workers (default 30, max 32)
       job_timeout_sec    per-image wall-clock timeout; <=0 disables
     """
     parent_topic = str(spec.get("topic") or "ai-image-jobs")
@@ -406,11 +449,12 @@ def run_jobs(spec: dict) -> dict:
     suffix = (spec.get("prompt_suffix") or "").strip()
     topic_root = _resolve_under_root(spec.get("topic_root"))
     output_dir, metadata_dir = topic_dirs(topic_root, parent_slug)
-    concurrency = max(1, int(spec.get("concurrency", 4)))
     try:
         timeout_sec = _resolve_job_timeout(spec)
+        concurrency = _resolve_concurrency(spec)
+        retries = _resolve_retries(spec)
     except (TypeError, ValueError):
-        return {"ok": False, "error": "job_timeout_sec must be a number"}
+        return {"ok": False, "error": "job_timeout_sec, concurrency, and retries must be numbers"}
     jobs = spec.get("jobs") or []
     if not isinstance(jobs, list) or not jobs:
         return {"ok": False, "error": "spec.jobs must be a non-empty array"}
@@ -486,18 +530,21 @@ def run_jobs(spec: dict) -> dict:
             cmd += ["--image-model", str(image_model)]
         if spec.get("record_metadata") is False:
             cmd.append("--no-metadata")
-        rc, last = _run_child(cmd, timeout_sec)
+        rc, last, used = _run_with_retries(cmd, timeout_sec, retries, {"mode": "jobs", "id": job_id, "index": idx, "output": out_path})
         if rc == 0:
             _emit_progress({"event": "job_finished", "mode": "jobs", "id": job_id, "index": idx, "output": out_path, "elapsed_sec": round(time.time() - job_started, 2)})
-            return idx, {"ok": True, "id": job_id, "output": out_path}
+            return idx, {"ok": True, "id": job_id, "output": out_path, "retried": used}
         error = last[:300] or f"rc={rc}"
         _emit_progress({"event": "job_failed", "mode": "jobs", "id": job_id, "index": idx, "output": out_path, "elapsed_sec": round(time.time() - job_started, 2), "reason": error})
-        return idx, {"ok": False, "id": job_id, "error": error}
+        return idx, {"ok": False, "id": job_id, "error": error, "retried": used}
 
-    with ThreadPoolExecutor(max_workers=concurrency) as pool:
+    workers = min(concurrency, len(jobs))
+    retried = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         futs = [pool.submit(_one, i, j) for i, j in enumerate(jobs)]
         for f in as_completed(futs):
             i, r = f.result()
+            retried += r.get("retried", 0)
             if r.get("ok"):
                 outputs.append({"id": r["id"], "output": r["output"]})
             else:
@@ -513,6 +560,8 @@ def run_jobs(spec: dict) -> dict:
         "outputs": [] if dry_run else sorted(outputs, key=lambda x: x["id"]),
         "planned_outputs": sorted(outputs, key=lambda x: x["id"]) if dry_run else [],
         "failures": sorted(failures, key=lambda x: (x.get("id") or "")),
+        "concurrency": workers,
+        "retried": retried,
         "elapsed_sec": round(time.time() - started, 2),
     }
 
@@ -528,12 +577,16 @@ def run_batch(spec: dict) -> dict:
         return {"ok": False, "error": f"preset not found: {preset_path}"}
 
     count = int(spec.get("count", 10))
-    conc = int(spec.get("concurrency", 4))
+    try:
+        conc = _resolve_concurrency(spec)
+        retries = _resolve_retries(spec)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "concurrency and retries must be numbers"}
 
     topic_root = _resolve_under_root(spec.get("topic_root"))
 
     cmd = [sys.executable, str(GEN_BATCH), str(preset_path),
-           "--count", str(count), "--concurrency", str(conc),
+           "--count", str(count), "--concurrency", str(conc), "--retries", str(retries),
            "--topic-root", str(topic_root)]
     if spec.get("resume"): cmd.append("--resume")
     if spec.get("dry_run"): cmd.append("--dry-run")

@@ -48,6 +48,7 @@
   var modelSelect = $('modelSelect');
   var sizeSelect = $('sizeSelect');
   var qualitySelect = $('qualitySelect');
+  var countInput = $('countInput');
   var modelNote = $('modelNote');
   var sizeHelp = $('sizeHelp');
   var qualityNote = $('qualityNote');
@@ -177,10 +178,25 @@
         negative: negativeInput.value,
         image_model: modelSelect.value,
         size: sizeSelect.value,
-        quality: qualitySelect.value
+        quality: qualitySelect.value,
+        count: readCount()
       };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
     } catch (e) { /* 저장 실패는 무시 */ }
+  }
+  function maxCount() {
+    return (state.limits && typeof state.limits.max_count === 'number') ? state.limits.max_count : 50;
+  }
+  // 정수가 아니거나 범위를 벗어나면 null (제출 시 오류로 안내)
+  function readCount() {
+    var raw = String(countInput.value || '').trim();
+    if (!/^\d+$/.test(raw)) return null;
+    var n = parseInt(raw, 10);
+    return (n >= 1 && n <= maxCount()) ? n : null;
+  }
+  function generateLabel() {
+    var n = readCount();
+    return (n && n > 1) ? n + '장 동시 생성' : '한 장 생성';
   }
   function scheduleDraftSave() {
     clearTimeout(draftSaveTimer);
@@ -407,16 +423,16 @@
     if (shutdownBtn) shutdownBtn.disabled = busy || state.serverLost || !!state.shuttingDown || !state.configLoaded;
     if (!state.configLoaded || !state.lastCheckOk || state.serverLost || state.shuttingDown || state.submitting || state.activeJobId || state.checking) {
       generateBtn.disabled = true;
-      setText(generateBtn, busy ? '생성 중…' : '한 장 생성');
+      setText(generateBtn, busy ? '생성 중…' : generateLabel());
       return;
     }
     if (grokBlocked() || availabilityBlocked()) {
       generateBtn.disabled = true;
-      setText(generateBtn, '한 장 생성');
+      setText(generateBtn, generateLabel());
       return;
     }
     generateBtn.disabled = false;
-    setText(generateBtn, '한 장 생성');
+    setText(generateBtn, generateLabel());
   }
 
   // ---------- 설정/작업 로드 ----------
@@ -447,7 +463,9 @@
         if (typeof draft.negative === 'string') negativeInput.value = draft.negative;
         keepSize = draft.size || keepSize;
         keepQuality = draft.quality || keepQuality;
+        if (typeof draft.count === 'number' && draft.count >= 1) countInput.value = String(Math.min(draft.count, maxCount()));
       }
+      countInput.max = String(maxCount());
       renderModelOptions(keepModel);
       renderSizeQuality(keepSize, keepQuality);
       renderModelNote();
@@ -667,15 +685,21 @@
   function updateElapsedLine(job) {
     job = job || (state.selectedJobId ? state.jobsById[state.selectedJobId] : null);
     if (!job) { setText(curElapsed, ''); return; }
+    var p = job.progress || {};
+    var counts = '';
+    if (typeof p.total === 'number' && p.total > 1) {
+      counts = ' · ' + (p.completed || 0) + '/' + p.total + '장 완료' +
+        (p.failed ? ' · 실패 ' + p.failed : '') + (p.retries ? ' · 재시도 ' + p.retries : '');
+    }
     if (job.status === 'succeeded' || job.status === 'failed') {
-      if (typeof job.elapsed_sec === 'number') setText(curElapsed, '소요 ' + job.elapsed_sec + '초 · ' + statusLabel(job.status));
-      else setText(curElapsed, statusLabel(job.status));
+      if (typeof job.elapsed_sec === 'number') setText(curElapsed, '소요 ' + job.elapsed_sec + '초 · ' + statusLabel(job.status) + counts);
+      else setText(curElapsed, statusLabel(job.status) + counts);
       return;
     }
     var ms = jobCreatedMs(job);
     if (!isNaN(ms)) {
       var s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
-      setText(curElapsed, '생성 중 · ' + s + '초 경과');
+      setText(curElapsed, '생성 중' + counts + ' · ' + s + '초 경과');
     } else if (typeof job.elapsed_sec === 'number') {
       setText(curElapsed, '경과 약 ' + job.elapsed_sec + '초 · ' + statusLabel(job.status));
     } else {
@@ -885,6 +909,11 @@
     var imageModel = modelSelect.value;
     var size = sizeSelect.value;
     var quality = qualitySelect.value;
+    var count = readCount();
+    if (count === null) {
+      showFormError('장수는 1~' + maxCount() + ' 사이의 정수로 입력하세요.');
+      return;
+    }
     if (!prompt && !positive) {
       showFormError('메인 프롬프트 또는 Positive 중 하나는 반드시 입력하세요.');
       return;
@@ -917,6 +946,7 @@
       image_model: imageModel,
       size: size,
       quality: quality,
+      count: count,
       references: state.refs.map(function (r) { return { name: r.name, data_url: r.data_url }; })
     };
     state.submitting = true;
@@ -976,6 +1006,7 @@
     renderSizeQuality(job.size && modelSizes(state.modelsById[modelSelect.value]).indexOf(job.size) >= 0 ? job.size : null,
       job.quality && modelQualities(state.modelsById[modelSelect.value]).indexOf(job.quality) >= 0 ? job.quality : null);
     renderModelNote();
+    if (typeof job.count === 'number' && job.count >= 1) countInput.value = String(Math.min(job.count, maxCount()));
     if (job.reference_count) {
       notes.push('참조 이미지는 다시 첨부해야 합니다 (저장된 참조는 불러오지 않음).');
     }
@@ -1011,6 +1042,7 @@
     });
     sizeSelect.addEventListener('change', scheduleDraftSave);
     qualitySelect.addEventListener('change', scheduleDraftSave);
+    countInput.addEventListener('input', function () { updateGenerateState(); scheduleDraftSave(); });
     promptInput.addEventListener('input', scheduleDraftSave);
     positiveInput.addEventListener('input', scheduleDraftSave);
     negativeInput.addEventListener('input', scheduleDraftSave);

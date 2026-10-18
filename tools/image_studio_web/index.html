@@ -74,12 +74,17 @@
               <label for="qualitySelect">품질</label>
               <select id="qualitySelect"></select>
             </div>
+            <div class="field">
+              <label for="countInput">장수</label>
+              <input type="number" id="countInput" min="1" max="50" step="1" value="1" inputmode="numeric" />
+            </div>
           </div>
           <p class="hint model-note" id="modelNote"></p>
           <details class="help">
             <summary>해상도·품질 안내</summary>
             <p class="hint" id="sizeHelp">선택한 해상도는 최종 저장 크기입니다. 모델 원본과 다르면 자르기·리샘플링으로 맞춥니다.</p>
             <p class="hint" id="qualityNote">품질 옵션의 해석은 제공자마다 다릅니다.</p>
+            <p class="hint" id="countHelp">여러 장은 30장까지는 한꺼번에 동시에 생성하고(그 이상은 30장씩), 일시적인 오류(429·5xx·연결 끊김)는 자동으로 다시 시도합니다.</p>
           </details>
         </section>
 

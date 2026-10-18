@@ -139,7 +139,9 @@ For airport security maps, keep facility interpretation inside existing source f
 
 ## Performance and recovery
 
-- Reference-heavy/high-resolution work should start with `concurrency: 2`.
+- Generate multi-image requests in parallel. Default `concurrency` is 30 (clamped to 1..32), so requests of up to 30 images run entirely at once without setting it. Measured 2026-10-18: one CLIProxyAPI Codex account served 30 simultaneous `gpt-image-2.5` high-quality requests in 34 s and 10 simultaneous reference edits in 35 s; per-image latency stayed ~18–35 s at every concurrency, so the account count does not cap parallelism.
+- Leave `concurrency` unset (default 30); set it to the count only for 31–32 images. Larger runs proceed 30 at a time. Do not lower concurrency for stability or because references are attached.
+- Transient failures (HTTP 408/425/429/5xx, connection loss, timeout) are retried automatically with backoff (`retries`, default 2, max 5). Lower `concurrency` only if the result still shows repeated 429 failures after retries.
 - `job_timeout_sec` limits waiting; lowering it does not make generation faster.
 - Long GPT runs may produce some outputs before interruption. Rerun the identical topic/count with `resume: true` rather than overwriting successful files.
 - Use a fresh topic for materially changed prompts.

@@ -38,7 +38,7 @@ class GenerationSpec(ImageOptions):
     topic: str | None = Field(default=None, min_length=1, max_length=80)
     topic_root: str | None = None
     count: int = Field(default=1, ge=1, le=1000)
-    concurrency: int = Field(default=2, ge=1, le=8)
+    concurrency: int = Field(default=30, ge=1, le=32)
     job_timeout_sec: float = Field(default=600, gt=0, le=7200)
     preset: str | None = None
     jobs: list[ImageJob] = Field(default_factory=list, max_length=1000)

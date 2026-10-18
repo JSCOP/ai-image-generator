@@ -4,7 +4,7 @@
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $WorkspaceRoot = (Get-Location).Path
-$GenImage = Join-Path $ProjectRoot 'scripts\gen_image.py'
+$AiImage = Join-Path $ProjectRoot 'tools\ai_image.py'
 $GenBatch = Join-Path $ProjectRoot 'scripts\gen_batch.py'
 $PresetDir = Join-Path $ProjectRoot 'presets'
 
@@ -219,6 +219,8 @@ function Run-Single {
     Write-Title "단일 / 다회 이미지 생성"
     $topic = Read-Default "토픽 (출력 폴더 이름)" "test-image"
     $count = Read-IntDefault "개수" 1 1 100
+    # 한 계정이 동시 30장을 지연 없이 처리함을 확인(2026-10-18). 30장까지는 기본으로 전부 동시에 생성한다.
+    $conc = if ($count -gt 1) { Read-IntDefault "동시 생성 수" ([Math]::Min($count, 30)) 1 32 } else { 1 }
     $size  = Read-Size
     $quality = Read-Quality
     $imageModel = Read-ImageModel
@@ -232,7 +234,7 @@ function Run-Single {
     Write-Host ""
     Write-Host "요약:" -ForegroundColor Cyan
     Write-Host "  topic    = $topic"
-    Write-Host "  count    = $count"
+    Write-Host "  count    = $count (동시 $conc)"
     Write-Host "  size     = $size"
     Write-Host "  quality  = $quality"
     Write-Host "  model    = $imageModel"
@@ -241,23 +243,43 @@ function Run-Single {
     Write-Host "  prompt   = $preview"
     if (-not (Read-YesNo "실행하시겠습니까? (y/n)" "y")) { return }
 
-    $okCount = 0; $failCount = 0
-    for ($i = 1; $i -le $count; $i++) {
-        $name = if ($count -eq 1) { "$topic.png" } else { "${topic}_$($i.ToString('D3')).png" }
-        $argList = @($GenImage, $prompt, '--topic', $topic, '--topic-root', $WorkspaceRoot, '-o', $name, '--size', $size, '--quality', $quality, '--image-model', $imageModel)
-        foreach ($r in $refs) { $argList += @('--reference-image', $r) }
-        Write-Host ""
-        Write-Host "[$i/$count] 생성 중: $name" -ForegroundColor DarkGray
-        & $PythonExe @PythonArgs @argList
-        if ($LASTEXITCODE -eq 0) {
-            $okCount++
-        } else {
-            $failCount++
-            Write-Host "  실패." -ForegroundColor Yellow
-            if ($i -lt $count) {
-                if (-not (Read-YesNo "계속 진행할까요? (y/n)" "y")) { break }
+    $spec = [ordered]@{
+        mode = 'single'; prompt = $prompt; topic = $topic; topic_root = $WorkspaceRoot
+        count = $count; concurrency = $conc; size = $size; quality = $quality
+        image_model = $imageModel; reference_images = @($refs)
+    }
+    $specPath = Join-Path ([IO.Path]::GetTempPath()) ("ai-image-menu-" + [guid]::NewGuid().ToString('N') + '.json')
+    $spec | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $specPath -Encoding UTF8
+    Write-Host ""
+    Write-Host "생성 중: $count 장 (동시 $conc)" -ForegroundColor DarkGray
+    $done = 0
+    $stdoutLines = New-Object System.Collections.Generic.List[string]
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        # stdout 마지막 줄은 결과 JSON, stderr는 장별 진행 이벤트(JSON 줄)
+        & $PythonExe @PythonArgs $AiImage --spec $specPath 2>&1 | ForEach-Object {
+            $line = [string]$_
+            if ($_ -isnot [System.Management.Automation.ErrorRecord]) { $stdoutLines.Add($line); return }
+            try { $ev = $line | ConvertFrom-Json -ErrorAction Stop } catch { Write-Host "  $line" -ForegroundColor DarkGray; return }
+            switch ($ev.event) {
+                'image_finished' { $done++; Write-Host "  [$done/$count] 완료 #$($ev.index) ($($ev.elapsed_sec)s)" -ForegroundColor DarkGray }
+                'image_failed'   { Write-Host "  실패 #$($ev.index): $($ev.reason)" -ForegroundColor Yellow }
+                'retry'          { Write-Host "  재시도 #$($ev.index) ($($ev.attempt)/$($ev.retries), $($ev.delay_sec)s 후)" -ForegroundColor DarkYellow }
             }
         }
+    } finally {
+        $ErrorActionPreference = $previousPreference
+        Remove-Item -LiteralPath $specPath -ErrorAction SilentlyContinue
+    }
+    $okCount = 0; $failCount = $count
+    try {
+        $result = $stdoutLines[$stdoutLines.Count - 1] | ConvertFrom-Json
+        $okCount = @($result.outputs).Count
+        $failCount = @($result.failures).Count
+        if ($result.error) { Write-Host "  오류: $($result.error)" -ForegroundColor Yellow }
+    } catch {
+        Write-Host "  결과를 해석하지 못했습니다." -ForegroundColor Yellow
     }
     $topicSlug = Convert-SafeSlug $topic
     $GalleryRoot = if ((Split-Path -Leaf $WorkspaceRoot) -ieq 'ImageGallery') { $WorkspaceRoot } else { Join-Path $WorkspaceRoot 'ImageGallery' }
@@ -283,7 +305,7 @@ function Run-Batch {
     $preset = $files[$idx - 1].FullName
 
     $count = Read-IntDefault "개수" 10 1 10000
-    $conc  = Read-IntDefault "동시 워커 수" 8 1 32
+    $conc  = Read-IntDefault "동시 워커 수" 30 1 32
     $resume = Read-YesNo "이어하기 (resume)? (y/n)" "n"
     $dry    = Read-YesNo "dry-run (계획만)? (y/n)" "n"
     $presetData = Get-Content -Raw -Encoding UTF8 -LiteralPath $preset | ConvertFrom-Json

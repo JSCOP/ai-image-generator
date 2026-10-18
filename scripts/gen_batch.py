@@ -34,7 +34,7 @@ random, then concatenates: template + ". " + global_style + " Constraints: "
 
 Usage:
 
-  python3 scripts/gen_batch.py presets/extraction-rpg.json --count 100 --concurrency 8
+  python3 scripts/gen_batch.py presets/extraction-rpg.json --count 100 --concurrency 16
   python3 scripts/gen_batch.py presets/extraction-rpg.json --count 5 --dry-run
   python3 scripts/gen_batch.py presets/extraction-rpg.json --count 100 --resume
   python3 scripts/gen_batch.py presets/extraction-rpg.json --image-model grok-imagine-image-2.0 --dry-run
@@ -49,13 +49,14 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gallery import topic_dirs
-from gen_image import DEFAULT_IMAGE_MODEL
+from gen_image import DEFAULT_IMAGE_MODEL, EXIT_TRANSIENT
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -153,7 +154,8 @@ def parse_args() -> argparse.Namespace:
     _ = parser.add_argument("preset", type=Path, help="Path to preset JSON file")
     _ = parser.add_argument("--count", type=int, default=10, help="Number of images")
     _ = parser.add_argument("--start-index", type=int, default=1)
-    _ = parser.add_argument("--concurrency", type=int, default=1, help="Parallel workers")
+    _ = parser.add_argument("--concurrency", type=int, default=30, help="Parallel workers (1..32)")
+    _ = parser.add_argument("--retries", type=int, default=2, help="Extra attempts per image after a transient failure")
     _ = parser.add_argument("--seed", type=int, default=42)
     _ = parser.add_argument("--topic", default=None, help="Override preset topic (output folder)")
     _ = parser.add_argument("--image-model", default=None, help="Override the preset image model")
@@ -208,13 +210,19 @@ def main() -> int:
             with lock:
                 outputs.append(str(path))
             return
-        try:
-            proc = run_gen_image(gen_script, plan["prompt"], path, preset, topic, workspace, args.per_image_timeout)
-            error = (proc.stderr or proc.stdout)[-500:] if proc.returncode else ""
-            if not error and not path.is_file():
-                error = "Generator returned without an output image"
-        except subprocess.TimeoutExpired:
-            error = "Generation timed out"
+        for attempt in range(max(0, args.retries) + 1):
+            if attempt:
+                time.sleep(min(60.0, 5.0 * 2 ** (attempt - 1)) + random.uniform(0, 2.5))
+            try:
+                proc = run_gen_image(gen_script, plan["prompt"], path, preset, topic, workspace, args.per_image_timeout)
+                error = (proc.stderr or proc.stdout)[-500:] if proc.returncode else ""
+                if not error and not path.is_file():
+                    error = "Generator returned without an output image"
+                transient = proc.returncode == EXIT_TRANSIENT
+            except subprocess.TimeoutExpired:
+                error, transient = "Generation timed out", True
+            if not error or not transient:
+                break
         with lock:
             if error:
                 failures.append({"id": plan["id"], "reason": error})
@@ -223,7 +231,7 @@ def main() -> int:
             else:
                 outputs.append(str(path))
 
-    with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as pool:
+    with ThreadPoolExecutor(max_workers=min(32, max(1, args.concurrency))) as pool:
         list(pool.map(process, plans))
     print(json.dumps({"ok": not failures and len(outputs) == len(plans), "mode": "batch",
                       "output_dir": str(output_dir), "metadata_dir": str(metadata_dir),

@@ -38,8 +38,8 @@ MCP 사용 순서는 `plan_generation` → `start_generation` → `get_job`이�
 Windows에서 **`open-image-studio.cmd`를 더블클릭**합니다. 처음 실행할 때 이 폴더에 `.venv`와 Pillow를 설치하고, 이후에는 `http://127.0.0.1:8766/`을 엽니다. Python 3.11 이상이 필요하며, `py -3` 또는 `python`을 자동으로 확인합니다.
 
 1. **연결 설정**에 사용 가능한 CLIProxyAPI 주소와 키를 입력하고 **연결 확인**을 누릅니다. 기존 환경변수에 키가 있으면 자동으로 연결을 확인합니다.
-2. **모델·해상도·품질**을 고르고 메인 프롬프트 또는 Positive를 입력합니다.
-3. 필요하면 Negative와 참조 이미지를 추가한 뒤 **한 장 생성**을 누릅니다.
+2. **모델·해상도·품질·장수**를 고르고 메인 프롬프트 또는 Positive를 입력합니다. 장수(1~50)를 2 이상으로 두면 30장까지 한꺼번에(그 이상은 30장씩) 동시에 생성하고 진행률(완료/실패/재시도)을 보여 줍니다.
+3. 필요하면 Negative와 참조 이미지를 추가한 뒤 **한 장 생성**(여러 장이면 **N장 동시 생성**)을 누릅니다.
 4. 결과를 미리 보거나 다운로드합니다. 실제 파일과 기록은 `ImageGallery/output/<작업 ID>/ (이미지), ImageGallery/metadata/<작업 ID>/ (기록·참조)`에 보존됩니다.
 
 긴 태그는 **입력칸 넓게 보기**로 작성 영역을 화면 너비까지 확장할 수 있습니다. 다시 접어도 입력 내용과 첨부 파일은 유지됩니다. 결과 카드의 **생성 정보 · 사용한 프롬프트**, 참조 이미지, 상세 안내는 필요할 때 펼쳐 봅니다.
@@ -116,9 +116,9 @@ python tools/image_studio.py --open
 - 기본 생성은 항상 묻지 않고 `1920x1080`, `quality: "high"`, 필요한 전체 참조 이미지로 시작합니다.
 - 여러 장, 참조 이미지가 많은 작업, T2IN/ImageGallery 작업에서도 품질 선택 질문 없이 최상 품질로 바로 생성합니다.
 - `low`, `medium`, `draft`, `초안`, `빠른 시안`처럼 사용자가 명시적으로 낮은 품질을 요청한 경우에만 더 낮은 품질/해상도를 사용합니다.
-- 대량/참조-heavy 작업에서 안정성이 필요하면 품질을 낮추지 말고 `concurrency`를 낮춰 조절합니다. 보통 `concurrency: 2`부터 시작합니다.
+- 여러 장은 병렬로 생성합니다. `concurrency` 기본값은 30(1~32로 제한)이라 30장까지는 별도 지정 없이 전부 동시에 생성합니다. 2026-10-18 실측에서 CLIProxyAPI Codex 계정 하나가 `gpt-image-2.5` high 동시 30장을 34초, 참조 편집 동시 10장을 35초에 처리했고 장당 지연(약 18~35초)은 동시 수와 무관했습니다. 31~32장은 `concurrency`를 장수와 같게 지정하면 됩니다.
+- 429·5xx·연결 끊김·타임아웃 같은 일시적 실패는 `retries`(기본 2, 최대 5)만큼 백오프 후 자동 재시도합니다. 재시도 후에도 429가 반복될 때만 `concurrency`를 낮춥니다.
 - `job_timeout_sec`는 속도 옵션이 아니라 느린 job을 언제 중단할지 정하는 제한입니다.
-- `concurrency`를 높인다고 항상 빨라지지 않습니다. 4장 이상 고해상도/참조-heavy 작업은 `2`부터 확인하고, 백엔드가 안정적일 때만 `4` 이상으로 올립니다.
 - 구조 보존형 참조 편집은 `gpt-image-*`와 `action: "edit"`를 사용합니다. 스타일 이미지가 구조를 오염시킬 수 있으면 구조 원본만 전달하고 스타일은 텍스트로 지정합니다.
 - 정확한 도면/배치 작업은 먼저 1~2장을 생성해 원본과 비교 검수한 뒤 다량 생성합니다. 기존 일부 출력이 있으면 같은 topic에 `resume: true`를 사용해 누락분만 재개합니다.
 
@@ -330,7 +330,8 @@ python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume --c
 배치 옵션:
 
 - `--count N`: 생성 개수
-- `--concurrency N`: 동시 워커 수. 여러 이미지를 동시에 요청합니다. `N=4`면 한 번에 최대 4개의 `gen_image.py` 프로세스가 선택한 provider endpoint를 호출합니다.
+- `--concurrency N`: 동시 워커 수(기본 30, 최대 32). 여러 이미지를 동시에 요청합니다. `N=30`이면 한 번에 최대 30개의 `gen_image.py` 프로세스가 선택한 provider endpoint를 호출합니다.
+- `--retries N`: 일시적 실패(429·5xx·연결 끊김·타임아웃) 시 장당 추가 시도 횟수(기본 2)
 - `--seed N`: 카테고리/템플릿 선택 시드
 - `--topic <name>`: preset의 `topic` 덮어쓰기
 - `--image-model <id>`: preset의 `image_model` 덮어쓰기. 지정하지 않으면 preset의 명시 모델을 유지하고, preset에도 없으면 `gpt-image-2.5`
@@ -355,7 +356,7 @@ python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume --c
 
 기존 자료 정리: `python tools/organize_gallery.py --workspace <workspace>`로 계획을 확인한 뒤 `--apply`를 붙입니다. 이미지는 output, 기록과 그 밖의 기존 파일은 metadata로 이동하며 이름 충돌 시 별도 이름으로 보존합니다. 빈 원본 폴더만 제거합니다.
 
-`tools/ai_image.py`에서도 `concurrency`는 같은 의미입니다. `mode=single`에서 `count=8, concurrency=4`면 8장을 만들되 동시에 최대 4장만 생성합니다. `mode=jobs`에서는 job 배열을 최대 N개씩 병렬 처리하고, `mode=batch`에서는 `scripts/gen_batch.py --concurrency N`으로 그대로 전달합니다.
+`tools/ai_image.py`에서도 `concurrency`는 같은 의미입니다(기본 30, 최대 32). `mode=single`에서 `count=50`이면 50장을 만들되 동시에 최대 30장씩 생성합니다. 결과 JSON의 `concurrency`는 실제 사용한 동시 수, `retried`는 자동 재시도 횟수입니다. `mode=jobs`에서는 job 배열을 최대 N개씩 병렬 처리하고, `mode=batch`에서는 `scripts/gen_batch.py --concurrency N`으로 그대로 전달합니다.
 
 ## 새 데이터셋 preset 만들기
 
@@ -458,5 +459,5 @@ Use $ai-image-generator to create one airport top-view image from the T2IN refer
 - 생성 중단 요청을 받으면 프로세스만 중단하고 기존 산출물은 삭제하지 않습니다.
 - 대량 생성은 사용자가 명시한 개수만큼만 실행합니다.
 - 실패 재시도는 `--resume`을 사용해 이미 만들어진 PNG를 건너뜁니다.
-- `--concurrency`를 너무 높이면 로컬 CLIProxyAPI 계정 수, upstream rate limit, CPU/메모리, 네트워크 대기 때문에 실패율이 올라갈 수 있습니다. 안정성 우선이면 3~4, 빠른 대량 생성이면 6~8부터 확인합니다.
+- 동시 수는 계정 수가 상한이 아닙니다. 계정 하나로 동시 30장까지 실패·지연 없이 확인했습니다(2026-10-18). 계정 사용 한도에 걸리면 CLIProxyAPI가 다음 계정으로 넘기고, 클라이언트는 429를 자동 재시도합니다. 재시도 후에도 실패가 반복될 때만 동시 수를 낮춥니다.
 - API key는 환경변수 또는 웹 스튜디오의 서버 세션에만 두고 파일에 커밋하지 않습니다.

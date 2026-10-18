@@ -230,6 +230,80 @@ class ImageStudioBoundaryTests(unittest.TestCase):
         self.assertNotIn(session_key, saved_error)
         self.assertNotIn("privatebytes", saved_error)
 
+    def test_count_validation_rejects_without_creating_jobs(self):
+        _, _, before = self.request("GET", "/api/jobs")
+        _, _, config = self.request("GET", "/api/config")
+        max_count = json.loads(config)["limits"]["max_count"]
+        for count in (0, max_count + 1, "3", True, 2.5):
+            with self.subTest(count=count):
+                status, _, _ = self.request("POST", "/api/jobs", {**self.valid_request(), "count": count}, self.authorized())
+                self.assertEqual(status, 400)
+        _, _, body = self.request("GET", "/api/jobs")
+        self.assertEqual(json.loads(body)["jobs"], json.loads(before)["jobs"])
+
+    def test_count_generates_images_in_parallel_with_progress(self):
+        source = io.BytesIO()
+        Image.new("RGB", (64, 64), "#b7791f").save(source, format="PNG")
+        image_payload = base64.b64encode(source.getvalue()).decode("ascii")
+        session_key = "parallel-fixture-key"
+        lock = threading.Lock()
+        in_flight = {"now": 0, "max": 0}
+
+        class ProviderFixture(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def reply(self, payload):
+                encoded = json.dumps(payload).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+
+            def do_GET(self):
+                self.reply({"data": [{"id": "gpt-image-2.5"}, {"id": "grok-imagine-image-2.0"}]})
+
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                with lock:
+                    in_flight["now"] += 1
+                    in_flight["max"] = max(in_flight["max"], in_flight["now"])
+                time.sleep(0.5)
+                with lock:
+                    in_flight["now"] -= 1
+                self.reply({"data": [{"b64_json": image_payload}]})
+
+        fixture = ThreadingHTTPServer(("127.0.0.1", 0), ProviderFixture)
+        threading.Thread(target=fixture.serve_forever, daemon=True).start()
+        self.addCleanup(fixture.server_close)
+        self.addCleanup(fixture.shutdown)
+        base_url = f"http://127.0.0.1:{fixture.server_port}/v1"
+        status, _, body = self.request("POST", "/api/connection",
+                                      {"base_url": base_url, "api_key": session_key}, self.authorized())
+        self.assertEqual(status, 200, body)
+        status, _, body = self.request("POST", "/api/jobs",
+                                      {**self.valid_request(), "image_model": "gpt-image-2.5", "count": 4},
+                                      self.authorized())
+        self.assertEqual(status, 202, body)
+        job = json.loads(body)
+        self.assertEqual(job["count"], 4)
+        deadline = time.monotonic() + 30
+        while job["status"] in ("queued", "running") and time.monotonic() < deadline:
+            time.sleep(0.05)
+            _, _, body = self.request("GET", "/api/jobs/" + job["id"])
+            job = json.loads(body)
+        self.assertEqual(job["status"], "succeeded", job)
+        self.assertEqual([im["name"] for im in job["images"]],
+                         ["image_001.png", "image_002.png", "image_003.png", "image_004.png"])
+        self.assertEqual(job["progress"].get("completed"), 4)
+        self.assertGreaterEqual(in_flight["max"], 4)
+        for im in job["images"]:
+            status, _, data = self.request("GET", im["url"])
+            self.assertEqual(status, 200)
+            with Image.open(io.BytesIO(data)) as saved:
+                self.assertEqual(saved.size, (1920, 1080))
+
 
 if __name__ == "__main__":
     unittest.main()

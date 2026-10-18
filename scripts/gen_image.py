@@ -61,6 +61,9 @@ DEFAULT_MODEL = "gpt-5.5"
 DEFAULT_IMAGE_MODEL = "gpt-image-2.5"
 DEFAULT_TOPIC = "image-request"
 DEFAULT_TOPIC_ROOT = str(Path.cwd())
+# Exit code for failures worth retrying (rate limits, upstream 5xx, connection loss, timeouts).
+EXIT_TRANSIENT = 3
+TRANSIENT_HTTP_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
 STOPWORDS = {
     "the",
     "and",
@@ -81,6 +84,10 @@ STOPWORDS = {
     "realistic",
     "photorealistic",
 }
+
+
+class TransientError(RuntimeError):
+    """A failure that may succeed when the same request is retried."""
 
 
 @dataclass(frozen=True)
@@ -354,9 +361,9 @@ def _call_json_blocking(url: str, payload: dict[str, object], args: GenerateImag
     except urllib.error.HTTPError as exc:
         return exc.read() or b"", exc.code
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"Cannot connect to CLIProxyAPI at {url}: {exc}") from exc
+        raise TransientError(f"Cannot connect to CLIProxyAPI at {url}: {exc}") from exc
     except TimeoutError as exc:
-        raise RuntimeError(f"Timed out waiting for CLIProxyAPI at {url} after {args.timeout:g}s") from exc
+        raise TransientError(f"Timed out waiting for CLIProxyAPI at {url} after {args.timeout:g}s") from exc
 
 
 def call_native_image_backend(args: GenerateImageOptions) -> tuple[bytes, int, str]:
@@ -523,9 +530,9 @@ def _call_cliproxy_blocking(args: GenerateImageOptions) -> tuple[bytes, int]:
     except urllib.error.HTTPError as exc:
         return exc.read() or b"", exc.code
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"Cannot connect to CLIProxyAPI at {url}: {exc}") from exc
+        raise TransientError(f"Cannot connect to CLIProxyAPI at {url}: {exc}") from exc
     except TimeoutError as exc:
-        raise RuntimeError(f"Timed out waiting for CLIProxyAPI at {url} after {args.timeout:g}s") from exc
+        raise TransientError(f"Timed out waiting for CLIProxyAPI at {url} after {args.timeout:g}s") from exc
 
 
 def call_cliproxy(args: GenerateImageOptions) -> tuple[bytes, int]:
@@ -543,7 +550,7 @@ def call_cliproxy(args: GenerateImageOptions) -> tuple[bytes, int]:
     try:
         result = result_queue.get(timeout=args.timeout)
     except queue.Empty as exc:
-        raise RuntimeError(
+        raise TransientError(
             f"Timed out waiting for CLIProxyAPI at {args.base_url}/responses after {args.timeout:g}s"
         ) from exc
     if isinstance(result, BaseException):
@@ -626,7 +633,7 @@ def main() -> int:
             body_bytes, status, request_url = call_native_image_backend(args)
     except RuntimeError as exc:
         _ = sys.stderr.write(f"{exc}\n")
-        return 1
+        return EXIT_TRANSIENT if isinstance(exc, TransientError) else 1
 
     if args.events:
         events_path = Path(args.events)
@@ -642,7 +649,7 @@ def main() -> int:
             _ = sys.stderr.write(body_bytes.decode("utf-8", errors="replace") + "\n")
         except Exception:
             pass
-        return 1
+        return EXIT_TRANSIENT if status in TRANSIENT_HTTP_STATUSES else 1
 
     if backend == "responses":
         events = parse_response_events(body_bytes)
@@ -651,13 +658,13 @@ def main() -> int:
             _ = sys.stderr.write("No image_generation_call result found in response.\n")
             if not args.events:
                 _ = sys.stderr.write("Re-run with --events <path> to inspect the raw response body.\n")
-            return 1
+            return EXIT_TRANSIENT
         image_bytes = base64.b64decode(image_b64)
     else:
         image_bytes, _ = extract_native_image(body_bytes, backend)
         if not image_bytes:
             _ = sys.stderr.write(f"No image data found in {backend} response.\n")
-            return 1
+            return EXIT_TRANSIENT
         response = json.loads(body_bytes)
         response_model = response.get("modelVersion") if backend == "gemini" else response.get("model")
         if isinstance(response_model, str) and response_model.strip() and not namespace.no_metadata:

@@ -80,6 +80,7 @@ class GeneratorObservabilityTests(unittest.TestCase):
                         "jobs": [{"id": "01_slow", "prompt": "slow"}],
                         "concurrency": 1,
                         "job_timeout_sec": 0.1,
+                        "retries": 0,
                     }
                 )
             elapsed = time.time() - started
