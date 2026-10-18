@@ -497,7 +497,7 @@ impl Runner {
         let mut source = Value::Null;
         if !dry_run && !items.is_empty() {
             let ctx = self.connect(&limits)?;
-            source = json!(ctx.conn.source);
+            source = json!(ctx.conn.source.as_str());
             std::fs::create_dir_all(&output_dir)
                 .map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
             for r in self.execute(items, workers, limits.retries, ctx, &JOB_EVENTS, None).await {

@@ -145,13 +145,13 @@ fn classifies_http_errors() {
 #[tokio::test]
 async fn list_models_reads_data_ids_with_bearer() {
     let p = FakeProvider::start(|_| Reply::json(200, r#"{"data":[{"id":"gpt-image-2.5"},{"id":"gemini-3.1-flash-image"},{"x":1}]}"#));
-    let conn = Connection { base_url: p.base_url(), api_key: Some(Secret::new("fake-token")), source: "process_env" };
+    let conn = Connection::cliproxy(p.base_url(), Some(Secret::new("fake-token")), "process_env");
     let ids = list_models(&Http::new(Some(Duration::from_secs(5))), &conn).await.unwrap();
     assert_eq!(ids, vec!["gpt-image-2.5", "gemini-3.1-flash-image"]);
     let r = &p.requests()[0];
     assert_eq!((r.method.as_str(), r.path.as_str()), ("GET", "/v1/models"));
     assert_eq!(r.header("Authorization"), Some("Bearer fake-token"));
     let bad = FakeProvider::start(|_| Reply::json(401, "{}"));
-    let conn = Connection { base_url: bad.base_url(), api_key: None, source: "process_env" };
+    let conn = Connection::cliproxy(bad.base_url(), None, "process_env");
     assert_eq!(list_models(&Http::new(None), &conn).await.unwrap_err().category, Category::Auth);
 }

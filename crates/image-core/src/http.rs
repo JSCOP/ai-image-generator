@@ -21,17 +21,14 @@ impl Http {
         Http { client: builder.build().expect("HTTP client") }
     }
 
-    pub async fn post_json(&self, url: &str, body: &Value, key: Option<&Secret>) -> Result<(u16, Vec<u8>), EngineError> {
+    pub async fn post_json(&self, url: &str, body: &Value, auth: Auth<'_>) -> Result<(u16, Vec<u8>), EngineError> {
         let request = self.client.post(url).header("Accept", "application/json").json(body);
-        self.send(with_key(request, key)).await
+        self.send(auth.apply(request)).await
     }
 
-    pub async fn get(&self, url: &str, key: Option<&Secret>, extra: &[(&str, String)]) -> Result<(u16, Vec<u8>), EngineError> {
-        let mut request = self.client.get(url).header("Accept", "application/json");
-        for (name, value) in extra {
-            request = request.header(*name, value);
-        }
-        self.send(with_key(request, key)).await
+    pub async fn get(&self, url: &str, auth: Auth<'_>) -> Result<(u16, Vec<u8>), EngineError> {
+        let request = self.client.get(url).header("Accept", "application/json");
+        self.send(auth.apply(request)).await
     }
 
     async fn send(&self, request: reqwest::RequestBuilder) -> Result<(u16, Vec<u8>), EngineError> {
@@ -56,10 +53,40 @@ impl Http {
     }
 }
 
-fn with_key(request: reqwest::RequestBuilder, key: Option<&Secret>) -> reqwest::RequestBuilder {
-    match key {
-        Some(key) => request.bearer_auth(key.expose()),
-        None => request,
+/// How the key travels: `Authorization: Bearer` (OpenAI style) or `x-goog-api-key` (Gemini official).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AuthScheme {
+    Bearer,
+    GoogApiKey,
+}
+
+/// Key plus header scheme for one request. No key means no auth header.
+#[derive(Clone, Copy, Debug)]
+pub struct Auth<'a> {
+    pub scheme: AuthScheme,
+    pub key: Option<&'a Secret>,
+}
+
+impl<'a> Auth<'a> {
+    pub const NONE: Auth<'static> = Auth { scheme: AuthScheme::Bearer, key: None };
+
+    pub fn bearer(key: Option<&'a Secret>) -> Auth<'a> {
+        Auth { scheme: AuthScheme::Bearer, key }
+    }
+
+    fn apply(self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match (self.scheme, self.key) {
+            (_, None) => request,
+            (AuthScheme::Bearer, Some(key)) => request.bearer_auth(key.expose()),
+            (AuthScheme::GoogApiKey, Some(key)) => match reqwest::header::HeaderValue::from_str(key.expose()) {
+                Ok(mut value) => {
+                    value.set_sensitive(true);
+                    request.header("x-goog-api-key", value)
+                }
+                // Same outcome as an unusable Bearer key: reqwest reports a builder error without the value.
+                Err(_) => request.header("x-goog-api-key", key.expose()),
+            },
+        }
     }
 }
 

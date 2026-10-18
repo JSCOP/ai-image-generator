@@ -20,7 +20,7 @@ struct Setup {
 }
 
 fn setup(provider: &FakeProvider) -> Setup {
-    let conn = Connection { base_url: provider.base_url(), api_key: Some(Secret::new("fake-token")), source: "process_env" };
+    let conn = Connection::cliproxy(provider.base_url(), Some(Secret::new("fake-token")), "process_env");
     Setup {
         tmp: tempfile::tempdir().unwrap(),
         ctx: JobContext { http: Arc::new(Http::new(Some(Duration::from_secs(10)))), conn: Arc::new(conn) },

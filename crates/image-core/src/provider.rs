@@ -235,7 +235,7 @@ pub fn classify_http_error(status: u16, body: &[u8], key: Option<&Secret>) -> En
 
 /// `GET <base>/models` ids (at most 1000).
 pub async fn list_models(http: &Http, conn: &Connection) -> Result<Vec<String>, EngineError> {
-    let (status, body) = http.get(&format!("{}/models", conn.base_url), conn.api_key.as_ref(), &[]).await?;
+    let (status, body) = http.get(&format!("{}/models", conn.base_url), conn.auth()).await?;
     if status != 200 {
         return Err(classify_http_error(status, &body, conn.api_key.as_ref()));
     }

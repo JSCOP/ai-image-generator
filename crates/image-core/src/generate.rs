@@ -128,7 +128,7 @@ pub async fn generate_one(ctx: &JobContext, job: &JobSpec, cancel: &Cancellation
         request_hash: Some(hash),
         background: Some(req.background.as_str().into()),
         fit: Some(job.fit.as_str().into()),
-        connection_source: Some(ctx.conn.source.into()),
+        connection_source: Some(ctx.conn.source.clone()),
         engine: Some(ENGINE.into()),
         ..Record::default()
     };
@@ -171,7 +171,7 @@ async fn produce(ctx: &JobContext, job: &JobSpec, record: &mut Record) -> Result
     let req = &job.request;
     let call = build_call(&ctx.conn.base_url, req)?;
     let key = ctx.conn.api_key.as_ref();
-    let (status, body) = ctx.http.post_json(&call.url, &call.body, key).await?;
+    let (status, body) = ctx.http.post_json(&call.url, &call.body, ctx.conn.auth()).await?;
     if status != 200 {
         return Err(classify_http_error(status, &body, key));
     }

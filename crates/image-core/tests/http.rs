@@ -1,6 +1,6 @@
 use image_core::connection::{normalize_base_url, resolve_connection, Secret};
 use image_core::error::{redact, Category};
-use image_core::http::Http;
+use image_core::http::{Auth, AuthScheme, Http};
 use serde_json::json;
 use std::time::Duration;
 use test_fixture::{closed_base_url, FakeProvider, MapEnv, Reply};
@@ -12,11 +12,14 @@ async fn redirect_is_not_followed_and_key_stays_home() {
     let src = FakeProvider::start(move |_| Reply::redirect(302, &target));
     let http = Http::new(Some(Duration::from_secs(5)));
     let key = Secret::new("fake-token");
-    let err = http.post_json(&format!("{}/images/generations", src.base_url()), &json!({}), Some(&key)).await.unwrap_err();
+    let err = http
+        .post_json(&format!("{}/images/generations", src.base_url()), &json!({}), Auth { scheme: AuthScheme::Bearer, key: Some(&key) })
+        .await
+        .unwrap_err();
     assert_eq!(err.category, Category::Redirect);
     assert_eq!(err.http_status, Some(302));
     assert!(!err.retryable);
-    let err = http.get(&format!("{}/models", src.base_url()), Some(&key), &[]).await.unwrap_err();
+    let err = http.get(&format!("{}/models", src.base_url()), Auth { scheme: AuthScheme::Bearer, key: Some(&key) }).await.unwrap_err();
     assert_eq!(err.category, Category::Redirect);
     assert!(dest.requests().is_empty());
     assert_eq!(src.requests()[0].header("Authorization"), Some("Bearer fake-token"));
@@ -25,7 +28,7 @@ async fn redirect_is_not_followed_and_key_stays_home() {
 #[tokio::test]
 async fn connection_refused_is_retryable_network() {
     let http = Http::new(Some(Duration::from_secs(5)));
-    let err = http.post_json(&format!("{}/images/generations", closed_base_url()), &json!({}), None).await.unwrap_err();
+    let err = http.post_json(&format!("{}/images/generations", closed_base_url()), &json!({}), Auth::NONE).await.unwrap_err();
     assert_eq!(err.category, Category::Network);
     assert!(err.retryable);
 }
@@ -34,7 +37,7 @@ async fn connection_refused_is_retryable_network() {
 async fn slow_server_times_out() {
     let slow = FakeProvider::start(|_| Reply::json(200, "{}").delayed(Duration::from_secs(2)));
     let http = Http::new(Some(Duration::from_millis(200)));
-    let err = http.get(&format!("{}/models", slow.base_url()), None, &[]).await.unwrap_err();
+    let err = http.get(&format!("{}/models", slow.base_url()), Auth::NONE).await.unwrap_err();
     assert_eq!(err.category, Category::Timeout);
     assert!(err.retryable);
 }
@@ -43,7 +46,7 @@ async fn slow_server_times_out() {
 async fn non_redirect_status_is_returned_for_classification() {
     let p = FakeProvider::start(|_| Reply::json(429, r#"{"error":{}}"#));
     let http = Http::new(Some(Duration::from_secs(5)));
-    let (status, body) = http.post_json(&format!("{}/x", p.base_url()), &json!({"a": 1}), None).await.unwrap();
+    let (status, body) = http.post_json(&format!("{}/x", p.base_url()), &json!({"a": 1}), Auth::NONE).await.unwrap();
     assert_eq!(status, 429);
     assert_eq!(body, br#"{"error":{}}"#);
     assert_eq!(p.requests()[0].json(), json!({"a": 1}));
@@ -89,7 +92,7 @@ fn connection_resolution_order_and_no_default() {
     assert!(c.api_key.is_none());
     let c = resolve_connection(&MapEnv::new(&[("OPENAI_API_KEY", "o")], &[("CLIPROXY_BASE_URL", "http://b:2"), ("CLIPROXY_API_KEY", "u")]))
         .unwrap();
-    assert_eq!((c.base_url.as_str(), c.source, c.api_key.unwrap().expose()), ("http://b:2/v1", "user_env", "o"));
+    assert_eq!((c.base_url.as_str(), c.source.as_str(), c.api_key.unwrap().expose()), ("http://b:2/v1", "user_env", "o"));
     let err = resolve_connection(&MapEnv::new(&[("CLIPROXY_BASE_URL", "ftp://x")], &[])).unwrap_err();
     assert_eq!(err.category, Category::InvalidRequest);
 }
