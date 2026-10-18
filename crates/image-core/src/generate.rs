@@ -4,10 +4,10 @@ use crate::adapter::{check_request, model_supported};
 use crate::connection::Connection;
 use crate::error::{Category, EngineError};
 use crate::http::Http;
-use crate::normalize::{alpha_stats, normalize, Fit};
+use crate::normalize::{alpha_stats, check_provider_transparency, normalize, Fit};
 use crate::paths::absolute;
 use crate::profiles::ProviderKind;
-use crate::provider::{build_call, classify_http_error, extract_image, ImageRequest};
+use crate::provider::{build_call, classify_http_error, extract_image, Background, ImageRequest};
 use crate::store::{inspect_existing, request_hash, reserve, Existing, Record, Reservation};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -152,9 +152,17 @@ async fn produce(ctx: &JobContext, job: &JobSpec, record: &mut Record) -> Result
     let (bytes, response_model) = extract_image(ctx.conn.kind, &call.backend, &body)?;
     record.response_model = response_model;
     let (target, fit) = (req.size, job.fit);
+    let transparent = req.background == Background::Transparent;
     let (normalized, alpha) = tokio::task::spawn_blocking(move || {
+        if transparent {
+            check_provider_transparency(&bytes)?;
+        }
         let normalized = normalize(&bytes, target, fit)?;
         let alpha = alpha_stats(&normalized.png)?;
+        if transparent && alpha.transparent_ratio == 0.0 {
+            let message = "투명 배경을 요청했지만 크기 맞춤 후 저장 결과에 완전 투명 픽셀이 없습니다";
+            return Err(EngineError::new(Category::Provider, message).retryable(false));
+        }
         Ok::<_, EngineError>((normalized, alpha))
     })
     .await

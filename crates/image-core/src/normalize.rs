@@ -96,6 +96,19 @@ pub struct AlphaStats {
     pub corner_alpha: [u8; 4],
 }
 
+/// A native transparent result needs at least one fully transparent (α=0) pixel in the provider image itself,
+/// checked before fitting so `contain` padding never counts (spec §7.3 "투명 픽셀이 없으면").
+pub fn check_provider_transparency(bytes: &[u8]) -> Result<(), EngineError> {
+    let (image, _) = decode(bytes)?;
+    let transparent = image.color().has_alpha() && image.to_rgba8().pixels().any(|p| p[3] == 0);
+    if transparent {
+        return Ok(());
+    }
+    let detail = if image.color().has_alpha() { "완전 투명 픽셀 없음" } else { "알파 채널 없음" };
+    Err(EngineError::new(Category::Provider, format!("투명 배경을 요청했지만 공급자가 불투명 이미지를 반환했습니다 ({detail})"))
+        .retryable(false))
+}
+
 pub fn alpha_stats(bytes: &[u8]) -> Result<AlphaStats, EngineError> {
     let (image, _) = decode(bytes)?;
     if !image.color().has_alpha() {

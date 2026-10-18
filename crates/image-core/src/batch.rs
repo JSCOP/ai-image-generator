@@ -277,7 +277,12 @@ async fn run_batch_inner(run: &Runner) -> Result<Value, EngineError> {
             .map(|n| n.trunc() as i64)
             .ok_or_else(|| invalid(format!("{key} must be a number"))),
     };
-    let count = number("count", 10)?.max(1) as u32;
+    // gen_batch.py refuses count < 1; there is no upper limit beyond what fits a u32.
+    let count = number("count", 10)?;
+    if count < 1 {
+        return Err(invalid(format!("count must be at least 1 when mode=batch (got {count})")));
+    }
+    let count = u32::try_from(count).map_err(|_| invalid(format!("count is too large: {count}")))?;
     let seed = number("seed", 42)?;
     let limits = run.limits()?;
     let workspace = run.topic_root();
@@ -311,8 +316,8 @@ async fn run_batch_inner(run: &Runner) -> Result<Value, EngineError> {
             image_model: plan.image_model.clone(),
             action: "generate".into(),
             references: Vec::new(),
-            background: None,
-            fit: None,
+            background: run.get("background"),
+            fit: run.get("fit"),
         };
         match run.build_request(fields) {
             Err(err) => failures.push(json!({"id": plan.id, "reason": err.reason(), "error": err})),

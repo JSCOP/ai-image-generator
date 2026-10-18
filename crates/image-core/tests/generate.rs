@@ -331,3 +331,71 @@ async fn output_locked_by_another_run_is_a_conflict_with_no_request() {
     assert_eq!(s.record()["request_hash"], hash_b.as_str());
     assert_eq!(s.record()["status"], "complete");
 }
+
+fn encode(image: image::DynamicImage) -> Vec<u8> {
+    let mut buf = Cursor::new(Vec::new());
+    image.write_to(&mut buf, ImageFormat::Png).unwrap();
+    buf.into_inner()
+}
+
+async fn transparent_attempt(provider_png: Vec<u8>, size: &str) -> (Setup, FakeProvider, Result<JobOk, image_core::error::EngineError>) {
+    let p = FakeProvider::start(move |_| openai_image_reply(&provider_png));
+    let s = setup(&p);
+    let mut req = request("gpt-image-2.5-sunburst", size);
+    req.background = Background::Transparent;
+    let outcome = generate_one(&s.ctx, &s.job(req, Fit::Contain, false), &CancellationToken::new()).await;
+    (s, p, outcome)
+}
+
+#[tokio::test]
+async fn transparent_request_with_opaque_provider_image_fails() {
+    let opaque_rgb = encode(image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(64, 64, image::Rgb([9, 9, 9]))));
+    // Contain padding of a non-square opaque source adds transparent margins; they must not count.
+    let cases = [
+        ("rgb", opaque_rgb, "64x64"),
+        ("rgba", png_bytes(64, 64, [9, 9, 9, 255]), "64x64"),
+        ("padded", png_bytes(96, 64, [9, 9, 9, 255]), "64x64"),
+    ];
+    for (name, png, size) in cases {
+        let (s, p, outcome) = transparent_attempt(png, size).await;
+        let err = outcome.expect_err(name);
+        assert_eq!(err.category, Category::Provider, "{name}");
+        assert!(!err.retryable, "{name}");
+        assert!(err.message.contains("불투명"), "{name}: {}", err.message);
+        assert_eq!(p.requests().len(), 1, "{name}");
+        s.assert_clean();
+        let rec = s.record();
+        assert_eq!(rec["status"], "failed", "{name}");
+        assert_eq!(rec["error"]["category"], "provider", "{name}");
+    }
+}
+
+#[tokio::test]
+async fn transparent_request_with_real_transparent_pixels_succeeds() {
+    let mut img = RgbaImage::from_pixel(64, 64, Rgba([9, 9, 9, 255]));
+    img.put_pixel(0, 0, Rgba([0, 0, 0, 0]));
+    let (s, _p, outcome) = transparent_attempt(encode(image::DynamicImage::ImageRgba8(img)), "64x64").await;
+    assert!(matches!(outcome.unwrap(), JobOk::Generated { .. }));
+    assert_eq!(s.record()["status"], "complete");
+}
+
+#[tokio::test]
+async fn transparent_request_fails_when_fitting_removes_every_transparent_pixel() {
+    // Only the outer columns are transparent; a centre `cover` crop to a square keeps none of them.
+    let mut img = RgbaImage::from_pixel(128, 64, Rgba([9, 9, 9, 255]));
+    for x in (0..8).chain(120..128) {
+        for y in 0..64 {
+            img.put_pixel(x, y, Rgba([0, 0, 0, 0]));
+        }
+    }
+    let png = encode(image::DynamicImage::ImageRgba8(img));
+    let p = FakeProvider::start(move |_| openai_image_reply(&png));
+    let s = setup(&p);
+    let mut req = request("gpt-image-2.5-sunburst", "64x64");
+    req.background = Background::Transparent;
+    let err = generate_one(&s.ctx, &s.job(req, Fit::Cover, false), &CancellationToken::new()).await.unwrap_err();
+    assert_eq!((err.category, err.retryable), (Category::Provider, false));
+    assert!(err.message.contains("투명"), "{}", err.message);
+    s.assert_clean();
+    assert_eq!(s.record()["status"], "failed");
+}

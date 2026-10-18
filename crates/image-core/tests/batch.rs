@@ -69,3 +69,61 @@ async fn batch_dry_run_and_stop_after_max_failures() {
     let absent = run(json!({"mode": "batch", "preset": "nope.json", "topic_root": root})).await;
     assert!(absent.result["error"].as_str().unwrap().starts_with("preset not found: "));
 }
+
+fn transparent_png() -> Vec<u8> {
+    let mut img = image::RgbaImage::from_pixel(32, 32, image::Rgba([0, 0, 0, 0]));
+    img.put_pixel(16, 16, image::Rgba([200, 10, 10, 255]));
+    let mut buf = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::ImageRgba8(img).write_to(&mut buf, image::ImageFormat::Png).unwrap();
+    buf.into_inner()
+}
+
+async fn run_batch_spec(p: &FakeProvider, ws: &std::path::Path, extra: Value) -> image_core::runner::RunOutcome {
+    let preset = repo_root().join("presets/extraction-rpg.json").display().to_string();
+    let mut spec =
+        json!({"mode": "batch", "preset": preset, "count": 1, "topic": "bt", "retries": 0, "topic_root": ws.display().to_string()});
+    spec.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+    let progress: Progress = Arc::new(|_| {});
+    let opts = RunOptions::new(0.0, ws.to_path_buf());
+    run_spec_with(spec, Arc::new(MapEnv::proxy(&p.base_url())), progress, CancellationToken::new(), opts).await
+}
+
+#[tokio::test]
+async fn batch_passes_background_and_fit_to_provider_and_record() {
+    let png = transparent_png();
+    let p = FakeProvider::start(move |_| test_fixture::openai_image_reply(&png));
+    let ws = tempfile::tempdir().unwrap();
+    let extra = json!({"image_model": "gpt-image-2.5-sunburst", "background": "transparent", "fit": "contain"});
+    let out = run_batch_spec(&p, ws.path(), extra).await;
+    assert_eq!(out.result["ok"], true, "{}", out.result);
+    assert_eq!(p.requests().len(), 1);
+    assert_eq!(p.requests()[0].json()["background"], "transparent");
+    let record_path = ws.path().join("ImageGallery/metadata/bt/bt_000001.png.json");
+    let record: Value = serde_json::from_slice(&std::fs::read(&record_path).unwrap()).unwrap();
+    assert_eq!(record["background"], "transparent");
+    assert_eq!(record["fit"], "contain");
+}
+
+#[tokio::test]
+async fn batch_rejects_bad_options_before_any_request() {
+    let p = FakeProvider::start(|_| test_fixture::openai_image_reply(&transparent_png()));
+    let ws = tempfile::tempdir().unwrap();
+    let cases = [
+        (json!({"background": "rainbow"}), "invalid_request"),
+        (json!({"fit": "stretch"}), "invalid_request"),
+        (json!({"background": "transparent"}), "unsupported"),
+        (json!({"count": 0}), "invalid_request"),
+        (json!({"count": -3}), "invalid_request"),
+        (json!({"count": 0.5}), "invalid_request"),
+        (json!({"count": 1e100}), "invalid_request"),
+    ];
+    for (extra, category) in cases {
+        let out = run_batch_spec(&p, ws.path(), extra.clone()).await;
+        assert_eq!(out.result["ok"], false, "{extra}: {}", out.result);
+        let got = out.result["error_category"].clone();
+        let got = if got.is_null() { out.result["failures"][0]["error"]["category"].clone() } else { got };
+        assert_eq!(got, json!(category), "{extra}: {}", out.result);
+        assert_eq!(out.exit_code, 2, "{extra}");
+    }
+    assert!(p.requests().is_empty(), "no provider request for invalid batch options");
+}

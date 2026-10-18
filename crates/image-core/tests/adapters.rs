@@ -122,7 +122,9 @@ async fn openai_generation_and_edit_bodies() {
     edit.action = Action::Edit;
     edit.background = Background::Transparent;
     let run = generate(conn(ProviderKind::Openai, p.base_url()), edit).await;
-    assert!(run.result.is_ok(), "{:?}", run.result);
+    // The fake reply is opaque, so the transparent request is sent but its result is refused.
+    let err = run.result.as_ref().unwrap_err();
+    assert_eq!((err.category, err.retryable), (Category::Provider, false), "{err:?}");
     let r = &p.requests()[1];
     assert_eq!(r.path, "/v1/images/edits");
     let body = r.json();
