@@ -63,6 +63,17 @@ impl Home {
         run_with_stdin(cmd, input)
     }
 
+    /// Another process's delete can stay invisible here for ~150 ms under load.
+    fn key_gone_soon(&self, id: &str) -> bool {
+        (0..80).any(|_| {
+            let gone = self.keyring().get(id).unwrap().is_none();
+            if !gone {
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+            gone
+        })
+    }
+
     fn ids(&self) -> Vec<String> {
         let Ok(text) = std::fs::read_to_string(self.profiles_json()) else { return Vec::new() };
         let file: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -298,10 +309,35 @@ fn remove_deletes_key() {
     assert!(home.keyring().get(&id).unwrap().is_some());
     let removed = assert_ok(&home.run(&["profile", "remove", "gone"]));
     assert_eq!(removed["removed"]["id"], id.as_str());
-    assert!(home.keyring().get(&id).unwrap().is_none());
+    assert!(home.key_gone_soon(&id), "remove must delete the stored key");
     let list = assert_ok(&home.run(&["profile", "list"]));
     assert_eq!((list["default"].clone(), list["profiles"].clone()), (Value::Null, json!([])));
     let again = home.run(&["profile", "remove", "gone"]);
     assert_eq!(again.status.code(), Some(1));
     assert_eq!(last_json(&again)["error_category"], "not_found");
+}
+
+#[test]
+fn concurrent_adds_in_separate_processes_all_report_their_saved_key() {
+    // Credential Manager can briefly hide a just-written entry while other processes write theirs.
+    let failures: Vec<String> = (0..8)
+        .map(|t| {
+            std::thread::spawn(move || {
+                let mut failures = Vec::new();
+                for i in 0..8 {
+                    let home = Home::new();
+                    let out = home.run_stdin(&["profile", "add", "p", "--kind", "openai", "--key-stdin"], KEY);
+                    let value = last_json(&out);
+                    if value["profile"]["key_configured"] != true {
+                        failures.push(format!("thread {t} run {i}: {value}"));
+                    }
+                }
+                failures
+            })
+        })
+        .collect::<Vec<_>>()
+        .into_iter()
+        .flat_map(|h| h.join().unwrap())
+        .collect();
+    assert!(failures.is_empty(), "{} of 64 adds reported no key, first: {}", failures.len(), failures[0]);
 }

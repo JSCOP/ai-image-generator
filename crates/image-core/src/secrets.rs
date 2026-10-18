@@ -94,7 +94,22 @@ impl KeyringStore {
     pub fn service(&self) -> &str {
         &self.service
     }
+
+    #[cfg(windows)]
+    fn read_once(&self, profile_id: &str) -> Result<Option<Secret>, EngineError> {
+        match self.entry(profile_id)?.get_password() {
+            Ok(key) => Ok(Some(Secret::new(key))),
+            Err(e) if platform::is_no_entry(&e) => Ok(None),
+            Err(e) => Err(platform::map_error(e)),
+        }
+    }
 }
+
+/// Reads before an entry counts as missing (and read-backs before a write is redone).
+#[cfg(windows)]
+const READ_ATTEMPTS: usize = 10;
+#[cfg(windows)]
+const RETRY_PAUSE: std::time::Duration = std::time::Duration::from_millis(30);
 
 #[cfg(windows)]
 mod platform {
@@ -106,7 +121,9 @@ mod platform {
     impl KeyringStore {
         pub(super) fn entry(&self, profile_id: &str) -> Result<Entry, EngineError> {
             let store = windows_native_keyring_store::Store::new().map_err(map_error)?;
-            store.build(&self.service, profile_id, None).map_err(map_error)
+            // Local (this PC only): concurrent Enterprise (roaming) writes from several processes lost entries.
+            let modifiers = std::collections::HashMap::from([("persistence", "Local")]);
+            store.build(&self.service, profile_id, Some(&modifiers)).map_err(map_error)
         }
     }
 
@@ -155,16 +172,30 @@ mod tests {
 #[cfg(windows)]
 impl SecretStore for KeyringStore {
     fn get(&self, profile_id: &str) -> Result<Option<Secret>, EngineError> {
-        match self.entry(profile_id)?.get_password() {
-            Ok(key) => Ok(Some(Secret::new(key))),
-            Err(e) if platform::is_no_entry(&e) => Ok(None),
-            Err(e) => Err(platform::map_error(e)),
+        // Under load another process's fresh write can take ~150 ms to become visible here.
+        for _ in 1..READ_ATTEMPTS {
+            if let Some(key) = self.read_once(profile_id)? {
+                return Ok(Some(key));
+            }
+            std::thread::sleep(RETRY_PAUSE);
         }
+        self.read_once(profile_id)
     }
 
     fn set(&self, profile_id: &str, key: &str) -> Result<(), EngineError> {
         let key = clean_key(key)?;
-        self.entry(profile_id)?.set_password(key).map_err(platform::map_error)
+        let entry = self.entry(profile_id)?;
+        // Write, then read back; a write not visible after a short wait is redone once.
+        for _ in 0..2 {
+            entry.set_password(key).map_err(platform::map_error)?;
+            for _ in 0..READ_ATTEMPTS {
+                if self.read_once(profile_id)?.is_some_and(|saved| saved.expose() == key) {
+                    return Ok(());
+                }
+                std::thread::sleep(RETRY_PAUSE);
+            }
+        }
+        Err(EngineError::new(Category::Internal, "자격 증명 관리자에 키를 저장했지만 다시 읽을 수 없습니다. 잠시 뒤 다시 시도해 주세요."))
     }
 
     fn delete(&self, profile_id: &str) -> Result<(), EngineError> {
