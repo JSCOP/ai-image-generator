@@ -1,4 +1,5 @@
-// Development-only fake backend: `pnpm dev` + `?mock=1` (or `?mock=empty` for a first run without any connection, `?mock=broken` for an unreadable profiles.json).
+// Development-only fake backend: `pnpm dev` + `?mock=1` (or `?mock=empty` for a first run without any connection, `?mock=broken` for an unreadable profiles.json,
+// `?mock=env` for a CLIPROXY_BASE_URL user environment connection that wins over the default profile).
 // main.ts imports this file only under import.meta.env.DEV, so production builds never contain it or its images.
 // No real file, key or provider is touched; everything lives in memory.
 
@@ -163,9 +164,11 @@ export function installMock(mode: string | null): void {
   const items = empty ? [] : galleryItems();
   const runs = new Map<string, MockRun>();
   let nextId = 1;
+  const envConn = mode === 'env' ? { baseUrl: 'http://100.98.54.122:8317/v1', source: 'user_env', keyConfigured: true } : null;
 
   const view = (): ConnectionsView => {
     const def = profiles.find((p) => p.isDefault);
+    if (envConn) return { profiles, env: envConn, active: 'env' };
     return { profiles, env: null, active: def ? def.name : null };
   };
 
@@ -204,6 +207,21 @@ export function installMock(mode: string | null): void {
   }
 
   function check(name: string | null): ConnectionReport {
+    if (!name && envConn) {
+      return {
+        profile: null,
+        kind: 'cliproxy',
+        base_url: envConn.baseUrl,
+        key_configured: envConn.keyConfigured,
+        reachable: false,
+        authenticated: false,
+        models_listed: false,
+        image_models: [],
+        last_generation: null,
+        warning: null,
+        error: { category: 'timeout', provider_code: null, http_status: null, retryable: true, message: 'GET http://100.98.54.122:8317/v1/models: 15초 안에 응답이 없습니다' },
+      };
+    }
     const p = find(name);
     const broken = p.kind === 'openai';
     return {
