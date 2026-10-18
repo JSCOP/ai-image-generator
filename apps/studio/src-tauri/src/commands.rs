@@ -9,7 +9,7 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, State};
 
 use crate::service::gallery::{self, GalleryView};
-use crate::service::generate::{self, GenerateInput, RunEvent, RunSummary};
+use crate::service::generate::{self, GenerateInput, ReferenceView, RunEvent, RunSummary};
 use crate::service::profiles::{self, ConnectionsView, ModelView, ProfileInput, ProfileView};
 use crate::service::settings::{self, default_work_dir, Settings};
 use crate::service::{Ctx, ServiceError};
@@ -112,6 +112,16 @@ pub async fn start_generation(
         let _ = on_event.send(event);
     };
     generate::run_generation(&ctx, input, run_id, emit, guard.token().clone()).await
+}
+
+/// Checks a picked or dropped reference image and lets the webview show that one file as a thumbnail.
+#[tauri::command]
+pub async fn inspect_reference<R: Runtime>(app: AppHandle<R>, path: PathBuf) -> Result<ReferenceView, ServiceError> {
+    let checked = path.clone();
+    let view = blocking(move || generate::inspect_reference(&checked)).await?;
+    // A file the scope cannot hold only means its thumbnail does not show.
+    let _ = app.asset_protocol_scope().allow_file(&path);
+    Ok(view)
 }
 
 /// Cancels a running generation; false when no run has this id (already ended).

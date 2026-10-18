@@ -12,6 +12,7 @@ import type {
   ModelView,
   ProfileInput,
   ProfileView,
+  ReferenceView,
   RunEvent,
   RunSummary,
   ServiceError,
@@ -69,6 +70,9 @@ export function startGeneration(input: GenerateInput, onEvent: (event: RunEvent)
   channel.onmessage = onEvent;
   return call<RunSummary>('start_generation', { input, onEvent: channel });
 }
+
+/** Checks a picked or dropped reference (file, <= 10MB, image, sides <= 8192) and allows its thumbnail. */
+export const inspectReference = (path: string) => call<ReferenceView>('inspect_reference', { path });
 
 /** false when no run has this id (already ended). */
 export const cancelGeneration = (runId: string) => call<boolean>('cancel_generation', { runId });

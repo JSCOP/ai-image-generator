@@ -7,7 +7,10 @@ use std::time::Duration;
 use chrono::TimeZone;
 use image_core::error::Category;
 use image_core::secrets::MemoryStore;
-use studio_lib::service::generate::{build_spec, run_generation, GenerateInput, RunEvent, MAX_COUNT, MAX_REFERENCES};
+use studio_lib::service::generate::{
+    build_spec, inspect_reference, run_generation, GenerateInput, RunEvent, MAX_COUNT, MAX_REFERENCES, MAX_REFERENCE_BYTES,
+    MAX_REFERENCE_SIDE,
+};
 use studio_lib::service::settings::{save_settings, Settings};
 use studio_lib::service::Ctx;
 use test_fixture::{openai_image_reply, png_bytes, FakeProvider, MapEnv, Reply};
@@ -322,4 +325,41 @@ async fn unknown_profile_fails_before_started() {
     assert_eq!(result.unwrap_err().category, Category::InvalidRequest);
     assert!(events.is_empty());
     assert_eq!(p.requests().len(), 0);
+}
+
+#[test]
+fn inspect_reference_reports_size_and_refuses_what_the_run_would_refuse() {
+    let dir = tempfile::tempdir().unwrap();
+    let good = dir.path().join("참조 컵.png");
+    std::fs::write(&good, png_bytes(12, 7, [1, 2, 3, 255])).unwrap();
+    let view = inspect_reference(&good).unwrap();
+    assert_eq!(view.path, good.display().to_string());
+    assert_eq!(view.name, "참조 컵.png");
+    assert_eq!((view.width, view.height), (12, 7));
+    assert_eq!(view.bytes, std::fs::metadata(&good).unwrap().len());
+    let json = serde_json::to_value(&view).unwrap();
+    assert_eq!(json.as_object().unwrap().keys().collect::<Vec<_>>(), ["path", "name", "bytes", "width", "height"]);
+
+    let missing = inspect_reference(&dir.path().join("없음.png")).unwrap_err();
+    assert_eq!(missing.category, Category::InvalidRequest);
+    let folder = inspect_reference(dir.path()).unwrap_err();
+    assert_eq!(folder.category, Category::InvalidRequest);
+
+    let text = dir.path().join("note.png");
+    std::fs::write(&text, b"not an image").unwrap();
+    let err = inspect_reference(&text).unwrap_err();
+    assert_eq!(err.category, Category::InvalidRequest);
+    assert!(err.message.contains("이미지"), "{}", err.message);
+
+    let big = dir.path().join("big.png");
+    std::fs::File::create(&big).unwrap().set_len(MAX_REFERENCE_BYTES + 1).unwrap();
+    let err = inspect_reference(&big).unwrap_err();
+    assert!(err.message.contains("10MB"), "{}", err.message);
+
+    // Spec §8: one side at most 8192 px (the header is read, the pixels are not decoded).
+    let wide = dir.path().join("wide.png");
+    std::fs::write(&wide, png_bytes(MAX_REFERENCE_SIDE + 1, 1, [0, 0, 0, 255])).unwrap();
+    let err = inspect_reference(&wide).unwrap_err();
+    assert_eq!(err.category, Category::InvalidRequest);
+    assert!(err.message.contains("8192"), "{}", err.message);
 }

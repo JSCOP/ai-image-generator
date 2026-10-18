@@ -54,6 +54,10 @@ fn lists_complete_failed_pending_legacy_and_missing() {
     let work = dir.path().join("work");
     let mut complete = record("완료 그림", Some("complete"));
     complete["response_model"] = json!("gpt-image-2-2026");
+    complete["reference_images"] = json!(["D:\\refs\\cup.png"]);
+    complete["provider_size"] = json!("1448x1086");
+    complete["saved_size"] = json!("1024x1024");
+    complete["request_id"] = json!("req_abc123");
     complete["background"] = json!("transparent");
     complete["alpha"] = json!({"has_alpha_channel": true, "transparent_ratio": 0.448, "partial_ratio": 0.01, "opaque_ratio": 0.542, "corner_alpha": [0, 0, 0, 0]});
     let complete_image = put(&work, "t", "a.png", &complete, true, 50);
@@ -80,6 +84,19 @@ fn lists_complete_failed_pending_legacy_and_missing() {
     assert_eq!(item.transparent_ratio, Some(0.448));
     assert_eq!(item.error, None);
     assert_eq!(item.folder, view.folders[0].gallery_root);
+    // What the viewer and "이 설정 다시 쓰기" need from the record.
+    assert_eq!(item.quality.as_deref(), Some("low"));
+    assert_eq!(item.references, ["D:\\refs\\cup.png"]);
+    assert_eq!(item.provider_size.as_deref(), Some("1448x1086"));
+    assert_eq!(item.saved_size.as_deref(), Some("1024x1024"));
+    assert_eq!(item.request_id.as_deref(), Some("req_abc123"));
+    let json = serde_json::to_value(item).unwrap();
+    for key in ["quality", "references", "providerSize", "savedSize", "requestId"] {
+        assert!(json.get(key).is_some(), "camelCase key {key} in {json}");
+    }
+    let python = find(&view.items, "파이썬 그림");
+    assert_eq!((python.provider_size.as_deref(), python.request_id.as_deref()), (None, None));
+    assert!(python.references.is_empty());
 
     let item = find(&view.items, "실패 그림");
     assert_eq!(item.status, "failed");

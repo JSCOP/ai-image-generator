@@ -23,6 +23,7 @@ macro_rules! handlers {
             commands::list_models,
             commands::start_generation,
             commands::cancel_generation,
+            commands::inspect_reference,
             commands::gallery,
             commands::add_gallery_folder,
             commands::remove_gallery_folder,
@@ -170,6 +171,26 @@ mod tests {
         assert!(!app.asset_protocol_scope().is_allowed(&new_image));
         invoke(&webview, "save_settings", json!({"settings": {"workDir": moved, "galleryFolders": []}})).unwrap();
         assert!(app.asset_protocol_scope().is_allowed(&new_image), "saving settings allows the new work folder's gallery");
+    }
+
+    #[test]
+    fn inspect_reference_command_allows_only_that_file_for_its_thumbnail() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (app, webview) = app(home.path(), Arc::new(MemoryStore::new()));
+        let picked = dir.path().join("cup.png");
+        let sibling = dir.path().join("other.png");
+        std::fs::write(&picked, test_fixture::png_bytes(3, 2, [9, 9, 9, 255])).unwrap();
+        std::fs::write(&sibling, test_fixture::png_bytes(3, 2, [9, 9, 9, 255])).unwrap();
+        assert!(!app.asset_protocol_scope().is_allowed(&picked));
+
+        let view = invoke(&webview, "inspect_reference", json!({ "path": picked })).unwrap();
+        assert_eq!((view["width"].as_u64(), view["height"].as_u64(), view["name"].as_str()), (Some(3), Some(2), Some("cup.png")));
+        assert!(app.asset_protocol_scope().is_allowed(&picked), "the picked reference shows as a thumbnail");
+        assert!(!app.asset_protocol_scope().is_allowed(&sibling), "only the picked file, not its folder");
+
+        let err = invoke(&webview, "inspect_reference", json!({"path": dir.path().join("none.png")})).unwrap_err();
+        assert_eq!(err["category"], "invalid_request");
     }
 
     #[test]

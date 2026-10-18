@@ -1,7 +1,7 @@
 //! Generation screen service: builds a single-mode spec, runs it through `image-core`, and turns the engine's
 //! progress lines into `RunEvent`s and its result JSON into a `RunSummary`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use image_core::connection::{resolve, Resolver};
@@ -22,6 +22,8 @@ pub const MAX_COUNT: u32 = 50;
 pub const MAX_REFERENCES: usize = 4;
 /// Largest reference image file.
 pub const MAX_REFERENCE_BYTES: u64 = 10 * 1024 * 1024;
+/// Longest side of a reference image (spec §8).
+pub const MAX_REFERENCE_SIDE: u32 = 8192;
 /// Prompt words used for an automatic topic name.
 pub const TOPIC_WORDS: usize = 5;
 /// Room left for the words in an automatic topic (80 minus `-YYYYMMDD-HHMMSS`).
@@ -96,6 +98,41 @@ pub struct FailureView {
 
 fn invalid(message: impl Into<String>) -> ServiceError {
     ServiceError::new(Category::InvalidRequest, message)
+}
+
+/// A reference image the screen may attach (thumbnail and size line).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenceView {
+    pub path: String,
+    pub name: String,
+    pub bytes: u64,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Checks a picked or dropped reference before it joins the form: a file, at most 10 MB, an image (header only) with
+/// each side at most 8192 px (spec §8).
+pub fn inspect_reference(path: &Path) -> Result<ReferenceView, ServiceError> {
+    let meta = std::fs::metadata(path).map_err(|_| invalid(format!("참조 이미지를 찾을 수 없습니다: {}", path.display())))?;
+    if !meta.is_file() {
+        return Err(invalid(format!("참조 이미지가 파일이 아닙니다: {}", path.display())));
+    }
+    if meta.len() > MAX_REFERENCE_BYTES {
+        return Err(invalid(format!("참조 이미지는 장당 10MB 이하여야 합니다: {}", path.display())));
+    }
+    let not_image = || invalid(format!("이미지 파일이 아닙니다(PNG, JPEG, WebP, GIF): {}", path.display()));
+    let (width, height) = image::ImageReader::open(path)
+        .map_err(|_| not_image())?
+        .with_guessed_format()
+        .map_err(|_| not_image())?
+        .into_dimensions()
+        .map_err(|_| not_image())?;
+    if width > MAX_REFERENCE_SIDE || height > MAX_REFERENCE_SIDE {
+        return Err(invalid(format!("참조 이미지는 한 변이 {MAX_REFERENCE_SIDE}px 이하여야 합니다({width}×{height}): {}", path.display())));
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| path.display().to_string());
+    Ok(ReferenceView { path: path.display().to_string(), name, bytes: meta.len(), width, height })
 }
 
 /// Python `compose_prompt`: the prompt, then `Avoid: ...` on its own line when set.

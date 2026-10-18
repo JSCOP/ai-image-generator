@@ -123,7 +123,18 @@ export interface ModelView {
   id: string;
   provider: string;
   references: boolean;
+  /** References the screen may attach for this model (at most 4; 0 = none). */
+  maxReferences: number;
   transparency: boolean;
+}
+
+/** A checked reference image (inspect_reference). */
+export interface ReferenceView {
+  path: string;
+  name: string;
+  bytes: number;
+  width: number;
+  height: number;
 }
 
 export type Background = 'auto' | 'opaque' | 'transparent';
@@ -188,6 +199,13 @@ export interface GalleryItem {
   error: string | null;
   /** Record file mtime, seconds since the Unix epoch. */
   modified: number;
+  quality: string | null;
+  /** reference_images of the record. */
+  references: string[];
+  /** Size the provider sent, before fitting to savedSize. */
+  providerSize: string | null;
+  savedSize: string | null;
+  requestId: string | null;
 }
 
 export interface FolderView {

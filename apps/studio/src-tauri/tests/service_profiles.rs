@@ -255,7 +255,12 @@ async fn models_view_marks_capabilities() {
     assert_eq!(grok.provider, "xAI Grok");
     assert!(list.iter().find(|m| m.id == "gemini-3.1-flash-image").unwrap().references);
     let json = serde_json::to_value(&list[0]).unwrap();
-    assert_eq!(json, serde_json::json!({"id": "gpt-image-2.5", "provider": "OpenAI", "references": true, "transparency": false}));
+    assert_eq!(
+        json,
+        serde_json::json!({"id": "gpt-image-2.5", "provider": "OpenAI", "references": true, "maxReferences": 4, "transparency": false})
+    );
+    // The screen caps references at the run limit (4) and at what the model takes (0 = none).
+    assert_eq!(grok.max_references, 0);
 
     // The default profile is used when no name is given; the key went to the provider as a bearer token.
     assert_eq!(models(&ctx, None).await.unwrap().len(), 5);

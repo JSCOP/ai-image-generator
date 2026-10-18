@@ -48,12 +48,12 @@ const OFFICIAL_URLS: Partial<Record<keyof typeof KIND_LABELS, string>> = {
 };
 
 const MODELS: ModelView[] = [
-  { id: 'gpt-image-2.5', provider: 'OpenAI', references: true, transparency: false },
-  { id: 'gpt-image-2.5-flare', provider: 'OpenAI', references: true, transparency: true },
-  { id: 'gpt-image-2.5-sunburst', provider: 'OpenAI', references: true, transparency: true },
-  { id: 'gpt-image-2', provider: 'OpenAI', references: true, transparency: false },
-  { id: 'gemini-3.1-flash-image', provider: 'Google Gemini', references: true, transparency: false },
-  { id: 'grok-imagine-image-2.0', provider: 'xAI Grok', references: false, transparency: false },
+  { id: 'gpt-image-2.5', provider: 'OpenAI', references: true, maxReferences: 4, transparency: false },
+  { id: 'gpt-image-2.5-flare', provider: 'OpenAI', references: true, maxReferences: 4, transparency: true },
+  { id: 'gpt-image-2.5-sunburst', provider: 'OpenAI', references: true, maxReferences: 4, transparency: true },
+  { id: 'gpt-image-2', provider: 'OpenAI', references: true, maxReferences: 4, transparency: false },
+  { id: 'gemini-3.1-flash-image', provider: 'Google Gemini', references: true, maxReferences: 4, transparency: false },
+  { id: 'grok-imagine-image-2.0', provider: 'xAI Grok', references: false, maxReferences: 0, transparency: false },
 ];
 
 const now = () => Date.now() / 1000;
@@ -121,6 +121,11 @@ function galleryItems(): GalleryItem[] {
       transparentRatio: transparent ? 0.62 : null,
       error,
       modified: base - hours * 3600 - i,
+      quality: 'medium',
+      references: [],
+      providerSize: status === 'complete' ? (size === '1024x1024' ? '1448x1086' : size) : null,
+      savedSize: status === 'complete' ? size : null,
+      requestId: status === 'complete' ? `req_mock${i + 1}` : null,
     };
   });
 }
@@ -262,7 +267,8 @@ export function installMock(mode: string | null): void {
     const concurrency = 4;
     let next = 1;
     const one = async (index: number) => {
-      const output = `${outputDir}\\${topic}_${index}.png`;
+      // Engine naming: one image = "<topic>.png", more = "<topic>_001.png".
+      const output = input.count === 1 ? `${outputDir}\\${topic}.png` : `${outputDir}\\${topic}_${String(index).padStart(3, '0')}.png`;
       if (input.background === 'transparent') pictureOf.set(output, TRANSPARENT);
       if (run.cancelled) {
         failures.push({ index, reason: '취소되었습니다', category: 'cancelled', providerCode: null });
@@ -310,6 +316,40 @@ export function installMock(mode: string | null): void {
       cancelled: run.cancelled,
       warnings: [],
     };
+    // Records appear in the gallery like the engine's (finished images and failed attempts; cancelled-before-start ones have none).
+    const prompt = input.avoid.trim() ? `${input.prompt.trim()}\nAvoid: ${input.avoid.trim()}` : input.prompt.trim();
+    const record = (output: string, status: GalleryItem['status'], error: string | null): GalleryItem => ({
+      imagePath: output,
+      recordPath: output.replace('\\output\\', '\\metadata\\') + '.json',
+      folder: `${WORK}\\ImageGallery`,
+      topic,
+      status,
+      prompt,
+      imageModel: input.imageModel,
+      responseModel: status === 'complete' ? `${input.imageModel}-2026-10-01` : null,
+      size: input.size,
+      background: input.background,
+      transparentRatio: status === 'complete' && input.background === 'transparent' ? 0.448 : null,
+      error,
+      modified: now(),
+      quality: input.quality,
+      references: [...input.references],
+      providerSize: status === 'complete' ? '1536x1024' : null,
+      savedSize: status === 'complete' ? input.size : null,
+      requestId: status === 'complete' ? `req_mock${nextId++}` : null,
+    });
+    const known = (path: string) => items.findIndex((i) => i.imagePath === path);
+    const put = (item: GalleryItem) => {
+      const at = known(item.imagePath);
+      if (at >= 0) items.splice(at, 1);
+      items.unshift(item);
+    };
+    for (const output of outputs) put(record(output, 'complete', null));
+    for (const f of failures) {
+      if (f.category === 'cancelled') continue;
+      const output = input.count === 1 ? `${outputDir}\\${topic}.png` : `${outputDir}\\${topic}_${String(f.index).padStart(3, '0')}.png`;
+      put(record(output, 'failed', f.reason));
+    }
     send({ event: 'finished', data: { summary } });
     return summary;
   }
@@ -369,10 +409,17 @@ export function installMock(mode: string | null): void {
       return settings;
     },
     // Plugins: folder/file picker returns a fixed path; opener does nothing.
+    inspect_reference: (a) => {
+      const path = a.path as string;
+      const name = path.split(/[\\/]/).pop() ?? path;
+      if (!/\.(png|jpe?g|webp|gif)$/i.test(name)) throw fail('invalid_request', `이미지 파일이 아닙니다(PNG, JPEG, WebP, GIF): ${path}`);
+      if (/huge/i.test(name)) throw fail('invalid_request', `참조 이미지는 장당 10MB 이하여야 합니다: ${path}`);
+      return { path, name, bytes: 245_000 + name.length * 1000, width: 1024, height: 1024 };
+    },
     'plugin:dialog|open': (a) => {
       const options = (a.options ?? {}) as { directory?: boolean; multiple?: boolean };
       if (options.directory) return 'D:\\projects\\new-folder';
-      const files = [`${PROJECT}\\ImageGallery\\output\\legacy-topic\\legacy-topic_1.png`];
+      const files = [`${PROJECT}\\ImageGallery\\output\\legacy-topic\\legacy-topic_1.png`, `D:\\refs\\mug-reference.jpg`];
       return options.multiple ? files : files[0];
     },
     'plugin:opener|reveal_item_in_dir': () => null,

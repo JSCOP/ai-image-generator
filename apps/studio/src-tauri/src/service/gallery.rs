@@ -35,6 +35,13 @@ pub struct GalleryItem {
     pub error: Option<String>,
     /// Record file modified time, seconds since 1970.
     pub modified: f64,
+    pub quality: Option<String>,
+    /// `reference_images` of the record (paths as written then).
+    pub references: Vec<String>,
+    /// Size the provider sent, before fitting to `saved_size`.
+    pub provider_size: Option<String>,
+    pub saved_size: Option<String>,
+    pub request_id: Option<String>,
 }
 
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -206,6 +213,15 @@ fn read_item(root: &Path, topic: &str, topic_dir: &Path, file: &Path) -> Option<
         transparent_ratio: record.get("alpha").and_then(|alpha| alpha.get("transparent_ratio")).and_then(Value::as_f64),
         error,
         modified,
+        quality: text(&record, "quality"),
+        references: record
+            .get("reference_images")
+            .and_then(Value::as_array)
+            .map(|paths| paths.iter().filter_map(Value::as_str).map(str::to_string).collect())
+            .unwrap_or_default(),
+        provider_size: text(&record, "provider_size"),
+        saved_size: text(&record, "saved_size"),
+        request_id: text(&record, "request_id"),
     })
 }
 

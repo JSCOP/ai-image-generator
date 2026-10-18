@@ -4,7 +4,7 @@
 use std::fmt;
 use std::time::Duration;
 
-use image_core::adapter::{list_models, model_supported, supports_native_transparency, supports_references};
+use image_core::adapter::{list_models, model_supported, reference_limit, supports_native_transparency, supports_references};
 use image_core::catalog::{backend, is_listable_image_model, Backend};
 use image_core::check::{check_connection, ConnectionReport};
 use image_core::connection::{normalize_base_url, resolve, Connection, Resolver};
@@ -13,6 +13,7 @@ use image_core::http::Http;
 use image_core::profiles::{transport_warning, GenerationStatus, Profile, ProfilePatch, ProfileStore, ProviderKind};
 use serde::{Deserialize, Serialize};
 
+use super::generate::MAX_REFERENCES;
 use super::{Ctx, ServiceError};
 
 const CHECK_TIMEOUT: Duration = Duration::from_secs(15);
@@ -94,6 +95,8 @@ pub struct ModelView {
     pub id: String,
     pub provider: String,
     pub references: bool,
+    /// References the screen may attach: the model's limit, at most the run limit (0 = none).
+    pub max_references: u32,
     pub transparency: bool,
 }
 
@@ -273,9 +276,12 @@ pub async fn models(ctx: &Ctx, name: Option<&str>) -> Result<Vec<ModelView>, Ser
         if !is_listable_image_model(&id) || model_supported(conn.kind, &id).is_err() || out.iter().any(|m| m.id == id) {
             continue;
         }
+        let references = supports_references(conn.kind, &id);
+        let max_references = if references { reference_limit(conn.kind, &id).min(MAX_REFERENCES) as u32 } else { 0 };
         out.push(ModelView {
             provider: provider_label(&id).to_string(),
-            references: supports_references(conn.kind, &id),
+            references,
+            max_references,
             transparency: supports_native_transparency(conn.kind, &id),
             id,
         });

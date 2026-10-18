@@ -68,6 +68,11 @@ describe('api command names and arguments', () => {
     expect(calls[11].args).toEqual({ path: 'D:/proj' });
   });
 
+  it('inspect_reference sends the path', async () => {
+    await api.inspectReference('D:/refs/cup.png');
+    expect(calls).toEqual([{ cmd: 'inspect_reference', args: { path: 'D:/refs/cup.png' } }]);
+  });
+
   it('start_generation passes the input and a channel that reaches the callback', async () => {
     const seen: unknown[] = [];
     const input = {
