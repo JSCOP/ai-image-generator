@@ -229,6 +229,20 @@ impl ProfileStore {
     }
 
     pub fn add(&self, name: &str, kind: ProviderKind, base_url: Option<&str>, concurrency: Option<u32>) -> Result<Profile, EngineError> {
+        self.add_with(name, kind, base_url, concurrency, false, |_| Ok(()))
+    }
+
+    /// `add` that can also become the default in the same write. `before_write` runs under the lock with the
+    /// new profile (e.g. to save its key); if it fails, profiles.json is not touched.
+    pub fn add_with(
+        &self,
+        name: &str,
+        kind: ProviderKind,
+        base_url: Option<&str>,
+        concurrency: Option<u32>,
+        make_default: bool,
+        before_write: impl FnOnce(&Profile) -> Result<(), EngineError>,
+    ) -> Result<Profile, EngineError> {
         let name = clean_name(name)?;
         let raw_url = base_url.filter(|u| !u.trim().is_empty()).or(kind.default_base_url()).ok_or_else(|| {
             EngineError::new(Category::InvalidRequest, format!("{} 프로필은 주소(base_url)를 입력해야 합니다.", kind.label()))
@@ -244,7 +258,11 @@ impl ProfileStore {
                 }
             };
             let profile = Profile { id, name: name.clone(), kind, base_url: base_url.clone(), concurrency };
+            before_write(&profile)?;
             file.profiles.push(profile.clone());
+            if make_default {
+                file.default = Some(profile.id.clone());
+            }
             Ok(profile)
         })
     }

@@ -372,6 +372,57 @@ fn profile_view(profile: &Profile, keyring: Option<&KeyringStore>) -> Value {
     })
 }
 
+/// Saves the profile, its key and the default flag; a failure leaves nothing behind.
+fn add_profile(
+    store: &ProfileStore,
+    key: Option<(&dyn SecretStore, &Secret)>,
+    name: &str,
+    kind: ProviderKind,
+    url: Option<&str>,
+    concurrency: Option<u32>,
+    make_default: bool,
+) -> Result<Profile, EngineError> {
+    // Profile and default go in one write; the key is saved under the lock just before it.
+    let mut saved_key_for: Option<String> = None;
+    let result = store.add_with(name, kind, url, concurrency, make_default, |profile| {
+        if let Some((key_store, key)) = key {
+            key_store.set(&profile.id, key.expose())?;
+            saved_key_for = Some(profile.id.clone());
+        }
+        Ok(())
+    });
+    if let (Err(_), Some(id), Some((key_store, _))) = (&result, &saved_key_for, key) {
+        // The file write failed after the key was saved: no orphan key.
+        let _ = key_store.delete(id);
+    }
+    result
+}
+
+/// Changes the profile and/or its key; a failure leaves both as they were.
+fn update_profile(
+    store: &ProfileStore,
+    key: Option<(&dyn SecretStore, &Secret)>,
+    name: &str,
+    patch: ProfilePatch,
+) -> Result<Profile, EngineError> {
+    let current = store.find(name)?;
+    let unchanged = patch.name.is_none() && patch.base_url.is_none() && patch.concurrency.is_none();
+    let Some((key_store, key)) = key else {
+        return if unchanged { Ok(current) } else { store.update(&current.id, patch) };
+    };
+    // Key first: a failed key save leaves profiles.json untouched.
+    let old_key = key_store.get(&current.id)?;
+    key_store.set(&current.id, key.expose())?;
+    let result = if unchanged { store.find(&current.id) } else { store.update(&current.id, patch) };
+    if result.is_err() {
+        let _ = match &old_key {
+            Some(old) => key_store.set(&current.id, old.expose()),
+            None => key_store.delete(&current.id),
+        };
+    }
+    result
+}
+
 async fn profile_command(command: ProfileCommand) -> Result<Value, EngineError> {
     let env = SystemEnv;
     if let ProfileCommand::Check { name } = command {
@@ -395,27 +446,15 @@ async fn profile_command(command: ProfileCommand) -> Result<Value, EngineError> 
         ProfileCommand::Add { name, kind, url, concurrency, key, make_default } => {
             let key = read_key(&key)?;
             let key_store = key.as_ref().map(|_| need_keyring()).transpose()?;
-            let profile = store.add(&name, kind, url.as_deref(), concurrency)?;
-            if let (Some(key), Some(key_store)) = (&key, &key_store) {
-                if let Err(err) = key_store.set(&profile.id, key.expose()) {
-                    // Do not leave a profile whose key the user believes was saved.
-                    let _ = store.remove(&profile.id);
-                    return Err(err);
-                }
-            }
-            if make_default {
-                store.set_default(Some(&profile.id))?;
-            }
+            let new_key = key.as_ref().zip(key_store.as_ref()).map(|(k, s)| (s as &dyn SecretStore, k));
+            let profile = add_profile(&store, new_key, &name, kind, url.as_deref(), concurrency, make_default)?;
             Ok(json!({"ok": true, "profile": profile_view(&profile, keyring.as_ref()), "default": make_default}))
         }
         ProfileCommand::Update { name, patch, key } => {
             let key = read_key(&key)?;
             let key_store = key.as_ref().map(|_| need_keyring()).transpose()?;
-            let unchanged = patch.name.is_none() && patch.base_url.is_none() && patch.concurrency.is_none();
-            let profile = if unchanged { store.find(&name)? } else { store.update(&name, patch)? };
-            if let (Some(key), Some(key_store)) = (&key, &key_store) {
-                key_store.set(&profile.id, key.expose())?;
-            }
+            let new_key = key.as_ref().zip(key_store.as_ref()).map(|(k, s)| (s as &dyn SecretStore, k));
+            let profile = update_profile(&store, new_key, &name, patch)?;
             Ok(json!({"ok": true, "profile": profile_view(&profile, keyring.as_ref())}))
         }
         ProfileCommand::Remove { name } => {
@@ -489,4 +528,119 @@ fn main() {
 fn emit_pretty(value: &Value) -> i32 {
     println!("{}", serde_json::to_string_pretty(value).unwrap_or_default());
     0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// MemoryStore that can refuse `set` or run a hook first (e.g. another process grabbing the profile lock).
+    struct FaultyStore {
+        inner: MemoryStore,
+        fail_set: bool,
+        before_set: Box<dyn Fn() + Send + Sync>,
+    }
+
+    impl FaultyStore {
+        fn failing() -> FaultyStore {
+            FaultyStore { inner: MemoryStore::new(), fail_set: true, before_set: Box::new(|| {}) }
+        }
+
+        fn with_hook(hook: impl Fn() + Send + Sync + 'static) -> FaultyStore {
+            FaultyStore { inner: MemoryStore::new(), fail_set: false, before_set: Box::new(hook) }
+        }
+    }
+
+    impl SecretStore for FaultyStore {
+        fn get(&self, id: &str) -> Result<Option<Secret>, EngineError> {
+            self.inner.get(id)
+        }
+
+        fn set(&self, id: &str, key: &str) -> Result<(), EngineError> {
+            (self.before_set)();
+            if self.fail_set {
+                return Err(EngineError::new(Category::Internal, "자격 증명 관리자 오류: 테스트 실패"));
+            }
+            self.inner.set(id, key)
+        }
+
+        fn delete(&self, id: &str) -> Result<(), EngineError> {
+            self.inner.delete(id)
+        }
+    }
+
+    fn stored(store: &FaultyStore, id: &str) -> Option<String> {
+        store.inner.get(id).unwrap().map(|k| k.expose().to_string())
+    }
+
+    #[test]
+    fn add_with_default_is_all_or_nothing_when_the_profile_file_is_locked_after_the_key_save() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ProfileStore::open(tmp.path().to_path_buf());
+        let lock = tmp.path().join("profiles.json.lock");
+        let hook_lock = lock.clone();
+        let keys = FaultyStore::with_hook(move || {
+            let _ = std::fs::write(&hook_lock, b"");
+        });
+        let key = Secret::new("sk-test-add-default");
+        let result = add_profile(&store, Some((&keys, &key)), "p1", ProviderKind::Cliproxy, Some("http://127.0.0.1:9"), None, true);
+        let _ = std::fs::remove_file(&lock);
+        let file = store.load().unwrap();
+        match result {
+            Ok(profile) => {
+                assert_eq!(file.default.as_deref(), Some(profile.id.as_str()));
+                assert_eq!(stored(&keys, &profile.id).as_deref(), Some("sk-test-add-default"));
+            }
+            Err(err) => {
+                assert!(file.profiles.is_empty(), "{}: profile left behind", err.message);
+                let ids: Vec<String> = file.profiles.iter().map(|p| p.id.clone()).collect();
+                assert!(ids.iter().all(|id| stored(&keys, id).is_none()));
+            }
+        }
+    }
+
+    #[test]
+    fn add_whose_key_save_fails_leaves_no_profile_and_no_default() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ProfileStore::open(tmp.path().to_path_buf());
+        let key = Secret::new("sk-test-add-fail");
+        let keys = FaultyStore::failing();
+        assert!(add_profile(&store, Some((&keys, &key)), "p1", ProviderKind::Cliproxy, Some("http://127.0.0.1:9"), None, true).is_err());
+        let file = store.load().unwrap();
+        assert!(file.profiles.is_empty());
+        assert_eq!(file.default, None);
+    }
+
+    #[test]
+    fn update_whose_key_save_fails_changes_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ProfileStore::open(tmp.path().to_path_buf());
+        store.add("old", ProviderKind::Cliproxy, Some("http://127.0.0.1:9"), None).unwrap();
+        let before = std::fs::read(tmp.path().join("profiles.json")).unwrap();
+        let key = Secret::new("sk-test-update-fail");
+        let patch = ProfilePatch { name: Some("new".into()), base_url: Some("http://127.0.0.1:10".into()), concurrency: None };
+        assert!(update_profile(&store, Some((&FaultyStore::failing(), &key)), "old", patch).is_err());
+        assert_eq!(std::fs::read(tmp.path().join("profiles.json")).unwrap(), before);
+    }
+
+    #[test]
+    fn update_whose_profile_change_fails_keeps_the_old_key() {
+        let tmp = tempfile::tempdir().unwrap();
+        let store = ProfileStore::open(tmp.path().to_path_buf());
+        let target = store.add("a", ProviderKind::Cliproxy, Some("http://127.0.0.1:9"), None).unwrap();
+        store.add("b", ProviderKind::Cliproxy, Some("http://127.0.0.1:9"), None).unwrap();
+        let keys = FaultyStore::with_hook(|| {});
+        keys.inner.set(&target.id, "sk-old").unwrap();
+        let empty = FaultyStore::with_hook(|| {});
+        let other = store.add("c", ProviderKind::Cliproxy, Some("http://127.0.0.1:9"), None).unwrap();
+        let new_key = Secret::new("sk-new");
+        // Renaming onto an existing name fails inside the profile write.
+        let patch = ProfilePatch { name: Some("b".into()), base_url: None, concurrency: None };
+        assert!(update_profile(&store, Some((&keys, &new_key)), "a", patch).is_err());
+        assert_eq!(stored(&keys, &target.id).as_deref(), Some("sk-old"));
+        // A profile with no key before: the failed update must not leave the new one.
+        let patch = ProfilePatch { name: Some("b".into()), base_url: None, concurrency: None };
+        assert!(update_profile(&store, Some((&empty, &new_key)), "c", patch).is_err());
+        assert_eq!(stored(&empty, &other.id), None);
+    }
 }
