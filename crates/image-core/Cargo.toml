@@ -18,10 +18,12 @@ uuid = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 thiserror = { workspace = true }
+keyring-core = "1"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows-native-keyring-store = "1"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

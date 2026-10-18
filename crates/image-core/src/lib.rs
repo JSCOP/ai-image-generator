@@ -11,5 +11,6 @@ pub mod paths;
 pub mod provider;
 pub mod runner;
 pub mod schema;
+pub mod secrets;
 pub mod size;
 pub mod store;
