@@ -45,3 +45,8 @@ desktop.ini
 
 # Rust
 /target/
+
+# Image Studio app
+apps/studio/node_modules/
+apps/studio/dist/
+apps/studio/src-tauri/gen/

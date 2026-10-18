@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/image-core", "crates/image-cli", "crates/test-fixture"]
+members = ["crates/image-core", "crates/image-cli", "crates/test-fixture", "apps/studio/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"

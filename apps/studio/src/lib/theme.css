@@ -1,0 +1,35 @@
+:root {
+  --bg: #16181d;
+  --panel: #1d2027;
+  --border: #2a2e37;
+  --text: #e6e8ee;
+  --muted: #9aa0ad;
+  --accent: #8b5cf6;
+  --accent-hover: #7c4dff;
+  --ok: #22c55e;
+  --warn: #f59e0b;
+  --error: #ef4444;
+  --radius: 8px;
+  --font: 'Segoe UI', 'Malgun Gothic', system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+}
+
+#app {
+  height: 100%;
+}
