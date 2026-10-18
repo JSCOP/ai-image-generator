@@ -61,9 +61,9 @@ pub fn request_hash(req: &ImageRequest, fit: Fit) -> Result<String, EngineError>
         .references
         .iter()
         .map(|p| {
-            std::fs::read(p).map(|bytes| sha256_hex(&bytes)).map_err(|e| {
-                EngineError::new(Category::InvalidRequest, format!("reference image not readable: {}: {e}", p.display()))
-            })
+            std::fs::read(p)
+                .map(|bytes| sha256_hex(&bytes))
+                .map_err(|e| EngineError::new(Category::InvalidRequest, format!("reference image not readable: {}: {e}", p.display())))
         })
         .collect::<Result<Vec<_>, _>>()?;
     // Keys are written in a fixed order, so this serialization is canonical.
@@ -95,11 +95,7 @@ pub enum Existing {
 }
 
 fn decodes(path: &Path) -> bool {
-    image::ImageReader::open(path)
-        .and_then(|r| r.with_guessed_format())
-        .ok()
-        .and_then(|r| r.decode().ok())
-        .is_some()
+    image::ImageReader::open(path).and_then(|r| r.with_guessed_format()).ok().and_then(|r| r.decode().ok()).is_some()
 }
 
 pub fn inspect_existing(output: &Path, record: Option<&Path>, request_hash: &str) -> Existing {
@@ -115,10 +111,7 @@ pub fn inspect_existing(output: &Path, record: Option<&Path>, request_hash: &str
     };
     let saved = saved.unwrap_or_default();
     if saved["request_hash"].as_str() != Some(request_hash) {
-        return Existing::Mismatch(format!(
-            "existing output was made from a different request; use a new topic: {}",
-            output.display()
-        ));
+        return Existing::Mismatch(format!("existing output was made from a different request; use a new topic: {}", output.display()));
     }
     if status == "complete" {
         if let Some(expected) = saved["sha256"].as_str() {
@@ -235,7 +228,8 @@ impl Reservation {
         if let Some(parent) = self.output.parent() {
             std::fs::create_dir_all(parent).map_err(|e| io_error("cannot create output folder", parent, e))?;
         }
-        let exists = || EngineError::new(Category::Conflict, format!("Output already exists; use a new topic or resume: {}", self.output.display()));
+        let exists =
+            || EngineError::new(Category::Conflict, format!("Output already exists; use a new topic or resume: {}", self.output.display()));
         if self.output.exists() {
             return Err(exists());
         }
@@ -282,11 +276,8 @@ impl Reservation {
 }
 
 fn write_new(path: &Path, bytes: &[u8]) -> Result<(), EngineError> {
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|e| io_error("cannot create image", path, e))?;
+    let mut file =
+        std::fs::OpenOptions::new().write(true).create_new(true).open(path).map_err(|e| io_error("cannot create image", path, e))?;
     file.write_all(bytes).and_then(|_| file.sync_all()).map_err(|e| io_error("cannot write image", path, e))
 }
 

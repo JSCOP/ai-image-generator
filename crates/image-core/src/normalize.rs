@@ -49,9 +49,7 @@ fn decode(bytes: &[u8]) -> Result<(DynamicImage, Option<ImageFormat>), EngineErr
 
 pub fn encode_png(image: &DynamicImage) -> Result<Vec<u8>, EngineError> {
     let mut out = Cursor::new(Vec::new());
-    image
-        .write_to(&mut out, ImageFormat::Png)
-        .map_err(|e| EngineError::new(Category::Internal, format!("PNG encoding failed: {e}")))?;
+    image.write_to(&mut out, ImageFormat::Png).map_err(|e| EngineError::new(Category::Internal, format!("PNG encoding failed: {e}")))?;
     Ok(out.into_inner())
 }
 
@@ -101,7 +99,13 @@ pub struct AlphaStats {
 pub fn alpha_stats(bytes: &[u8]) -> Result<AlphaStats, EngineError> {
     let (image, _) = decode(bytes)?;
     if !image.color().has_alpha() {
-        return Ok(AlphaStats { has_alpha_channel: false, transparent_ratio: 0.0, partial_ratio: 0.0, opaque_ratio: 1.0, corner_alpha: [255; 4] });
+        return Ok(AlphaStats {
+            has_alpha_channel: false,
+            transparent_ratio: 0.0,
+            partial_ratio: 0.0,
+            opaque_ratio: 1.0,
+            corner_alpha: [255; 4],
+        });
     }
     let rgba = image.to_rgba8();
     let (mut transparent, mut partial) = (0u64, 0u64);

@@ -89,7 +89,8 @@ async fn thirty_images_run_at_once_and_clamp() {
     assert_eq!(out.result["concurrency"], 30);
     assert_eq!(p.peak_concurrency(), 30);
     let r2 = Run::new();
-    let out = r2.go(spec(json!({"count": 40, "concurrency": 99, "topic": "u"})), MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
+    let out =
+        r2.go(spec(json!({"count": 40, "concurrency": 99, "topic": "u"})), MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
     assert_eq!(out.result["concurrency"], 32);
     assert_eq!(out.result["outputs"].as_array().unwrap().len(), 40);
 }
@@ -99,7 +100,8 @@ async fn transient_then_success_counts_retried() {
     let png = png_bytes(16, 16, [9, 9, 9, 255]);
     let calls = Arc::new(AtomicUsize::new(0));
     let c = calls.clone();
-    let p = FakeProvider::start(move |_| if c.fetch_add(1, Ordering::SeqCst) == 0 { Reply::json(429, "{}") } else { openai_image_reply(&png) });
+    let p =
+        FakeProvider::start(move |_| if c.fetch_add(1, Ordering::SeqCst) == 0 { Reply::json(429, "{}") } else { openai_image_reply(&png) });
     let r = Run::new();
     let out = r.go(spec(json!({})), MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
     assert_eq!(out.result["ok"], true, "{}", out.result);
@@ -205,7 +207,9 @@ async fn validation_errors_match_python_shape() {
     assert_eq!(out.result["error"], "invalid action 'paint'; expected auto, generate, or edit");
     let out = r.go(spec(json!({"concurrency": "many"})), env(), CancellationToken::new()).await;
     assert_eq!(out.result["error"], "job_timeout_sec, concurrency, and retries must be numbers");
-    for extra in [json!({"profile": "home"}), json!({"mask": "m.png"}), json!({"keep_outside_mask": true}), json!({"remove_background": true})] {
+    for extra in
+        [json!({"profile": "home"}), json!({"mask": "m.png"}), json!({"keep_outside_mask": true}), json!({"remove_background": true})]
+    {
         let out = r.go(spec(extra.clone()), env(), CancellationToken::new()).await;
         assert_eq!((out.exit_code, out.result["error_category"].clone()), (2, json!("unsupported")), "{extra}");
     }
@@ -229,10 +233,13 @@ async fn relative_reference_paths_resolve_against_cwd() {
     let p = ok_provider(0);
     let r = Run::new();
     std::fs::write(r.root().join("ref.png"), png_bytes(4, 4, [1, 1, 1, 255])).unwrap();
-    let out = r.go(spec(json!({"reference_images": ["ref.png"], "action": "edit"})), MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
+    let out = r
+        .go(spec(json!({"reference_images": ["ref.png"], "action": "edit"})), MapEnv::proxy(&p.base_url()), CancellationToken::new())
+        .await;
     assert_eq!(out.result["ok"], true, "{}", out.result);
     assert_eq!(p.requests()[0].path, "/v1/images/edits");
-    let out = r.go(spec(json!({"reference_images": ["nope.png"], "topic": "n"})), MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
+    let out =
+        r.go(spec(json!({"reference_images": ["nope.png"], "topic": "n"})), MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
     assert!(out.result["error"].as_str().unwrap().starts_with("reference image not found: "));
     assert_eq!(p.requests().len(), 1);
 }

@@ -74,7 +74,8 @@ async fn generates_exact_size_png_and_complete_record() {
     let png = png_bytes(1536, 1024, [20, 40, 60, 255]);
     let p = FakeProvider::start(move |_| openai_image_reply(&png));
     let s = setup(&p);
-    let ok = generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "1920x1080"), Fit::Cover, false), &CancellationToken::new()).await.unwrap();
+    let ok =
+        generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "1920x1080"), Fit::Cover, false), &CancellationToken::new()).await.unwrap();
     assert!(matches!(ok, JobOk::Generated { .. }));
     assert_eq!(dims(&s.out()), (1920, 1080));
     let rec = s.record();
@@ -121,12 +122,52 @@ async fn rejects_before_any_http_call() {
     std::fs::write(&text_file, b"hello").unwrap();
     let missing = s.tmp.path().join("missing.png");
     let cases: Vec<(ImageRequest, Category, &str)> = vec![
-        ({ let mut r = request("gpt-image-2.5", "64x64"); r.references = vec![missing.clone()]; r }, Category::InvalidRequest, "reference image not found"),
-        ({ let mut r = request("gpt-image-2.5", "64x64"); r.references = vec![text_file.clone()]; r }, Category::InvalidRequest, "not a readable image"),
-        ({ let mut r = request("gpt-image-2.5", "64x64"); r.background = Background::Transparent; r }, Category::Unsupported, "sunburst"),
-        ({ let mut r = request("grok-imagine-image-2.0", "64x64"); r.references = vec![s.out()]; r }, Category::InvalidRequest, "reference image not found"),
+        (
+            {
+                let mut r = request("gpt-image-2.5", "64x64");
+                r.references = vec![missing.clone()];
+                r
+            },
+            Category::InvalidRequest,
+            "reference image not found",
+        ),
+        (
+            {
+                let mut r = request("gpt-image-2.5", "64x64");
+                r.references = vec![text_file.clone()];
+                r
+            },
+            Category::InvalidRequest,
+            "not a readable image",
+        ),
+        (
+            {
+                let mut r = request("gpt-image-2.5", "64x64");
+                r.background = Background::Transparent;
+                r
+            },
+            Category::Unsupported,
+            "sunburst",
+        ),
+        (
+            {
+                let mut r = request("grok-imagine-image-2.0", "64x64");
+                r.references = vec![s.out()];
+                r
+            },
+            Category::InvalidRequest,
+            "reference image not found",
+        ),
         (request("gpt-5.5", "64x64"), Category::Unsupported, "Responses API path was removed"),
-        ({ let mut r = request("gpt-image-2.5", "64x64"); r.action = Action::Edit; r }, Category::InvalidRequest, "require at least one reference"),
+        (
+            {
+                let mut r = request("gpt-image-2.5", "64x64");
+                r.action = Action::Edit;
+                r
+            },
+            Category::InvalidRequest,
+            "require at least one reference",
+        ),
     ];
     for (req, category, text) in cases {
         let err = generate_one(&s.ctx, &s.job(req, Fit::Cover, false), &CancellationToken::new()).await.unwrap_err();
@@ -147,7 +188,8 @@ async fn rejects_before_any_http_call() {
 async fn http_200_without_image_fails_without_file() {
     let p = FakeProvider::start(|_| Reply::json(200, "<html>proxy login</html>"));
     let s = setup(&p);
-    let err = generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "64x64"), Fit::Cover, false), &CancellationToken::new()).await.unwrap_err();
+    let err =
+        generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "64x64"), Fit::Cover, false), &CancellationToken::new()).await.unwrap_err();
     assert_eq!(err.category, Category::Provider);
     assert!(err.retryable);
     s.assert_clean();
@@ -158,7 +200,9 @@ async fn http_200_without_image_fails_without_file() {
 async fn quota_error_is_recorded_and_not_retryable() {
     let p = FakeProvider::start(|_| Reply::json(403, r#"{"error":{"code":"personal-team-blocked:spending-limit","message":"limit"}}"#));
     let s = setup(&p);
-    let err = generate_one(&s.ctx, &s.job(request("grok-imagine-image-2.0", "64x64"), Fit::Cover, false), &CancellationToken::new()).await.unwrap_err();
+    let err = generate_one(&s.ctx, &s.job(request("grok-imagine-image-2.0", "64x64"), Fit::Cover, false), &CancellationToken::new())
+        .await
+        .unwrap_err();
     assert!(!err.retryable);
     let rec = s.record();
     assert_eq!(rec["error"]["category"], "quota");
@@ -171,7 +215,8 @@ async fn existing_output_without_resume_is_rejected_untouched() {
     let s = setup(&p);
     std::fs::create_dir_all(s.out().parent().unwrap()).unwrap();
     std::fs::write(s.out(), b"old bytes").unwrap();
-    let err = generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "8x8"), Fit::Cover, false), &CancellationToken::new()).await.unwrap_err();
+    let err =
+        generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "8x8"), Fit::Cover, false), &CancellationToken::new()).await.unwrap_err();
     assert_eq!(err.category, Category::InvalidRequest);
     assert!(err.message.starts_with("Output already exists; use a new topic or resume: "));
     assert_eq!(std::fs::read(s.out()).unwrap(), b"old bytes");

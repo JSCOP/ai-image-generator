@@ -31,10 +31,7 @@ fn png_ref(dir: &tempfile::TempDir) -> PathBuf {
 fn openai_generation_payload_matches_python() {
     let call = build_call("http://h/v1", &req("gpt-image-2.5", "1000x1000", vec![])).unwrap();
     assert_eq!(call.url, "http://h/v1/images/generations");
-    assert_eq!(
-        call.body,
-        json!({"model":"gpt-image-2.5","prompt":"p","n":1,"size":"1008x1008","quality":"high","output_format":"png"})
-    );
+    assert_eq!(call.body, json!({"model":"gpt-image-2.5","prompt":"p","n":1,"size":"1008x1008","quality":"high","output_format":"png"}));
     assert_eq!(call.backend, Backend::OpenAiImages);
 }
 
@@ -125,7 +122,10 @@ fn non_image_200_is_retryable_provider_error() {
 fn classifies_http_errors() {
     assert_eq!(classify_http_error(401, b"{}", None).category, Category::Auth);
     let e = classify_http_error(403, br#"{"error":{"code":"personal-team-blocked:spending-limit","message":"limit"}}"#, None);
-    assert_eq!((e.category, e.provider_code.as_deref(), e.retryable), (Category::Quota, Some("personal-team-blocked:spending-limit"), false));
+    assert_eq!(
+        (e.category, e.provider_code.as_deref(), e.retryable),
+        (Category::Quota, Some("personal-team-blocked:spending-limit"), false)
+    );
     assert_eq!(e.http_status, Some(403));
     assert_eq!(classify_http_error(403, b"{}", None).category, Category::Permission);
     assert_eq!(classify_http_error(402, b"{}", None).category, Category::Quota);

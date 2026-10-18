@@ -90,9 +90,33 @@ fn schema_has_python_keys_plus_new_keys() {
     let out = Command::new(BIN).current_dir(tmp.path()).arg("--schema").output().unwrap();
     let schema: Value = serde_json::from_slice(&out.stdout).unwrap();
     for key in [
-        "mode", "prompt", "topic", "count", "size", "quality", "model", "image_model", "action", "reference_images",
-        "topic_root", "preset", "jobs", "prompt_prefix", "prompt_suffix", "concurrency", "retries", "resume", "dry_run",
-        "seed", "job_timeout_sec", "background", "fit", "mask", "remove_background", "keep_outside_mask", "profile",
+        "mode",
+        "prompt",
+        "topic",
+        "count",
+        "size",
+        "quality",
+        "model",
+        "image_model",
+        "action",
+        "reference_images",
+        "topic_root",
+        "preset",
+        "jobs",
+        "prompt_prefix",
+        "prompt_suffix",
+        "concurrency",
+        "retries",
+        "resume",
+        "dry_run",
+        "seed",
+        "job_timeout_sec",
+        "background",
+        "fit",
+        "mask",
+        "remove_background",
+        "keep_outside_mask",
+        "profile",
     ] {
         assert!(schema.get(key).is_some(), "schema lacks {key}");
     }
@@ -108,7 +132,10 @@ fn schema_has_python_keys_plus_new_keys() {
 #[test]
 fn list_models_filters_image_ids() {
     let p = FakeProvider::start(|_| {
-        Reply::json(200, r#"{"data":[{"id":"gpt-image-2.5"},{"id":"gpt-5.5"},{"id":"gemini-3.1-flash-image"},{"id":"grok-imagine-image-2.0"},{"id":"gpt-image-2.5"}]}"#)
+        Reply::json(
+            200,
+            r#"{"data":[{"id":"gpt-image-2.5"},{"id":"gpt-5.5"},{"id":"gemini-3.1-flash-image"},{"id":"grok-imagine-image-2.0"},{"id":"gpt-image-2.5"}]}"#,
+        )
     });
     let tmp = tempfile::tempdir().unwrap();
     let out = cli(&p.base_url(), tmp.path()).arg("--list-models").output().unwrap();

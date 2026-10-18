@@ -22,9 +22,7 @@ pub fn safe_topic_slug(value: &str) -> String {
 
 /// Like Python `Path.resolve()`: canonical when the path exists, without the `\?\` prefix.
 pub fn absolute(path: &Path) -> PathBuf {
-    let path = std::fs::canonicalize(path)
-        .or_else(|_| std::path::absolute(path))
-        .unwrap_or_else(|_| path.to_path_buf());
+    let path = std::fs::canonicalize(path).or_else(|_| std::path::absolute(path)).unwrap_or_else(|_| path.to_path_buf());
     strip_verbatim(path)
 }
 
@@ -43,9 +41,7 @@ fn strip_verbatim(path: PathBuf) -> PathBuf {
 pub fn gallery_root(workspace: &Path) -> PathBuf {
     let root = absolute(workspace);
     for parent in root.ancestors() {
-        let is_gallery = parent
-            .file_name()
-            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("imagegallery"));
+        let is_gallery = parent.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("imagegallery"));
         if is_gallery {
             return parent.to_path_buf();
         }

@@ -45,7 +45,13 @@ pub struct ModelInfo {
     pub native_transparency: bool,
 }
 
-const fn model(id: &'static str, label: &'static str, provider: &'static str, reference_images: bool, native_transparency: bool) -> ModelInfo {
+const fn model(
+    id: &'static str,
+    label: &'static str,
+    provider: &'static str,
+    reference_images: bool,
+    native_transparency: bool,
+) -> ModelInfo {
     ModelInfo { id, label, provider, reference_images, native_transparency }
 }
 

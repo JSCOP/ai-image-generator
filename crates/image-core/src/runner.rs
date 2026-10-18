@@ -45,7 +45,13 @@ pub async fn run_spec(spec: Value, env: Arc<dyn EnvSource>, progress: Progress, 
     run_spec_with(spec, env, progress, cancel, RunOptions { backoff_base_sec, cwd }).await
 }
 
-pub async fn run_spec_with(spec: Value, env: Arc<dyn EnvSource>, progress: Progress, cancel: CancellationToken, opts: RunOptions) -> RunOutcome {
+pub async fn run_spec_with(
+    spec: Value,
+    env: Arc<dyn EnvSource>,
+    progress: Progress,
+    cancel: CancellationToken,
+    opts: RunOptions,
+) -> RunOutcome {
     let Value::Object(spec) = spec else {
         return RunOutcome { result: json!({"ok": false, "error": "spec must be a JSON object"}), exit_code: 1 };
     };
@@ -186,8 +192,13 @@ pub(crate) struct EventNames {
     pub(crate) reason_on_success: bool,
 }
 
-const SINGLE_EVENTS: EventNames =
-    EventNames { started: "image_started", finished: "image_finished", failed: "image_failed", skipped: "image_skipped", reason_on_success: true };
+const SINGLE_EVENTS: EventNames = EventNames {
+    started: "image_started",
+    finished: "image_finished",
+    failed: "image_failed",
+    skipped: "image_skipped",
+    reason_on_success: true,
+};
 pub(crate) const JOB_EVENTS: EventNames =
     EventNames { started: "job_started", finished: "job_finished", failed: "job_failed", skipped: "job_skipped", reason_on_success: false };
 
@@ -283,7 +294,9 @@ impl Runner {
         let fit = match fields.fit {
             None if background == Background::Transparent => Fit::Contain,
             None => Fit::Cover,
-            Some(value) => Fit::parse(&py_str(value)).ok_or_else(|| invalid(format!("invalid fit {}; expected cover or contain", py_repr(value))))?,
+            Some(value) => {
+                Fit::parse(&py_str(value)).ok_or_else(|| invalid(format!("invalid fit {}; expected cover or contain", py_repr(value))))?
+            }
         };
         let request = ImageRequest {
             prompt: fields.prompt,
@@ -302,7 +315,15 @@ impl Runner {
         value.and_then(Value::as_array).into_iter().flatten().map(|v| self.resolve_path(&py_str(v))).collect()
     }
 
-    pub(crate) fn job_spec(&self, request: ImageRequest, fit: Fit, output: PathBuf, workspace: &Path, slug: &str, timeout: Option<Duration>) -> JobSpec {
+    pub(crate) fn job_spec(
+        &self,
+        request: ImageRequest,
+        fit: Fit,
+        output: PathBuf,
+        workspace: &Path,
+        slug: &str,
+        timeout: Option<Duration>,
+    ) -> JobSpec {
         let record = (self.spec.get("record_metadata") != Some(&Value::Bool(false))).then(|| metadata_path(&output, workspace, slug));
         JobSpec { request, fit, output, record, lock_dir: topic_dirs(workspace, slug).1, resume: truthy(self.spec.get("resume")), timeout }
     }
@@ -356,7 +377,8 @@ impl Runner {
                 "planned_outputs": planned}));
         }
         let ctx = self.connect(&limits)?;
-        std::fs::create_dir_all(&output_dir).map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
+        std::fs::create_dir_all(&output_dir)
+            .map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
         let started = Instant::now();
         let items = names
             .iter()
@@ -437,7 +459,8 @@ impl Runner {
             let id = or_default(job.get("id"), &format!("job_{:03}", idx + 1));
             let field = |key: &str| job.get(key).filter(|v| truthy(Some(v)));
             let body = job.get("prompt").filter(|v| !v.is_null()).map(py_str).unwrap_or_default().trim().to_string();
-            let prompt = [prefix.as_str(), body.as_str(), suffix.as_str()].iter().filter(|p| !p.is_empty()).cloned().collect::<Vec<_>>().join("\n");
+            let prompt =
+                [prefix.as_str(), body.as_str(), suffix.as_str()].iter().filter(|p| !p.is_empty()).cloned().collect::<Vec<_>>().join("\n");
             let references = match job.get("reference_images") {
                 Some(Value::Null) | None => self.references(self.spec.get("reference_images")),
                 Some(value) => self.references(Some(value)),
@@ -475,7 +498,8 @@ impl Runner {
         if !dry_run && !items.is_empty() {
             let ctx = self.connect(&limits)?;
             source = json!(ctx.conn.source);
-            std::fs::create_dir_all(&output_dir).map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
+            std::fs::create_dir_all(&output_dir)
+                .map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
             for r in self.execute(items, workers, limits.retries, ctx, &JOB_EVENTS, None).await {
                 retried += r.retried;
                 let id = r.id.unwrap_or_default();
@@ -595,8 +619,13 @@ async fn run_item(
                 attempt += 1;
                 let jitter = if backoff > 0.0 { rand::thread_rng().gen_range(0.0..backoff / 2.0) } else { 0.0 };
                 let delay = (backoff * 2f64.powi(attempt as i32 - 1)).min(60.0) + jitter;
-                emit(&progress, "retry", &item.event, json!({"attempt": attempt, "retries": retries,
-                    "delay_sec": round2(delay), "reason": err.reason()}));
+                emit(
+                    &progress,
+                    "retry",
+                    &item.event,
+                    json!({"attempt": attempt, "retries": retries,
+                    "delay_sec": round2(delay), "reason": err.reason()}),
+                );
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_secs_f64(delay)) => {}
                     _ = cancel.cancelled() => break Err(EngineError::new(Category::Cancelled, "cancelled")),

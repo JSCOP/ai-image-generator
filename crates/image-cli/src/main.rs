@@ -40,7 +40,11 @@ fn parse_args() -> Result<Command, String> {
             "--spec" | "--json" => {
                 let value = args.get(i + 1).ok_or_else(|| format!("{} needs a value", args[i]))?.clone();
                 i += 1;
-                if args[i - 1] == "--spec" { Command::Spec(value) } else { Command::Json(value) }
+                if args[i - 1] == "--spec" {
+                    Command::Spec(value)
+                } else {
+                    Command::Json(value)
+                }
             }
             "--schema" => Command::Schema,
             "--example" => Command::Example,
@@ -103,7 +107,13 @@ async fn models() -> (Value, i32) {
                 .map(|id| {
                     let gemini = backend(id) == Backend::Gemini;
                     let gpt = id.to_lowercase().starts_with("gpt-image-");
-                    let provider = if gemini { "Google Gemini" } else if gpt { "OpenAI" } else { "xAI Grok" };
+                    let provider = if gemini {
+                        "Google Gemini"
+                    } else if gpt {
+                        "OpenAI"
+                    } else {
+                        "xAI Grok"
+                    };
                     json!({"id": id, "provider": provider, "reference_images": gemini || gpt})
                 })
                 .collect();

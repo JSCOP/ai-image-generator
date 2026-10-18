@@ -105,8 +105,7 @@ pub fn resolve_connection(env: &dyn EnvSource) -> Result<Connection, EngineError
             None => return Err(EngineError::new(Category::InvalidRequest, NOT_CONFIGURED)),
         },
     };
-    let base_url = normalize_base_url(&raw)
-        .map_err(|e| EngineError::new(Category::InvalidRequest, format!("CLIPROXY_BASE_URL: {e}")))?;
+    let base_url = normalize_base_url(&raw).map_err(|e| EngineError::new(Category::InvalidRequest, format!("CLIPROXY_BASE_URL: {e}")))?;
     let api_key = env
         .process("CLIPROXY_API_KEY")
         .or_else(|| env.process("OPENAI_API_KEY"))

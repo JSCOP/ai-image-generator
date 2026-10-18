@@ -12,10 +12,7 @@ async fn redirect_is_not_followed_and_key_stays_home() {
     let src = FakeProvider::start(move |_| Reply::redirect(302, &target));
     let http = Http::new(Some(Duration::from_secs(5)));
     let key = Secret::new("fake-token");
-    let err = http
-        .post_json(&format!("{}/images/generations", src.base_url()), &json!({}), Some(&key))
-        .await
-        .unwrap_err();
+    let err = http.post_json(&format!("{}/images/generations", src.base_url()), &json!({}), Some(&key)).await.unwrap_err();
     assert_eq!(err.category, Category::Redirect);
     assert_eq!(err.http_status, Some(302));
     assert!(!err.retryable);
@@ -69,16 +66,14 @@ fn connection_resolution_order_and_no_default() {
     let err = resolve_connection(&MapEnv::new(&[], &[])).unwrap_err();
     assert_eq!(err.category, Category::InvalidRequest);
     assert!(err.message.contains("CLIPROXY_BASE_URL"));
-    let env = MapEnv::new(
-        &[("CLIPROXY_BASE_URL", "http://a:1")],
-        &[("CLIPROXY_BASE_URL", "http://b:2"), ("CLIPROXY_API_KEY", "k")],
-    );
+    let env = MapEnv::new(&[("CLIPROXY_BASE_URL", "http://a:1")], &[("CLIPROXY_BASE_URL", "http://b:2"), ("CLIPROXY_API_KEY", "k")]);
     let c = resolve_connection(&env).unwrap();
     assert_eq!(c.base_url, "http://a:1/v1");
     assert_eq!(c.source, "process_env");
     assert_eq!(format!("{:?}", c.api_key), "Some(***)");
     assert_eq!(c.api_key.as_ref().unwrap().expose(), "k");
-    let c = resolve_connection(&MapEnv::new(&[("OPENAI_API_KEY", "o")], &[("CLIPROXY_BASE_URL", "http://b:2"), ("CLIPROXY_API_KEY", "u")])).unwrap();
+    let c = resolve_connection(&MapEnv::new(&[("OPENAI_API_KEY", "o")], &[("CLIPROXY_BASE_URL", "http://b:2"), ("CLIPROXY_API_KEY", "u")]))
+        .unwrap();
     assert_eq!((c.base_url.as_str(), c.source, c.api_key.unwrap().expose()), ("http://b:2/v1", "user_env", "o"));
     let err = resolve_connection(&MapEnv::new(&[("CLIPROXY_BASE_URL", "ftp://x")], &[])).unwrap_err();
     assert_eq!(err.category, Category::InvalidRequest);

@@ -34,7 +34,9 @@ fn plan_matches_gen_batch_dry_run() {
         assert_eq!(plan.image_model, "gpt-image-2.5");
         assert!(plan.output.ends_with(&format!("{}.png", plan.id)));
     }
-    let overridden = plan_batch(&repo_root().join("presets/extraction-rpg.json"), 1, 42, Some("other topic"), Some("gemini-3.1-flash-image"), ws.path()).unwrap();
+    let overridden =
+        plan_batch(&repo_root().join("presets/extraction-rpg.json"), 1, 42, Some("other topic"), Some("gemini-3.1-flash-image"), ws.path())
+            .unwrap();
     assert_eq!(overridden[0].id, "other_topic_000001");
     assert_eq!(overridden[0].image_model, "gemini-3.1-flash-image");
 }

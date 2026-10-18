@@ -59,10 +59,7 @@ impl PyRandom {
         let mut bytes = text.as_bytes().to_vec();
         bytes.extend_from_slice(&Sha512::digest(text.as_bytes()));
         // 32-bit words, least significant first, without high zero words.
-        let mut key: Vec<u32> = bytes
-            .rchunks(4)
-            .map(|chunk| chunk.iter().fold(0u32, |acc, b| (acc << 8) | *b as u32))
-            .collect();
+        let mut key: Vec<u32> = bytes.rchunks(4).map(|chunk| chunk.iter().fold(0u32, |acc, b| (acc << 8) | *b as u32)).collect();
         while key.len() > 1 && key.last() == Some(&0) {
             key.pop();
         }
@@ -209,7 +206,14 @@ fn batch_topic(preset: &Preset, topic: Option<&str>) -> String {
 }
 
 /// Same ids, prompts and categories as `gen_batch.py --dry-run` for the same seed.
-pub fn plan_batch(preset_path: &Path, count: u32, seed: i64, topic: Option<&str>, image_model: Option<&str>, workspace: &Path) -> Result<Vec<BatchPlan>, EngineError> {
+pub fn plan_batch(
+    preset_path: &Path,
+    count: u32,
+    seed: i64,
+    topic: Option<&str>,
+    image_model: Option<&str>,
+    workspace: &Path,
+) -> Result<Vec<BatchPlan>, EngineError> {
     let preset = load_preset(preset_path)?;
     Ok(plans_for(&preset, count, seed, topic, image_model, workspace))
 }
@@ -217,7 +221,8 @@ pub fn plan_batch(preset_path: &Path, count: u32, seed: i64, topic: Option<&str>
 fn plans_for(preset: &Preset, count: u32, seed: i64, topic: Option<&str>, image_model: Option<&str>, workspace: &Path) -> Vec<BatchPlan> {
     let slug = batch_topic(preset, topic);
     let (output_dir, _) = topic_dirs(workspace, &slug);
-    let model = image_model.map(str::to_string).or_else(|| preset.image_model.clone()).unwrap_or_else(|| crate::runner::DEFAULT_IMAGE_MODEL.into());
+    let model =
+        image_model.map(str::to_string).or_else(|| preset.image_model.clone()).unwrap_or_else(|| crate::runner::DEFAULT_IMAGE_MODEL.into());
     (1..=count)
         .map(|index| {
             let mut rng = PyRandom::from_str_seed(&format!("{seed}:{slug}:{index}"));
@@ -266,7 +271,11 @@ async fn run_batch_inner(run: &Runner) -> Result<Value, EngineError> {
     let preset = load_preset(&preset_path)?;
     let number = |key: &str, default: i64| match run.get(key) {
         None => Ok(default),
-        Some(v) => v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok())).map(|n| n.trunc() as i64).ok_or_else(|| invalid(format!("{key} must be a number"))),
+        Some(v) => v
+            .as_f64()
+            .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+            .map(|n| n.trunc() as i64)
+            .ok_or_else(|| invalid(format!("{key} must be a number"))),
     };
     let count = number("count", 10)?.max(1) as u32;
     let seed = number("seed", 42)?;
@@ -324,7 +333,8 @@ async fn run_batch_inner(run: &Runner) -> Result<Value, EngineError> {
     let mut retried = 0;
     if !items.is_empty() {
         let ctx = run.connect(&limits)?;
-        std::fs::create_dir_all(&output_dir).map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
+        std::fs::create_dir_all(&output_dir)
+            .map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
         for r in run.execute(items, workers, limits.retries, ctx, &JOB_EVENTS, Some(MAX_FAILURES)).await {
             retried += r.retried;
             match r.outcome {

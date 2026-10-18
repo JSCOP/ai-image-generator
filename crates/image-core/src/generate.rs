@@ -53,11 +53,8 @@ pub fn validate_request(req: &ImageRequest) -> Result<(), EngineError> {
         if !path.is_file() {
             return Err(EngineError::new(Category::InvalidRequest, format!("reference image not found: {}", path.display())));
         }
-        let readable = image::ImageReader::open(path)
-            .and_then(|r| r.with_guessed_format())
-            .ok()
-            .and_then(|r| r.into_dimensions().ok())
-            .is_some();
+        let readable =
+            image::ImageReader::open(path).and_then(|r| r.with_guessed_format()).ok().and_then(|r| r.into_dimensions().ok()).is_some();
         if !readable {
             return Err(EngineError::new(Category::InvalidRequest, format!("reference image is not a readable image: {}", path.display())));
         }
@@ -65,7 +62,10 @@ pub fn validate_request(req: &ImageRequest) -> Result<(), EngineError> {
     if !req.references.is_empty() && !supports_references(&req.image_model) {
         return Err(EngineError::new(
             Category::Unsupported,
-            format!("{} reference-image editing is not yet supported by this CLI; use a Gemini image model or gpt-image model", req.image_model),
+            format!(
+                "{} reference-image editing is not yet supported by this CLI; use a Gemini image model or gpt-image model",
+                req.image_model
+            ),
         ));
     }
     if req.action == Action::Edit && req.references.is_empty() && req.image_model.to_lowercase().starts_with("gpt-image-") {

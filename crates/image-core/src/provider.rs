@@ -90,9 +90,8 @@ pub fn mime_type(path: &Path) -> &'static str {
 }
 
 fn read_reference(path: &Path) -> Result<String, EngineError> {
-    let bytes = std::fs::read(path).map_err(|e| {
-        EngineError::new(Category::InvalidRequest, format!("reference image not readable: {}: {e}", path.display()))
-    })?;
+    let bytes = std::fs::read(path)
+        .map_err(|e| EngineError::new(Category::InvalidRequest, format!("reference image not readable: {}: {e}", path.display())))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
@@ -135,7 +134,10 @@ fn build_openai_images(base_url: &str, req: &ImageRequest) -> Result<ProviderCal
     if !req.references.is_empty() && !is_gpt {
         return Err(EngineError::new(
             Category::Unsupported,
-            format!("{} reference-image editing is not yet supported by this CLI; use a Gemini image model or gpt-image model", req.image_model),
+            format!(
+                "{} reference-image editing is not yet supported by this CLI; use a Gemini image model or gpt-image model",
+                req.image_model
+            ),
         ));
     }
     if is_gpt && req.action == Action::Edit && req.references.is_empty() {
@@ -173,16 +175,22 @@ pub fn extract_image(backend: &Backend, body: &[u8]) -> Result<(Vec<u8>, Option<
     let response: Value = serde_json::from_slice(body).map_err(|_| no_image())?;
     let (encoded, model) = match backend {
         Backend::Gemini => {
-            let parts = response["candidates"].as_array().into_iter().flatten().flat_map(|c| c["content"]["parts"].as_array().into_iter().flatten());
+            let parts = response["candidates"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .flat_map(|c| c["content"]["parts"].as_array().into_iter().flatten());
             let data = parts
                 .filter_map(|p| p.get("inlineData").or_else(|| p.get("inline_data")))
                 .find_map(|inline| inline["data"].as_str().map(str::to_string));
             (data, response["modelVersion"].as_str())
         }
         _ => {
-            let data = response["data"].as_array().into_iter().flatten().find_map(|item| {
-                item["b64_json"].as_str().filter(|s| !s.is_empty()).map(str::to_string)
-            });
+            let data = response["data"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find_map(|item| item["b64_json"].as_str().filter(|s| !s.is_empty()).map(str::to_string));
             (data, response["model"].as_str())
         }
     };
@@ -199,10 +207,7 @@ const QUOTA_MARKERS: [&str; 3] = ["spending-limit", "quota", "billing"];
 pub fn classify_http_error(status: u16, body: &[u8], key: Option<&Secret>) -> EngineError {
     let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let error = &parsed["error"];
-    let provider_code = ["code", "status", "type"]
-        .iter()
-        .find_map(|k| error[*k].as_str().filter(|s| !s.is_empty()))
-        .map(str::to_string);
+    let provider_code = ["code", "status", "type"].iter().find_map(|k| error[*k].as_str().filter(|s| !s.is_empty())).map(str::to_string);
     let detail = match error["message"].as_str() {
         Some(message) => message.to_string(),
         None => String::from_utf8_lossy(body).chars().take(200).collect(),
