@@ -116,6 +116,7 @@ async fn batch_rejects_bad_options_before_any_request() {
         (json!({"count": -3}), "invalid_request"),
         (json!({"count": 0.5}), "invalid_request"),
         (json!({"count": 1e100}), "invalid_request"),
+        (json!({"count": 1001}), "invalid_request"),
     ];
     for (extra, category) in cases {
         let out = run_batch_spec(&p, ws.path(), extra.clone()).await;

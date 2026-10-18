@@ -10,7 +10,7 @@
 | 기록 JSON 새 필드 | `status`(pending/complete/failed), `request_id`, `request_hash`, `background`, `fit`, `provider_size`, `saved_size`, `sha256`, `alpha`, `connection_source`, `profile_id`(프로필 연결일 때만), `error`, `engine`. Python 키는 모두 같은 값으로 유지 | 이미지와 기록을 하나의 완료 결과로 공개 (§5.4, P1-05) |
 | 실패 기록 | 실패하면 `status:"failed"`와 오류 구조를 남김. Python은 요청 전 기록만 남김 | 갤러리가 완료/실패를 구분 (§7.5) |
 | 동시 실행 | 같은 출력 경로를 다른 실행이 쓰는 중이면 API 호출 없이 `conflict` 실패 | 이중 과금·기록 뒤섞임 방지 (§5.4) |
-| resume 판정 | 파일 존재만이 아니라 기록의 `request_hash`·`sha256`과 이미지 디코딩까지 확인. 다른 요청으로 만든 파일이면 건드리지 않고 `conflict`. 기록 파일이 없거나 `status`가 없는 유효한 Python 기록이면 이미지가 열릴 때 완료로 인정. 읽을 수 없거나 JSON으로 해석되지 않는 기록은 손상으로 보고 `conflict`(재사용·덮어쓰기·생성 요청 없음). 판정은 출력 lock을 잡은 뒤 다시 하므로, 다른 실행이 먼저 완료한 기록은 덮어쓰지 않음 | 다른 프롬프트의 결과를 재사용하지 않게 (§5.4) |
+| resume 판정 | 파일 존재만이 아니라 기록의 `request_hash`·`sha256`과 이미지 디코딩까지 확인. 다른 요청으로 만든 파일이면 건드리지 않고 `conflict`. 기록 파일이 없거나 `status`가 없는 유효한 Python 기록이면 이미지가 열릴 때 완료로 인정. 이미지가 있는데 기록을 읽을 수 없거나 JSON으로 해석되지 않으면 손상으로 보고 `conflict`(재사용·덮어쓰기·생성 요청 없음). 이미지가 없으면 손상된 기록은 새 기록으로 교체. 판정은 출력 lock을 잡은 뒤 다시 하므로, 다른 실행이 먼저 완료한 기록은 덮어쓰지 않음 | 다른 프롬프트의 결과를 재사용하지 않게 (§5.4) |
 | 실패 사유 문구 | `failures[].reason`은 `HTTP 400: rejected`처럼 정제한 한 줄. Python은 자식 프로세스 stderr 마지막 줄. 대신 `failures[].error`에 `category`, `provider_code`, `http_status`, `retryable` | 원인 구분과 키 제거 (§5.4) |
 | 최상위 오류 | `error_category`를 함께 냄 | 같은 이유 |
 | 새 spec 키 | `background`, `fit` 지원(single·jobs·batch 모두 같은 검증, batch는 최상위 값을 모든 계획에 적용). `mask`, `keep_outside_mask`, `remove_background:true`(단계 4)는 유료 호출 전에 `unsupported`로 거부. 최상위 `profile`은 지원(Python에는 없음), job 안의 `profile`은 `unsupported`(한 실행은 한 연결) | 조용히 무시하지 않음 (§5.2, P1-04) |
@@ -21,7 +21,7 @@
 | `--list-models` | 해석된 연결(프로필 포함)의 종류에 맞는 이미지 모델만 보이고 `profile`·`kind`를 함께 냄(연결 해석 실패 때도 같은 키, 모르는 값은 null) | 프로필마다 쓸 수 있는 모델이 다름 (§6.3) |
 | 투명 결과 검사 | `background:"transparent"`이면 크기 맞춤 전 공급자 원본에 완전 투명(α=0) 픽셀이 1개 이상 있어야 하고, 맞춤 후 저장 결과에도 남아 있어야 함. 아니면 재시도하지 않는 `provider` 실패로 기록(`status:"failed"`, 이미지 없음). `contain` 여백은 투명 판정에 넣지 않음. Python에는 없음 | 투명이라고 표시했는데 투명 정보가 없는 결과 방지 (§7.3, 검토 F3) |
 | 크기 맞춤 | `fit:"cover"`(기본, Python과 같은 중앙 자르기) 외에 `contain`(투명 여백). 투명 배경 요청의 기본은 `contain` | 투명 소재가 잘리지 않게 (§7.1, P1-02) |
-| batch 결과 | `stdout_tail`/`stderr_tail` 없음(자식 프로세스 없음). `concurrency`, `retried` 추가. 실패 20건 뒤 시작하지 않은 계획을 `cancelled` 실패로 보고(Python은 결과에서 빠짐). `count`가 1 미만이면 Python `gen_batch.py`처럼 요청 전에 `invalid_request`(상한은 Python처럼 없음) | 프로세스 안 실행, 정직한 결과 |
+| batch 결과 | `stdout_tail`/`stderr_tail` 없음(자식 프로세스 없음). `concurrency`, `retried` 추가. 실패 20건 뒤 시작하지 않은 계획을 `cancelled` 실패로 보고(Python은 결과에서 빠짐). `count`가 1 미만이면 Python `gen_batch.py`처럼 요청 전에 `invalid_request`. 1000을 넘어도 single처럼 `invalid_request`(Python은 상한 없음) | 프로세스 안 실행, 정직한 결과 |
 | 입력 형식 검사 | `reference_images`(최상위·job)는 없음/`null` 또는 문자열 배열만 허용, 그 밖(문자열 하나 등)은 요청 전에 `invalid_request`(job 값은 그 job의 실패). Python은 `list("a.png")`처럼 글자 단위 경로로 바꿈. `image_model`은 모든 연결 종류에서 영문자·숫자·`.`·`_`·`-`만, `..` 없이 최대 128자. Gemini 주소는 모델 ID를 한 경로 요소로 인코딩해 만듦 | 잘못된 입력이 유료 요청이나 다른 서버 경로로 가지 않게 (검토 F5, F7) |
 | 시간 값 범위 | `job_timeout_sec`/`timeout_sec`/`CLIPROXY_TIMEOUT`은 Python처럼 0 이하이면 제한 없음, 유한하지 않거나 86400초를 넘으면 `invalid_request`(종료 코드 2). `AI_IMAGE_RETRY_BACKOFF_SEC`은 0–600초 숫자만, 아니면 오류 JSON과 종료 코드 1(Python은 숫자가 아니면 시작 시 실패) | panic 없이 구조화된 오류 (검토 F8) |
 | single `count` 상한 | Python처럼 소수는 버리고 1 미만은 1로 보되, 유한하지 않거나 1000을 넘으면 계획·요청 전에 `invalid_request`(종료 코드 2, `dry_run`도 같음). `--schema`의 `count.max_when_single`로 알림. Python은 상한 없음 | 큰 값이 panic·메모리 고갈·대량 유료 요청이 되지 않게 (검토 F8 후속) |
