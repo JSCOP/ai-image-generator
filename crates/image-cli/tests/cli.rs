@@ -5,9 +5,12 @@ use test_fixture::{openai_image_reply, png_bytes, FakeProvider, Reply};
 
 const BIN: &str = env!("CARGO_BIN_EXE_image-cli");
 
+/// Child process that cannot reach the developer's `%APPDATA%\ImageStudio` or real Credential Manager entries.
 fn cli(base_url: &str, dir: &std::path::Path) -> Command {
     let mut cmd = Command::new(BIN);
     cmd.current_dir(dir)
+        .env("IMAGE_STUDIO_HOME", dir.join(".image-studio-test-home"))
+        .env("IMAGE_STUDIO_KEYRING_SERVICE", format!("ImageStudioTest-cli-{}", std::process::id()))
         .env("CLIPROXY_BASE_URL", base_url)
         .env("CLIPROXY_API_KEY", "fake-token")
         .env("AI_IMAGE_RETRY_BACKOFF_SEC", "0")
@@ -87,7 +90,7 @@ fn accepts_utf8_bom_spec_file() {
 #[test]
 fn schema_has_python_keys_plus_new_keys() {
     let tmp = tempfile::tempdir().unwrap();
-    let out = Command::new(BIN).current_dir(tmp.path()).arg("--schema").output().unwrap();
+    let out = cli("http://127.0.0.1:9", tmp.path()).arg("--schema").output().unwrap();
     let schema: Value = serde_json::from_slice(&out.stdout).unwrap();
     for key in [
         "mode",
@@ -124,7 +127,7 @@ fn schema_has_python_keys_plus_new_keys() {
     assert!(schema["profile"]["description"].as_str().unwrap().contains("image-cli profile"));
     let cwd = image_core::paths::absolute(tmp.path()).display().to_string();
     assert_eq!(schema["topic_root"]["default"], cwd);
-    let examples = Command::new(BIN).arg("--example").output().unwrap();
+    let examples = cli("http://127.0.0.1:9", tmp.path()).arg("--example").output().unwrap();
     let examples: Value = serde_json::from_slice(&examples.stdout).unwrap();
     assert!(examples["single_minimal"]["prompt"].is_string());
 }
@@ -157,6 +160,35 @@ fn list_models_with_bad_connection_config_fails_offline() {
     let res = last_json(&out);
     assert_eq!(res["ok"], false);
     assert!(res["error"].as_str().unwrap().contains("CLIPROXY_BASE_URL"));
+}
+
+/// The developer's own `%APPDATA%\ImageStudio` profiles (e.g. "local") must never reach a test run.
+#[test]
+fn test_runs_never_read_the_developer_profile_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dry = json!({"prompt": "x", "topic": "t", "size": "16x16", "dry_run": true, "topic_root": tmp.path().display().to_string()});
+    for name in ["local", "home", "openai"] {
+        let mut cmd = cli("http://127.0.0.1:9", tmp.path());
+        cmd.env_remove("CLIPROXY_BASE_URL").env_remove("CLIPROXY_API_KEY").args(["--profile", name]);
+        let out = run_stdin(cmd, &dry.to_string());
+        let res = last_json(&out);
+        assert_eq!(res["ok"], false, "{name}: {res}");
+        assert!(res["error"].as_str().unwrap_or_default().contains("프로필을 찾을 수 없습니다"), "{name}: {res}");
+    }
+    let list = cli("http://127.0.0.1:9", tmp.path()).args(["profile", "list"]).output().unwrap();
+    assert_eq!(last_json(&list)["profiles"], json!([]), "{}", String::from_utf8_lossy(&list.stdout));
+    // No URL anywhere: "not configured". This PC may carry a user-level CLIPROXY_BASE_URL (HKCU), which wins by spec order.
+    use image_core::connection::EnvSource as _;
+    if image_core::connection::SystemEnv.user("CLIPROXY_BASE_URL").is_none() {
+        let mut cmd = cli("http://127.0.0.1:9", tmp.path());
+        cmd.env_remove("CLIPROXY_BASE_URL").env_remove("CLIPROXY_API_KEY").arg("--list-models");
+        let res = last_json(&cmd.output().unwrap());
+        assert_eq!(res["ok"], false, "{res}");
+        assert!(res["error"].as_str().unwrap().contains("CLIPROXY_BASE_URL"), "{res}");
+        assert_eq!(res["profile"], Value::Null, "{res}");
+    } else {
+        eprintln!("user-level CLIPROXY_BASE_URL present; the no-connection case is covered by image-core resolve tests");
+    }
 }
 
 #[test]

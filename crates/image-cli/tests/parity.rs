@@ -61,6 +61,10 @@ fn run(side: &Side, python: Option<&Path>, mut spec: Value) -> (Option<i32>, Val
         .env("CLIPROXY_API_KEY", "fake-token")
         .env("AI_IMAGE_RETRY_BACKOFF_SEC", "0")
         .env("PYTHONUTF8", "1")
+        // Never the developer's %APPDATA%\ImageStudio profiles or real Credential Manager entries; the sibling path is never created.
+        .env("IMAGE_STUDIO_HOME", side.root.with_extension("studio"))
+        .env("IMAGE_STUDIO_KEYRING_SERVICE", "ImageStudioTest-parity")
+        .env_remove("OPENAI_API_KEY")
         .env_remove("CLIPROXY_IMAGE_MODEL")
         .env_remove("CLIPROXY_TIMEOUT")
         .output()
@@ -189,6 +193,7 @@ fn run_home(provider: &FakeProvider, home: &Path, python: Option<&Path>, spec: &
         .env("IMAGE_STUDIO_KEYRING_SERVICE", "ImageStudioTest-parity-home")
         .env_remove("HOMEDRIVE")
         .env_remove("HOMEPATH")
+        .env_remove("OPENAI_API_KEY")
         .env_remove("CLIPROXY_IMAGE_MODEL")
         .env_remove("CLIPROXY_TIMEOUT")
         .output()
