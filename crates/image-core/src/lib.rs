@@ -10,5 +10,6 @@ pub mod normalize;
 pub mod paths;
 pub mod provider;
 pub mod runner;
+pub mod schema;
 pub mod size;
 pub mod store;
