@@ -21,6 +21,8 @@
 
 Rust 이전(설계 `docs/superpowers/specs/2026-10-18-image-studio-rust-app-design.md`): 1단계 `crates/image-core`·`crates/image-cli`가 같은 JSON 계약으로 구현되어 있고 Python과 동등성 테스트를 통과합니다. 에이전트·MCP는 아직 Python을 씁니다. Rust CLI는 `CLIPROXY_BASE_URL`이 반드시 필요하며, 2026-10-18에 `DESKTOP-SB818KQ`의 Windows 사용자 환경변수를 `http://127.0.0.1:8317/v1`로 설정했습니다. Rust CLI 실검증(2026-10-18, CLIProxyAPI 경유): `gpt-image-2.5` 생성, `gpt-image-2.5-sunburst` 투명 생성(실제 RGBA, contain) 성공. 같은 날 이 PC의 Tailscale은 `NoState`(조정 서버 연결 불가)여서 노트북 경로는 미검증입니다.
 
+Image Studio 앱 1차판(3단계, `apps/studio/`, Tauri 2 + Svelte 5): 2026-10-19 디버그 빌드 실행과 앱 서비스 경로 실제 1장(`local` 프로필, `gpt-image-2.5` low 1024², `ImageGallery/output/studio-app-smoke-20261018/`) 확인. 앱 창에서 직접 하는 생성·취소·이어하기는 README 수동 확인 목록에 남아 있습니다.
+
 ## 스킬 배포
 
 에이전트 스킬 폴더는 저장소 `skills/<name>`을 가리키는 디렉터리 링크(Windows junction)입니다.

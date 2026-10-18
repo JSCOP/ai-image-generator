@@ -127,6 +127,40 @@ target/release/image-cli --profile local --json '{"prompt":"...","topic":"x","im
 
 투명 배경은 `"image_model":"gpt-image-2.5-sunburst","background":"transparent"`로 요청하며 결과는 비율을 유지한 투명 여백(`fit:"contain"`)으로 저장됩니다. Python과 다른 점은 [docs/RUST_PARITY.md](docs/RUST_PARITY.md)에 있습니다. 검증: `cargo test --workspace`(Python `.venv`가 있으면 동등성 비교 포함).
 
+## Image Studio 앱 (3단계, 1차판)
+
+사람이 쓰는 Windows 데스크톱 앱입니다. `apps/studio/`에 있고(Tauri 2 + Svelte 5), 엔진은 Rust CLI와 같은 `image-core`를 씁니다. 연결 프로필·키 저장 위치도 CLI와 같아서, CLI로 만든 `local` 프로필이 앱에 그대로 보입니다.
+
+```powershell
+pnpm --dir apps/studio install                       # 처음 한 번
+pnpm --dir apps/studio tauri dev                     # 개발 실행(창이 뜨고, 화면 코드를 고치면 바로 반영)
+pnpm --dir apps/studio tauri build --debug --no-bundle   # 디버그 빌드 → target/debug/studio.exe
+pnpm --dir apps/studio dev                           # 브라우저만으로 화면 확인: http://localhost:1420/?mock=1
+```
+
+`?mock=1`은 개발 서버에서만 쓰는 가짜 응답(연결 2개, 모델 6개, 갤러리 기록, 흉내 생성)입니다. `?mock=empty`는 연결이 하나도 없는 첫 실행, `?mock=env`는 환경변수 연결, `?mock=broken`은 프로필 파일을 읽지 못한 경우를 보여 줍니다. 운영 빌드에는 들어가지 않습니다.
+
+화면 셋(왼쪽 아이콘으로 이동):
+
+- **생성**: 왼쪽에서 프롬프트·피할 것·연결·모델·크기·품질·장수(1~50)·참조 이미지(최대 4장, 장당 10MB)·배경(투명은 지원 모델만)을 고르고 "N장 생성". 가운데에 장마다 대기·생성 중·재시도(원인)·완료·실패(원인) 카드와 진행 막대가 나오고, 실행 중에는 "취소"로 멈춥니다. 오른쪽 기록에서 지난 결과를 다시 보거나 "이 설정 다시 쓰기"·"이어서 생성"을 고릅니다. 연결이 없으면 "연결을 먼저 추가하세요"와 연결 화면 버튼이 나옵니다.
+- **갤러리**: 작업 폴더(기본 `%USERPROFILE%\Pictures\Image Studio`)와 추가한 폴더의 결과를 날짜별로 봅니다. 폴더·상태(완료/실패/파일 없음)·검색으로 거르고, 고른 이미지의 기록(모델, 원본 크기→저장 크기, 요청 ID 등)을 오른쪽에서 봅니다. 사라진 폴더는 "찾을 수 없음"으로 표시되고 나머지는 그대로 보입니다. 폴더를 목록에서 빼도 파일은 지우지 않습니다.
+- **연결**: CLIProxyAPI·OpenAI·Gemini·xAI·OpenAI 호환 연결을 추가·수정·삭제하고, "연결 확인"으로 서버·인증·모델·마지막 생성 4단계를 봅니다(이미지를 만들지 않아 비용 없음). 키는 입력만 받고 다시 보여 주지 않습니다.
+
+앱 설정은 `%APPDATA%\ImageStudio\settings.json`(첫 실행 때 생김, `IMAGE_STUDIO_HOME`이 있으면 그 폴더)에 저장됩니다. 생성 결과는 `<작업 폴더>\ImageGallery\output\<주제>\`에 저장됩니다.
+
+스크린샷(목업 응답, 1440×900 / 1100×700): [생성 중](apps/studio/docs/screenshots/generate-running-1440.png) · [생성 완료](apps/studio/docs/screenshots/generate-done-1440.png) · [투명 생성](apps/studio/docs/screenshots/generate-done-1100.png) · [갤러리](apps/studio/docs/screenshots/gallery-1440.png) · [연결 확인](apps/studio/docs/screenshots/connections-1440.png) · [연결 확인 실패](apps/studio/docs/screenshots/connections-1100.png) · [첫 실행](apps/studio/docs/screenshots/first-run-generate-1440.png)
+
+검증(2026-10-19): `cargo test --workspace`, `pnpm --dir apps/studio test`·`check`·`build`, 디버그 앱 실행(창 표시, 10초 유지, 첫 실행 settings.json 생성), 앱 서비스 경로로 실제 1장 생성(`cargo test -p studio --test real_proxy -- --ignored --test-threads=1`, `local` 프로필, `gpt-image-2.5` low 1024×1024 → `ImageGallery/output/studio-app-smoke-20261018/`). 이 테스트는 실제 비용이 드는 1장을 만들고, 같은 폴더가 이미 있으면 덮어쓰지 않고 멈춥니다.
+
+**사용자 수동 확인 목록** (앱 창에서 직접, 아직 미확인):
+
+1. 생성: 연결 `local`, `gpt-image-2.5`, 낮음 품질, 2장 → 카드가 생성 중 → 완료로 바뀌고 이미지가 보이는지, 카드를 누르면 큰 보기에 원본 크기→저장 크기·요청 ID가 나오는지.
+2. 취소: 4장 이상 생성 중 "취소" → 남은 카드가 "취소됨"으로 끝나고 다시 생성할 수 있는지.
+3. 이어하기: 취소한 기록에서 "이어서 생성" → 이미 완료된 장은 건너뛰고 나머지만 만드는지(갤러리에서 같은 주제 확인).
+4. 창 닫기 중 취소: 생성 중에 창을 닫기 → 몇 초 안에 창이 닫히고, 다시 열면 갤러리에서 완료/실패/끝나지 않음이 구분되며 `.lock` 파일이 남지 않는지.
+5. 화면 이동: 생성 중 갤러리·연결로 갔다 돌아와도 진행이 계속 보이는지.
+6. 갤러리: 다른 폴더 추가·빼기, 상태 필터, 검색, "탐색기에서 보기".
+
 ## 직접 CLI 사용
 
 ### 단일 이미지

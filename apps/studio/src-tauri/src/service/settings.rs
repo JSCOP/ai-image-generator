@@ -57,6 +57,16 @@ pub fn load_settings(home: &Path) -> Settings {
     }
 }
 
+/// App start: loads the settings and writes the defaults when there is no readable file yet, so the
+/// default work folder is fixed from the first start. A failed write keeps the defaults in memory.
+pub fn ensure_settings(home: &Path) -> Settings {
+    let settings = load_settings(home);
+    if !home.join(FILE_NAME).exists() {
+        let _ = save_settings(home, &settings);
+    }
+    settings
+}
+
 fn move_aside(path: &Path) {
     let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let mut target = path.with_file_name(format!("{FILE_NAME}.bad-{stamp}"));

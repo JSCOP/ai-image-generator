@@ -369,7 +369,7 @@
           <p class="head-note"><Icon name="info" size={14} />{groupResumeBlocked}</p>
         {/if}
       </header>
-      <div class="grid" style:--cols={aspect > 1.4 ? 'minmax(260px, 1fr)' : 'minmax(200px, 1fr)'}>
+      <div class="grid" style:--cols={aspect > 1.4 ? 'minmax(260px, 1fr)' : 'minmax(160px, 1fr)'}>
         {#each cards as card (card.key)}
           <ImageCard {card} {aspect} onopen={() => openViewer(card)} />
         {/each}
@@ -379,8 +379,9 @@
         <div class="title">
           <h2 class="ellipsis" title={run.input.prompt}>{oneLine(run.input.prompt)}</h2>
           <p class="meta ellipsis">
-            {#if run.topic}{run.topic} · {/if}{run.input.imageModel} · {run.input.size.replace('x', '×')}
-            {#if run.summary} · {formatElapsed(run.summary.elapsedSec)}{/if}
+            {[run.topic, run.input.imageModel, run.input.size.replace('x', '×'), run.summary ? formatElapsed(run.summary.elapsedSec) : '']
+              .filter(Boolean)
+              .join(' · ')}
           </p>
         </div>
         {#if tally}
@@ -404,7 +405,7 @@
         </div>
       {/if}
       {#if cards.length > 0}
-        <div class="grid" style:--cols={aspect > 1.4 ? 'minmax(260px, 1fr)' : 'minmax(200px, 1fr)'}>
+        <div class="grid" style:--cols={aspect > 1.4 ? 'minmax(260px, 1fr)' : 'minmax(160px, 1fr)'}>
           {#each cards as card (card.key)}
             <ImageCard {card} {aspect} onopen={() => openViewer(card)} />
           {/each}
@@ -446,7 +447,7 @@
                   <span class="p" title={g.prompt}>{oneLine(g.prompt) || g.topic}</span>
                   <span class="m">{g.items.length}장 · {formatRelativeTime(g.modified)}</span>
                   <span class="m ellipsis">
-                    {g.model}{#if g.counts.failed}<span class="f"> · 실패 {g.counts.failed}</span>{/if}
+                    {g.model}{#if g.counts.failed}<span class="f">{` · 실패 ${g.counts.failed}`}</span>{/if}
                   </span>
                 </span>
               </button>

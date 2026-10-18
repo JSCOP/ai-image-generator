@@ -7,7 +7,7 @@ use image_core::error::Category;
 use image_core::profiles::{GenerationStatus, ProfileStore, ProviderKind};
 use image_core::secrets::{MemoryStore, SecretStore};
 use studio_lib::service::profiles::{check_profile, connections, models, remove_profile, save_profile, set_default_profile, ProfileInput};
-use studio_lib::service::settings::{default_work_dir, load_settings, save_settings, Settings};
+use studio_lib::service::settings::{default_work_dir, ensure_settings, load_settings, save_settings, Settings};
 use studio_lib::service::Ctx;
 use test_fixture::{FakeProvider, MapEnv, Reply};
 
@@ -58,6 +58,27 @@ fn settings_default_work_dir_is_pictures_image_studio() {
     let text = read(home.path().join("settings.json"));
     assert!(text.contains("\"workDir\"") && text.contains("\"galleryFolders\"") && text.contains("\"lastProfile\""), "{text}");
     assert_eq!(load_settings(home.path()), saved);
+}
+
+#[test]
+fn ensure_settings_writes_defaults_once_and_keeps_an_existing_file() {
+    let home = tempfile::tempdir().unwrap();
+    let home_dir = home.path().join("ImageStudio");
+    let first = ensure_settings(&home_dir);
+    assert_eq!(first, Settings::default());
+    let path = home_dir.join("settings.json");
+    assert!(path.exists(), "first start writes settings.json");
+    assert_eq!(load_settings(&home_dir), first);
+
+    let saved = Settings { work_dir: home.path().join("work"), last_model: Some("gpt-image-2".into()), ..Settings::default() };
+    save_settings(&home_dir, &saved).unwrap();
+    let before = read(path.clone());
+    assert_eq!(ensure_settings(&home_dir), saved);
+    assert_eq!(read(path.clone()), before, "an existing file is left untouched");
+
+    std::fs::write(&path, "{ not json").unwrap();
+    assert_eq!(ensure_settings(&home_dir), Settings::default());
+    assert_eq!(load_settings(&home_dir), Settings::default(), "a broken file is moved aside and replaced by defaults");
 }
 
 #[test]

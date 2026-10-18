@@ -88,8 +88,10 @@
     position: relative;
     display: block;
     aspect-ratio: 4 / 3;
-    background: var(--panel-2);
     overflow: hidden;
+  }
+  .thumb:not(.checker) {
+    background: var(--panel-2);
   }
   img {
     width: 100%;

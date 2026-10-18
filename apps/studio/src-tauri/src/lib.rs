@@ -42,8 +42,8 @@ pub fn run() {
         .manage(state::AppState::system())
         .invoke_handler(handlers!())
         .setup(|app| {
-            // Images of the registered galleries may show from the start.
-            let settings = service::settings::load_settings(&app.state::<state::AppState>().ctx.home);
+            // First start writes settings.json; images of the registered galleries may show from the start.
+            let settings = service::settings::ensure_settings(&app.state::<state::AppState>().ctx.home);
             commands::allow_galleries(app.handle(), &settings);
             Ok(())
         })

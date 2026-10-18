@@ -565,9 +565,11 @@
     margin-bottom: var(--s3);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--panel);
     overflow: hidden;
     cursor: zoom-in;
+  }
+  .preview:not(.checker) {
+    background: var(--panel);
   }
   .preview:hover {
     border-color: var(--accent-line);
