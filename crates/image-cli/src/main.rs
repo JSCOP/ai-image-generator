@@ -588,7 +588,7 @@ mod tests {
     #[test]
     fn key_stdin_from_an_interactive_terminal_is_refused_without_reading() {
         let mut typed: &[u8] = b"sk-would-echo\n";
-        let err = read_key_from(&KeySource::Stdin, true, &mut typed).err().expect("refused");
+        let err = read_key_from(&KeySource::Stdin, true, &mut typed).expect_err("refused");
         assert_eq!(err.category, Category::InvalidRequest);
         assert!(err.message.contains("--key-stdin") && err.message.contains("Read-Host"), "{}", err.message);
         assert!(!err.message.contains("sk-would-echo"));

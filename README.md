@@ -104,7 +104,7 @@ target/release/image-cli --json '{"prompt":"...","topic":"x","dry_run":true}'
 
 ### 연결 프로필
 
-연결을 "프로필"(공급자 종류 + 주소 + 키)로 저장해 두고 `--profile 이름`으로 고를 수 있습니다. 프로필 목록은 `%APPDATA%\ImageStudio\profiles.json`(환경변수 `IMAGE_STUDIO_HOME`이 있으면 그 폴더)에, 키는 Windows 자격 증명 관리자에만 저장됩니다. 키는 명령줄 인자로 받지 않습니다(셸 기록에 남기 때문). `--key-env 변수`는 그 환경변수에서, `--key-stdin`은 표준입력 첫 줄에서 읽습니다.
+연결을 "프로필"(공급자 종류 + 주소 + 키)로 저장해 두고 `--profile 이름`으로 고를 수 있습니다. 프로필 목록은 `%APPDATA%\ImageStudio\profiles.json`(환경변수 `IMAGE_STUDIO_HOME`이 있으면 그 폴더)에, 키는 Windows 자격 증명 관리자에만 저장됩니다. 키는 명령줄 인자로 받지 않습니다(셸 기록에 남기 때문). `--key-env 변수`는 그 환경변수에서, `--key-stdin`은 파이프로 넘긴 표준입력 첫 줄에서 읽습니다(터미널에서 직접 입력하면 키가 화면에 보이므로 거부하고 파이프 예시를 안내합니다).
 
 ```powershell
 # 이 PC에서 도는 CLIProxyAPI (/v1은 자동으로 붙음)
@@ -123,7 +123,7 @@ target/release/image-cli profile check local     # 서버 접근 → 인증 → 
 target/release/image-cli --profile local --json '{"prompt":"...","topic":"x","image_model":"gpt-image-2.5"}'
 ```
 
-종류는 `cliproxy`, `openai`, `gemini`, `xai`, `openai_compatible`입니다. 연결은 spec `profile` 또는 `--profile` → 프로세스 `CLIPROXY_BASE_URL` → 사용자 환경변수 `CLIPROXY_BASE_URL` → 기본 프로필 순서로 정합니다. 고른 프로필이 없거나 키가 비어 있으면 다른 주소·키를 빌리지 않고 호출 전에 오류를 냅니다. 프로필 종류와 맞지 않는 모델(예: Gemini 프로필에 `gpt-image-2.5`)도 호출 전에 거부합니다. 동시 실행 기본값은 `cliproxy`·`openai_compatible` 30, 공식 API(`openai`·`gemini`·`xai`) 4이며 `profile add/update --concurrency N`이나 spec `concurrency`로 바꿉니다. 공식 API 직접 연결은 문서 근거로 구현했고 아직 실제 키로 확인하지 않았습니다. OpenAI 공식 API에는 접미사 없는 `gpt-image-2.5` ID가 없으므로 `gpt-image-2.5-sunburst`나 `-flare`를 지정하세요.
+종류는 `cliproxy`, `openai`, `gemini`, `xai`, `openai_compatible`입니다. 연결은 spec `profile` 또는 `--profile` → 프로세스 `CLIPROXY_BASE_URL` → 사용자 환경변수 `CLIPROXY_BASE_URL` → 기본 프로필 순서로 정합니다. 고른 프로필이 없으면 다른 주소·키를 빌리지 않고 호출 전에 오류를 냅니다. 키가 꼭 필요한 공식 API 종류(`openai`·`gemini`·`xai`) 프로필에 저장된 키가 없을 때도 호출 전에 오류입니다. `cliproxy`·`openai_compatible` 프로필은 키 없이도 쓸 수 있고, 이때는 인증 헤더 없이 보내며 환경변수 키를 빌리지 않습니다. 프로필 종류와 맞지 않는 모델(예: Gemini 프로필에 `gpt-image-2.5`)도 호출 전에 거부합니다. 동시 실행 기본값은 `cliproxy`·`openai_compatible` 30, 공식 API(`openai`·`gemini`·`xai`) 4이며 `profile add/update --concurrency N`이나 spec `concurrency`로 바꿉니다. 공식 API 직접 연결은 문서 근거로 구현했고 아직 실제 키로 확인하지 않았습니다. OpenAI 공식 API에는 접미사 없는 `gpt-image-2.5` ID가 없으므로 `gpt-image-2.5-sunburst`나 `-flare`를 지정하세요.
 
 투명 배경은 `"image_model":"gpt-image-2.5-sunburst","background":"transparent"`로 요청하며 결과는 비율을 유지한 투명 여백(`fit:"contain"`)으로 저장됩니다. Python과 다른 점은 [docs/RUST_PARITY.md](docs/RUST_PARITY.md)에 있습니다. 검증: `cargo test --workspace`(Python `.venv`가 있으면 동등성 비교 포함).
 

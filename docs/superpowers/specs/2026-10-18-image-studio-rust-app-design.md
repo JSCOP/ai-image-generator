@@ -172,7 +172,7 @@ ai-image-generator/
 | gpt-image-2 | O | O [구현 중 확인] | 미리보기 지원, 중단 보고 있음 [구현 중 확인] | OpenAI 공식 Images API, `input_fidelity` 보내지 않음 | CLIProxyAPI 경유 생성·참조 편집 성공(2026-09-04). 공식 API 미실측 |
 | gpt-image-1.5 | O | O | [구현 중 확인] | OpenAI 공식 Images API | 직접 Images API 경로 재검증 안 함. 공식 API 미실측 |
 | gemini-3.1-flash-image | O | X (프롬프트+합성으로 대체) | X (생성 후 배경 제거로 대체) | Gemini 공식: `x-goog-api-key` 헤더, `/v1beta/models/{id}:generateContent`, 모델 목록 `/v1beta/models`는 `pageToken` 페이지 처리 | CLIProxyAPI 경유 생성·참조 편집 성공(2026-10-18). 공식 API 미실측 |
-| grok-imagine-* | O(xAI 문서) / CLIProxyAPI 경유는 [구현 중 확인] | X | X (생성 후 배경 제거로 대체) | xAI 공식: Bearer, 편집은 JSON 전용 `/v1/images/edits`(multipart 불가), 참조는 grok-imagine-image-2.0 최대 5장·그 밖의 grok 1장으로 제한 | CLIProxyAPI 경유 생성은 지출 한도로 실패(2026-10-18). 공식 API 미실측 |
+| grok-imagine-* | O(xAI 문서) / CLIProxyAPI 경유는 [구현 중 확인] | X | X (생성 후 배경 제거로 대체) | xAI 공식: Bearer, 편집은 JSON 전용 `/v1/images/edits`(multipart 불가). 참조 장수: grok-imagine-image-2.0 최대 5장, grok-imagine-image-quality도 `images` 배열 다중 편집 예시가 문서에 있으나 장수 한도는 문서에 없음, 그 밖의 grok 모델 한도도 문서에 없음. 구현은 유료 호출을 보수적으로 막으려고 2.0 외 grok을 1장으로 제한(문서 근거가 아닌 구현 판단). grok-imagine-image-quality는 2026-11-02 종료 후 grok-imagine-image-2.0(quality low)로 연결 | CLIProxyAPI 경유 생성은 지출 한도로 실패(2026-10-18). 공식 API 미실측 |
 
 ### 6.4 요청 형식 차이
 
