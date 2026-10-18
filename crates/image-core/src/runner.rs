@@ -12,6 +12,7 @@ use crate::store::{inspect_existing, request_hash, Existing};
 use rand::Rng;
 use serde_json::{json, Map, Value};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::Semaphore;
@@ -371,7 +372,7 @@ impl Runner {
             })
             .collect();
         let workers = limits.concurrency.min(count);
-        let results = self.execute(items, workers, limits.retries, ctx.clone(), &SINGLE_EVENTS).await;
+        let results = self.execute(items, workers, limits.retries, ctx.clone(), &SINGLE_EVENTS, None).await;
         let mut outputs = Vec::new();
         let mut failures = Vec::new();
         let mut retried = 0;
@@ -475,7 +476,7 @@ impl Runner {
             let ctx = self.connect(&limits)?;
             source = json!(ctx.conn.source);
             std::fs::create_dir_all(&output_dir).map_err(|e| EngineError::new(Category::Internal, format!("cannot create {}: {e}", output_dir.display())))?;
-            for r in self.execute(items, workers, limits.retries, ctx, &JOB_EVENTS).await {
+            for r in self.execute(items, workers, limits.retries, ctx, &JOB_EVENTS, None).await {
                 retried += r.retried;
                 let id = r.id.unwrap_or_default();
                 match r.outcome {
@@ -504,13 +505,23 @@ impl Runner {
     }
 
     /// Run items with at most `workers` in flight, retrying retryable failures.
-    pub(crate) async fn execute(&self, items: Vec<Item>, workers: usize, retries: u32, ctx: Arc<JobContext>, names: &'static EventNames) -> Vec<ItemResult> {
+    /// With `stop_after`, items not yet started are skipped once that many have failed.
+    pub(crate) async fn execute(
+        &self,
+        items: Vec<Item>,
+        workers: usize,
+        retries: u32,
+        ctx: Arc<JobContext>,
+        names: &'static EventNames,
+        stop_after: Option<usize>,
+    ) -> Vec<ItemResult> {
         let semaphore = Arc::new(Semaphore::new(workers.max(1)));
+        let stop = stop_after.map(|limit| Arc::new(StopAfter { limit, failed: AtomicUsize::new(0), token: CancellationToken::new() }));
         let mut tasks = tokio::task::JoinSet::new();
         for item in items {
             let (semaphore, ctx, cancel, progress) = (semaphore.clone(), ctx.clone(), self.cancel.clone(), self.progress.clone());
-            let backoff = self.opts.backoff_base_sec;
-            tasks.spawn(async move { run_item(item, semaphore, ctx, cancel, progress, backoff, retries, names).await });
+            let (backoff, stop) = (self.opts.backoff_base_sec, stop.clone());
+            tasks.spawn(async move { run_item(item, semaphore, ctx, cancel, progress, backoff, retries, names, stop).await });
         }
         let mut results = Vec::new();
         while let Some(joined) = tasks.join_next().await {
@@ -520,6 +531,12 @@ impl Runner {
         }
         results
     }
+}
+
+pub(crate) struct StopAfter {
+    limit: usize,
+    failed: AtomicUsize,
+    token: CancellationToken,
 }
 
 fn emit(progress: &Progress, name: &str, base: &Map<String, Value>, extra: Value) {
@@ -545,6 +562,7 @@ async fn run_item(
     backoff: f64,
     retries: u32,
     names: &'static EventNames,
+    stop: Option<Arc<StopAfter>>,
 ) -> ItemResult {
     let output = item.job.output.display().to_string();
     let finish = |outcome, retried| ItemResult { index: item.index, id: item.id.clone(), output: output.clone(), outcome, retried };
@@ -554,6 +572,10 @@ async fn run_item(
     };
     if permit.is_none() || cancel.is_cancelled() {
         return finish(Err(EngineError::new(Category::Cancelled, "cancelled before start")), 0);
+    }
+    if let Some(stop) = stop.as_ref().filter(|s| s.token.is_cancelled()) {
+        let message = format!("not started: stopped after {} failures", stop.limit);
+        return finish(Err(EngineError::new(Category::Cancelled, message)), 0);
     }
     if item.job.resume {
         let reusable = request_hash(&item.job.request, item.job.fit)
@@ -587,7 +609,14 @@ async fn run_item(
     match &outcome {
         Ok(_) if names.reason_on_success => emit(&progress, names.finished, &item.event, json!({"elapsed_sec": elapsed, "reason": ""})),
         Ok(_) => emit(&progress, names.finished, &item.event, json!({"elapsed_sec": elapsed})),
-        Err(err) => emit(&progress, names.failed, &item.event, json!({"elapsed_sec": elapsed, "reason": err.reason()})),
+        Err(err) => {
+            emit(&progress, names.failed, &item.event, json!({"elapsed_sec": elapsed, "reason": err.reason()}));
+            if let Some(stop) = &stop {
+                if stop.failed.fetch_add(1, Ordering::SeqCst) + 1 >= stop.limit {
+                    stop.token.cancel();
+                }
+            }
+        }
     }
     drop(permit);
     finish(outcome, attempt)
