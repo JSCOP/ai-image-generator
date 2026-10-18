@@ -29,6 +29,8 @@ pub const MAX_RETRIES: i64 = 5;
 pub const MAX_JOB_TIMEOUT_SEC: f64 = 86_400.0;
 /// Largest accepted `AI_IMAGE_RETRY_BACKOFF_SEC`; the delay itself is capped at 60 s plus jitter of up to half of it.
 pub const MAX_RETRY_BACKOFF_SEC: f64 = 600.0;
+/// Largest accepted single-mode `count` (Python has no limit); larger runs belong in batch mode or several runs.
+pub const MAX_SINGLE_COUNT: usize = 1000;
 
 pub type Progress = Arc<dyn Fn(Value) + Send + Sync>;
 
@@ -456,7 +458,14 @@ impl Runner {
         let slug = safe_topic_slug(&topic);
         let count = match self.spec.get("count") {
             None => 1,
-            Some(value) => number(value).ok_or_else(|| invalid("count must be a number"))?.trunc().max(1.0) as usize,
+            Some(value) => {
+                let n = number(value).ok_or_else(|| invalid("count must be a number"))?;
+                // Python truncates and treats < 1 as 1; non-finite or huge values are refused before planning any name.
+                if !n.is_finite() || n.trunc() > MAX_SINGLE_COUNT as f64 {
+                    return Err(invalid(format!("count must be a finite number up to {MAX_SINGLE_COUNT} when mode=single")));
+                }
+                n.trunc().max(1.0) as usize
+            }
         };
         let workspace = self.topic_root();
         let (output_dir, metadata_dir) = topic_dirs(&workspace, &slug);

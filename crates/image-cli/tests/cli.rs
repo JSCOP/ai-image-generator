@@ -175,6 +175,32 @@ fn key_never_appears_in_any_output() {
 }
 
 #[test]
+fn huge_single_count_is_invalid_request_not_a_panic() {
+    let p = ok_provider();
+    let tmp = tempfile::tempdir().unwrap();
+    let run = |count: Value, dry: bool| {
+        let spec = json!({"prompt": "x", "topic": "t", "size": "16x16", "quality": "low", "dry_run": dry, "count": count,
+                          "topic_root": tmp.path().display().to_string()});
+        let mut cmd = cli(&p.base_url(), tmp.path());
+        cmd.env("IMAGE_STUDIO_HOME", tmp.path().join("studio")).env("IMAGE_STUDIO_KEYRING_SERVICE", "ImageStudioTest-g3-count");
+        run_stdin(cmd, &spec.to_string())
+    };
+    for value in [json!(1e100), json!(1e18), json!(1001), json!("inf"), json!("NaN")] {
+        for dry in [true, false] {
+            let out = run(value.clone(), dry);
+            assert_eq!(out.status.code(), Some(2), "{value}: {}", String::from_utf8_lossy(&out.stderr));
+            let res = last_json(&out);
+            assert_eq!((res["ok"].clone(), res["error_category"].clone()), (json!(false), json!("invalid_request")), "{res}");
+            assert!(res["error"].as_str().unwrap().contains("count"), "{res}");
+        }
+    }
+    let out = run(json!(1000), true);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(last_json(&out)["planned_outputs"].as_array().unwrap().len(), 1000);
+    assert_eq!(p.requests().len(), 0);
+}
+
+#[test]
 fn out_of_range_seconds_give_json_errors_not_panics() {
     let p = ok_provider();
     let tmp = tempfile::tempdir().unwrap();

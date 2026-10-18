@@ -1,7 +1,7 @@
 //! `--schema` and `--example` output. Keys and defaults follow `tools/ai_image.py`.
 
 use crate::paths::absolute;
-use crate::runner::{DEFAULT_CONCURRENCY, DEFAULT_IMAGE_MODEL, DEFAULT_RETRIES, MAX_CONCURRENCY, MAX_RETRIES};
+use crate::runner::{DEFAULT_CONCURRENCY, DEFAULT_IMAGE_MODEL, DEFAULT_RETRIES, MAX_CONCURRENCY, MAX_RETRIES, MAX_SINGLE_COUNT};
 use serde_json::{json, Value};
 
 pub fn schema_json() -> Value {
@@ -10,7 +10,7 @@ pub fn schema_json() -> Value {
         "mode": {"type": "string", "enum": ["single", "jobs", "batch"], "default": "single"},
         "prompt": {"type": "string", "required_when": "mode=single"},
         "topic": {"type": "string", "default": "ai-image-request"},
-        "count": {"type": "integer", "default": 1, "min": 1},
+        "count": {"type": "integer", "default": 1, "min": 1, "max_when_single": MAX_SINGLE_COUNT},
         "size": {"type": "string", "format": "WIDTHxHEIGHT (positive integers)", "default": "1920x1080"},
         "quality": {"type": "string", "enum": ["low", "medium", "high"], "default": "high"},
         "model": {"type": "string", "description": "ignored with a warning: the legacy Responses API path was removed"},
