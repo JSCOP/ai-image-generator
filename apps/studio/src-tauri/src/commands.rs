@@ -5,8 +5,10 @@ use std::path::{Path, PathBuf};
 use image_core::check::ConnectionReport;
 use image_core::error::Category;
 use serde::Serialize;
+use tauri::ipc::Channel;
 use tauri::State;
 
+use crate::service::generate::{self, GenerateInput, RunEvent, RunSummary};
 use crate::service::profiles::{self, ConnectionsView, ModelView, ProfileInput, ProfileView};
 use crate::service::settings::{self, default_work_dir, Settings};
 use crate::service::{Ctx, ServiceError};
@@ -87,6 +89,30 @@ pub async fn set_default_profile(state: State<'_, AppState>, id: Option<String>)
 pub async fn check_profile(state: State<'_, AppState>, name: Option<String>) -> Result<ConnectionReport, ServiceError> {
     let ctx = ctx(&state);
     profiles::check_profile(&ctx, name.as_deref()).await
+}
+
+/// Runs one generation; progress goes to `on_event` (first event `started` carries the run id for `cancel_generation`).
+#[tauri::command]
+pub async fn start_generation(
+    state: State<'_, AppState>,
+    input: GenerateInput,
+    on_event: Channel<RunEvent>,
+) -> Result<RunSummary, ServiceError> {
+    let ctx = ctx(&state);
+    let run_id = format!("run-{}", uuid::Uuid::new_v4().simple());
+    // Dropping the guard (run ended or the command was dropped) forgets the run.
+    let guard = state.runs.register(&run_id);
+    let emit = move |event: RunEvent| {
+        // A closed webview cannot receive events; the run itself goes on until cancelled.
+        let _ = on_event.send(event);
+    };
+    generate::run_generation(&ctx, input, run_id, emit, guard.token().clone()).await
+}
+
+/// Cancels a running generation; false when no run has this id (already ended).
+#[tauri::command]
+pub fn cancel_generation(state: State<'_, AppState>, run_id: String) -> bool {
+    state.runs.cancel(&run_id)
 }
 
 #[tauri::command]

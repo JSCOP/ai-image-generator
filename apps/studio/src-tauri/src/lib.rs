@@ -4,6 +4,10 @@ pub mod commands;
 pub mod service;
 pub mod state;
 
+use std::time::Duration;
+
+use tauri::{Manager, WindowEvent};
+
 /// Every command the webview may call (names match `src/lib/api.ts`).
 macro_rules! handlers {
     () => {
@@ -17,9 +21,14 @@ macro_rules! handlers {
             commands::set_default_profile,
             commands::check_profile,
             commands::list_models,
+            commands::start_generation,
+            commands::cancel_generation,
         ]
     };
 }
+
+/// How long closing the window waits for cancelled runs to release their files.
+const CLOSE_WAIT: Duration = Duration::from_secs(10);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +37,20 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(state::AppState::system())
         .invoke_handler(handlers!())
+        .on_window_event(|window, event| {
+            // Closing the window cancels every run and waits (bounded) until they have released their locks.
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let runs = window.state::<state::AppState>().runs.clone();
+                if runs.cancel_all() > 0 {
+                    api.prevent_close();
+                    let window = window.clone();
+                    tauri::async_runtime::spawn(async move {
+                        runs.wait_idle(CLOSE_WAIT).await;
+                        let _ = window.destroy();
+                    });
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running Image Studio");
 }
@@ -42,7 +65,7 @@ mod tests {
     use tauri::ipc::{CallbackFn, InvokeBody};
     use tauri::test::{get_ipc_response, mock_builder, mock_context, noop_assets, MockRuntime, INVOKE_KEY};
     use tauri::webview::InvokeRequest;
-    use tauri::WebviewWindow;
+    use tauri::{Manager, WebviewWindow};
     use test_fixture::MapEnv;
 
     use super::*;
@@ -79,6 +102,21 @@ mod tests {
         assert_eq!(body["version"], "0.1.0");
         assert_eq!(body["home"], home.path().to_string_lossy().as_ref());
         assert!(body["workDir"].as_str().unwrap().ends_with("Image Studio"));
+    }
+
+    #[test]
+    fn generation_commands_validate_and_cancel_by_run_id() {
+        let home = tempfile::tempdir().unwrap();
+        let (app, webview) = app(home.path(), Arc::new(MemoryStore::new()));
+        let input = json!({"prompt": "cat", "imageModel": "gpt-image-2.5", "size": "16x16", "quality": "low", "count": 0});
+        let err = invoke(&webview, "start_generation", json!({"input": input, "onEvent": "__CHANNEL__:7"})).unwrap_err();
+        assert_eq!(err["category"], "invalid_request");
+        assert_eq!(app.state::<AppState>().runs.active(), 0);
+
+        assert_eq!(invoke(&webview, "cancel_generation", json!({"runId": "run-missing"})).unwrap(), false);
+        let guard = app.state::<AppState>().runs.register("run-1");
+        assert_eq!(invoke(&webview, "cancel_generation", json!({"runId": "run-1"})).unwrap(), true);
+        assert!(guard.token().is_cancelled());
     }
 
     #[test]

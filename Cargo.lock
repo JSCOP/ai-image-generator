@@ -3714,6 +3714,8 @@ dependencies = [
  "tempfile",
  "test-fixture",
  "tokio",
+ "tokio-util",
+ "uuid",
 ]
 
 [[package]]
