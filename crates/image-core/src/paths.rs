@@ -1,5 +1,6 @@
 //! `ImageGallery/output|metadata/<topic>` layout (`scripts/gallery.py`).
 
+use crate::connection::EnvSource;
 use regex::Regex;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -18,6 +19,37 @@ pub fn safe_topic_slug(value: &str) -> String {
         return DEFAULT_TOPIC.to_string();
     }
     raw.chars().take(80).collect()
+}
+
+/// Python `Path(value).expanduser()`: `~` and `~/rest` use the home folder (`USERPROFILE`, else
+/// `HOMEDRIVE`+`HOMEPATH` on Windows; `HOME` elsewhere); on Windows `~name/rest` becomes a sibling of the home
+/// folder as `ntpath` does. Anything else, or no known home, is returned unchanged.
+pub fn expand_user(value: &str, env: &dyn EnvSource) -> String {
+    let Some(rest) = value.strip_prefix('~') else { return value.to_string() };
+    let is_sep = |c: char| c == '/' || (cfg!(windows) && c == '\\');
+    let split = rest.find(is_sep).unwrap_or(rest.len());
+    let (user, tail) = rest.split_at(split);
+    let home = if cfg!(windows) {
+        env.process("USERPROFILE").or_else(|| env.process("HOMEPATH").map(|path| env.process("HOMEDRIVE").unwrap_or_default() + &path))
+    } else {
+        env.process("HOME")
+    };
+    let Some(home) = home else { return value.to_string() };
+    if user.is_empty() {
+        return format!("{home}{tail}");
+    }
+    if !cfg!(windows) {
+        return value.to_string();
+    }
+    let current = env.process("USERNAME");
+    if current.as_deref() == Some(user) {
+        return format!("{home}{tail}");
+    }
+    let home = PathBuf::from(home);
+    if current.as_deref() != home.file_name().and_then(|n| n.to_str()) {
+        return value.to_string();
+    }
+    format!("{}{tail}", home.parent().unwrap_or(&home).join(user).display())
 }
 
 /// Like Python `Path.resolve()`: canonical when the path exists, without the `\?\` prefix.

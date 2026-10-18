@@ -164,3 +164,67 @@ fn rust_cli_matches_python_cli() {
     }
     assert_eq!(bodies(&rs_side.provider), bodies(&py_side.provider));
 }
+
+/// Like `run`, but keeps the spec's `topic_root` and points the home folder at `home`.
+fn run_home(provider: &FakeProvider, home: &Path, python: Option<&Path>, spec: &Value) -> (Option<i32>, Value) {
+    let mut cmd = match python {
+        Some(py) => {
+            let mut c = Command::new(py);
+            c.arg(repo().join("tools/ai_image.py"));
+            c
+        }
+        None => Command::new(BIN),
+    };
+    let out = cmd
+        .arg("--json")
+        .arg(spec.to_string())
+        .current_dir(repo())
+        .env("CLIPROXY_BASE_URL", provider.base_url())
+        .env("CLIPROXY_API_KEY", "fake-token")
+        .env("AI_IMAGE_RETRY_BACKOFF_SEC", "0")
+        .env("PYTHONUTF8", "1")
+        .env("USERPROFILE", home)
+        .env("HOME", home)
+        .env("IMAGE_STUDIO_HOME", home.join("studio"))
+        .env("IMAGE_STUDIO_KEYRING_SERVICE", "ImageStudioTest-parity-home")
+        .env_remove("HOMEDRIVE")
+        .env_remove("HOMEPATH")
+        .env_remove("CLIPROXY_IMAGE_MODEL")
+        .env_remove("CLIPROXY_TIMEOUT")
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let last = stdout.lines().last().unwrap_or_else(|| panic!("no output: {}", String::from_utf8_lossy(&out.stderr)));
+    (out.status.code(), serde_json::from_str(last).unwrap())
+}
+
+/// Review F9 (`~` topic_root) and F10 (single failures sorted by index, whatever the completion order).
+#[test]
+fn rust_cli_matches_python_on_home_paths_and_failure_order() {
+    let Some(py) = python() else {
+        eprintln!("skipping parity: no .venv in {}", repo().display());
+        return;
+    };
+    let tmp = tempfile::tempdir().unwrap();
+    let home = image_core::paths::absolute(tmp.path()).join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let arrivals = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let provider = FakeProvider::start(move |_: &Recorded| {
+        let n = arrivals.fetch_add(1, std::sync::atomic::Ordering::SeqCst) as u64;
+        // Within each run of three, later arrivals answer sooner.
+        Reply::json(400, r#"{"error":{"message":"rejected"}}"#).delayed(std::time::Duration::from_millis(900 - (n % 3) * 400))
+    });
+    let specs = [
+        json!({"prompt": "a mug", "topic": "path-review", "topic_root": "~/Pictures", "dry_run": true}),
+        json!({"mode": "jobs", "topic_root": "~", "dry_run": true, "jobs": [{"id": "x", "prompt": "p"}]}),
+        json!({"prompt": "FAIL", "topic": "order", "topic_root": "~/out", "count": 3, "concurrency": 3, "retries": 0,
+               "size": "64x48", "quality": "low"}),
+    ];
+    for spec in specs {
+        let (py_code, py_result) = run_home(&provider, &home, Some(&py), &spec);
+        let (rs_code, rs_result) = run_home(&provider, &home, None, &spec);
+        assert_eq!(rs_code, py_code, "exit code for {spec}\npython: {py_result}\nrust: {rs_result}");
+        assert_eq!(normalize(&rs_result, &home), normalize(&py_result, &home), "result for {spec}");
+        assert!(rs_result["output_dir"].as_str().unwrap().starts_with(&home.display().to_string()), "{rs_result}");
+    }
+}

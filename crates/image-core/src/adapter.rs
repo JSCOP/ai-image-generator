@@ -34,8 +34,27 @@ fn is_grok_2_0(model: &str) -> bool {
     m == "grok-imagine-image-2.0" || m.starts_with("grok-imagine-image-2.0-")
 }
 
+/// Longest accepted model id.
+const MAX_MODEL_ID_LEN: usize = 128;
+
+/// Model ids go into URL paths, so only `A-Z a-z 0-9 . _ -` are allowed and never `..`
+/// (no `/`, `#`, `?`, `%`, `:`, whitespace). Every catalog and documented provider id fits.
+pub fn validate_model_id(model: &str) -> Result<(), EngineError> {
+    let charset = model.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
+    if model.is_empty() || model.len() > MAX_MODEL_ID_LEN || !charset || model.contains("..") {
+        return Err(EngineError::new(
+            Category::InvalidRequest,
+            format!(
+                "모델 ID {model:?}를 쓸 수 없습니다: 영문자, 숫자, '.', '_', '-'만 쓸 수 있고 '..'은 안 됩니다(최대 {MAX_MODEL_ID_LEN}자)."
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// Kind–model mismatch (e.g. a Gemini profile asked for `gpt-image-2.5`) is rejected before any paid call.
 pub fn model_supported(kind: ProviderKind, model: &str) -> Result<(), EngineError> {
+    validate_model_id(model)?;
     let (ok, allowed) = match kind {
         ProviderKind::Cliproxy | ProviderKind::OpenaiCompatible => {
             return match backend(model) {
@@ -137,6 +156,14 @@ fn root_base_url(base_url: &str) -> &str {
     base_url.strip_suffix("/v1").unwrap_or(base_url)
 }
 
+/// `base` plus path segments, each percent-encoded as one segment (a `/`, `?` or `#` inside cannot change the path).
+fn url_with_segments(base: &str, segments: &[&str]) -> Result<String, EngineError> {
+    let bad = || EngineError::new(Category::InvalidRequest, format!("base_url 형식이 올바르지 않습니다: {base}"));
+    let mut url = reqwest::Url::parse(base).map_err(|_| bad())?;
+    url.path_segments_mut().map_err(|_| bad())?.pop_if_empty().extend(segments);
+    Ok(url.into())
+}
+
 fn data_url(path: &Path) -> Result<String, EngineError> {
     Ok(format!("data:{};base64,{}", mime_type(path), read_reference(path)?))
 }
@@ -153,7 +180,7 @@ fn gemini_call(root: &str, req: &ImageRequest) -> Result<ProviderCall, EngineErr
             "imageConfig": {"aspectRatio": gemini_aspect_ratio(req.size), "imageSize": gemini_image_size(req.size)},
         },
     });
-    let url = format!("{root}/v1beta/models/{}:generateContent", req.image_model);
+    let url = url_with_segments(root, &["v1beta", "models", &format!("{}:generateContent", req.image_model)])?;
     Ok(ProviderCall { url, body, backend: Backend::Gemini })
 }
 
@@ -357,4 +384,17 @@ async fn gemini_models(http: &Http, conn: &Connection) -> Result<Vec<String>, En
         }
     }
     Ok(ids)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::url_with_segments;
+
+    #[test]
+    fn segments_cannot_change_the_path() {
+        let url = url_with_segments("http://127.0.0.1:9", &["v1beta", "models", "x/../../admin?#:generateContent"]).unwrap();
+        assert_eq!(url, "http://127.0.0.1:9/v1beta/models/x%2F..%2F..%2Fadmin%3F%23:generateContent");
+        let url = url_with_segments("https://h/base/", &["v1beta", "models", "gemini-3.1-flash-image:generateContent"]).unwrap();
+        assert_eq!(url, "https://h/base/v1beta/models/gemini-3.1-flash-image:generateContent");
+    }
 }

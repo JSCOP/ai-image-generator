@@ -22,6 +22,10 @@
 | 투명 결과 검사 | `background:"transparent"`이면 크기 맞춤 전 공급자 원본에 완전 투명(α=0) 픽셀이 1개 이상 있어야 하고, 맞춤 후 저장 결과에도 남아 있어야 함. 아니면 재시도하지 않는 `provider` 실패로 기록(`status:"failed"`, 이미지 없음). `contain` 여백은 투명 판정에 넣지 않음. Python에는 없음 | 투명이라고 표시했는데 투명 정보가 없는 결과 방지 (§7.3, 검토 F3) |
 | 크기 맞춤 | `fit:"cover"`(기본, Python과 같은 중앙 자르기) 외에 `contain`(투명 여백). 투명 배경 요청의 기본은 `contain` | 투명 소재가 잘리지 않게 (§7.1, P1-02) |
 | batch 결과 | `stdout_tail`/`stderr_tail` 없음(자식 프로세스 없음). `concurrency`, `retried` 추가. 실패 20건 뒤 시작하지 않은 계획을 `cancelled` 실패로 보고(Python은 결과에서 빠짐). `count`가 1 미만이면 Python `gen_batch.py`처럼 요청 전에 `invalid_request`(상한은 Python처럼 없음) | 프로세스 안 실행, 정직한 결과 |
+| 입력 형식 검사 | `reference_images`(최상위·job)는 없음/`null` 또는 문자열 배열만 허용, 그 밖(문자열 하나 등)은 요청 전에 `invalid_request`(job 값은 그 job의 실패). Python은 `list("a.png")`처럼 글자 단위 경로로 바꿈. `image_model`은 모든 연결 종류에서 영문자·숫자·`.`·`_`·`-`만, `..` 없이 최대 128자. Gemini 주소는 모델 ID를 한 경로 요소로 인코딩해 만듦 | 잘못된 입력이 유료 요청이나 다른 서버 경로로 가지 않게 (검토 F5, F7) |
+| 시간 값 범위 | `job_timeout_sec`/`timeout_sec`/`CLIPROXY_TIMEOUT`은 Python처럼 0 이하이면 제한 없음, 유한하지 않거나 86400초를 넘으면 `invalid_request`(종료 코드 2). `AI_IMAGE_RETRY_BACKOFF_SEC`은 0–600초 숫자만, 아니면 오류 JSON과 종료 코드 1(Python은 숫자가 아니면 시작 시 실패) | panic 없이 구조화된 오류 (검토 F8) |
+| 홈 경로 | `topic_root`와 참조 경로의 `~`, `~/…`, `~이름/…`을 Python `expanduser`와 같이 펼침(Windows `USERPROFILE` → `HOMEDRIVE`+`HOMEPATH`). preset 경로는 Python처럼 펼치지 않음 | 같은 spec이 같은 폴더를 가리키게 (검토 F9) |
+| 실패 순서 | single은 Python처럼 `index` 순, jobs는 `id` 순. batch는 `id` 순(Python `gen_batch.py`는 완료 순서) | 결정적인 결과 (검토 F10) |
 | batch 진행 이벤트 | `mode:"batch"`의 `job_*` 이벤트를 stderr에 냄. Python batch는 이벤트 없음 | 앱 진행 표시 |
 | preset 상대 경로 | 현재 폴더 → 실행 파일 위쪽 폴더 중 그 경로가 있는 곳. Python은 저장소 루트 기준 | 실행 파일이 저장소 밖에 있을 수 있음 |
 | 이미지 픽셀 | 크기와 형식은 같지만 리샘플링 구현(Pillow LANCZOS vs `image` Lanczos3)이 달라 픽셀은 다를 수 있음 | 비결정적 생성 이미지는 바이트 비교 대상이 아님 (§5.3) |

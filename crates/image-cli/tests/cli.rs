@@ -173,3 +173,33 @@ fn key_never_appears_in_any_output() {
     assert!(!record.contains("fake-token"));
     assert!(record.contains("\"failed\""));
 }
+
+#[test]
+fn out_of_range_seconds_give_json_errors_not_panics() {
+    let p = ok_provider();
+    let tmp = tempfile::tempdir().unwrap();
+    let isolated = |cmd: &mut Command| {
+        cmd.env("IMAGE_STUDIO_HOME", tmp.path().join("studio")).env("IMAGE_STUDIO_KEYRING_SERVICE", "ImageStudioTest-g3-seconds");
+    };
+    for value in [json!(1e100), json!("NaN"), json!("inf"), json!(86401)] {
+        for dry in [true, false] {
+            let spec = json!({"prompt": "a mug", "topic": "t", "size": "16x16", "quality": "low", "dry_run": dry,
+                              "job_timeout_sec": value, "topic_root": tmp.path().display().to_string()});
+            let mut cmd = cli(&p.base_url(), tmp.path());
+            isolated(&mut cmd);
+            let out = run_stdin(cmd, &spec.to_string());
+            assert_eq!(out.status.code(), Some(2), "{value}: {}", String::from_utf8_lossy(&out.stderr));
+            let res = last_json(&out);
+            assert_eq!((res["ok"].clone(), res["error_category"].clone()), (json!(false), json!("invalid_request")), "{res}");
+        }
+    }
+    for value in ["1e300", "nan", "-1", "abc"] {
+        let mut cmd = cli(&p.base_url(), tmp.path());
+        isolated(&mut cmd);
+        cmd.env("AI_IMAGE_RETRY_BACKOFF_SEC", value);
+        let out = run_stdin(cmd, &spec(tmp.path(), "b"));
+        assert_eq!(out.status.code(), Some(1), "{value}: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(last_json(&out)["error"].as_str().unwrap().contains("AI_IMAGE_RETRY_BACKOFF_SEC"));
+    }
+    assert_eq!(p.requests().len(), 0);
+}

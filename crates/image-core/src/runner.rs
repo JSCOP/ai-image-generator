@@ -5,7 +5,7 @@ use crate::error::{Category, EngineError};
 use crate::generate::{generate_one, validate_request, JobContext, JobOk, JobSpec};
 use crate::http::Http;
 use crate::normalize::Fit;
-use crate::paths::{absolute, metadata_path, safe_topic_slug, topic_dirs};
+use crate::paths::{absolute, expand_user, metadata_path, safe_topic_slug, topic_dirs};
 use crate::profiles::{GenerationStatus, ProfileStore, ProviderKind};
 use crate::provider::{Action, Background, ImageRequest};
 use crate::secrets::{KeyringStore, MemoryStore, SecretStore};
@@ -25,6 +25,10 @@ pub const DEFAULT_CONCURRENCY: i64 = 30;
 pub const MAX_CONCURRENCY: i64 = 32;
 pub const DEFAULT_RETRIES: i64 = 2;
 pub const MAX_RETRIES: i64 = 5;
+/// Largest accepted `job_timeout_sec` / `CLIPROXY_TIMEOUT` (one day; Python has no limit).
+pub const MAX_JOB_TIMEOUT_SEC: f64 = 86_400.0;
+/// Largest accepted `AI_IMAGE_RETRY_BACKOFF_SEC`; the delay itself is capped at 60 s plus jitter of up to half of it.
+pub const MAX_RETRY_BACKOFF_SEC: f64 = 600.0;
 
 pub type Progress = Arc<dyn Fn(Value) + Send + Sync>;
 
@@ -54,7 +58,8 @@ impl RunOptions {
 /// Reads `AI_IMAGE_RETRY_BACKOFF_SEC` (default 5), the process working directory, the profile folder
 /// (`ProfileStore::default_dir`) and the Credential Manager key store.
 pub async fn run_spec(spec: Value, env: Arc<dyn EnvSource>, progress: Progress, cancel: CancellationToken) -> RunOutcome {
-    let backoff_base_sec = env.process("AI_IMAGE_RETRY_BACKOFF_SEC").and_then(|v| v.trim().parse().ok()).unwrap_or(5.0);
+    // An unreadable value is refused by `run_spec_with` (Python fails at import on it).
+    let backoff_base_sec = env.process("AI_IMAGE_RETRY_BACKOFF_SEC").map(|v| v.trim().parse().unwrap_or(f64::NAN)).unwrap_or(5.0);
     let cwd = std::env::current_dir().unwrap_or_default();
     let mut opts = RunOptions::new(backoff_base_sec, cwd);
     opts.profiles = ProfileStore::default_dir(env.as_ref()).map(|dir| Arc::new(ProfileStore::open(dir)));
@@ -71,6 +76,11 @@ pub async fn run_spec_with(
     cancel: CancellationToken,
     opts: RunOptions,
 ) -> RunOutcome {
+    let backoff = opts.backoff_base_sec;
+    if !(backoff.is_finite() && (0.0..=MAX_RETRY_BACKOFF_SEC).contains(&backoff)) {
+        let error = format!("AI_IMAGE_RETRY_BACKOFF_SEC must be a number of seconds from 0 to {MAX_RETRY_BACKOFF_SEC}");
+        return RunOutcome { result: error_result(&invalid(error)), exit_code: 1 };
+    }
     let Value::Object(spec) = spec else {
         return RunOutcome { result: json!({"ok": false, "error": "spec must be a JSON object"}), exit_code: 1 };
     };
@@ -321,9 +331,14 @@ impl Runner {
         absolute(&if path.is_absolute() { path } else { self.opts.cwd.join(path) })
     }
 
+    /// `resolve_path` after Python's `Path.expanduser()` (`topic_root` and reference images).
+    pub(crate) fn resolve_user_path(&self, value: &str) -> PathBuf {
+        self.resolve_path(&expand_user(value, self.env.as_ref()))
+    }
+
     pub(crate) fn topic_root(&self) -> PathBuf {
         match self.get("topic_root").filter(|v| truthy(Some(v))) {
-            Some(value) => self.resolve_path(&py_str(value)),
+            Some(value) => self.resolve_user_path(&py_str(value)),
             None => absolute(&self.opts.cwd),
         }
     }
@@ -344,7 +359,7 @@ impl Runner {
         let timeout = match &raw {
             Value::Null => None,
             Value::String(s) if s.is_empty() => None,
-            value => Some(number(value).ok_or_else(bad)?).filter(|t| *t > 0.0).map(Duration::from_secs_f64),
+            value => timeout_from(number(value).ok_or_else(bad)?)?,
         };
         let integer = |key: &str, default: i64| match self.spec.get(key) {
             None => Ok(default),
@@ -393,8 +408,16 @@ impl Runner {
         Ok((request, fit))
     }
 
-    pub(crate) fn references(&self, value: Option<&Value>) -> Vec<PathBuf> {
-        value.and_then(Value::as_array).into_iter().flatten().map(|v| self.resolve_path(&py_str(v))).collect()
+    /// `null`/absent → none; otherwise an array of path strings, else `invalid_request` (`location` names the key).
+    pub(crate) fn references(&self, value: Option<&Value>, location: &str) -> Result<Vec<PathBuf>, EngineError> {
+        let bad = || invalid(format!("{location} must be an array of image path strings"));
+        match value {
+            None | Some(Value::Null) => Ok(Vec::new()),
+            Some(Value::Array(items)) => {
+                items.iter().map(|v| v.as_str().map(|path| self.resolve_user_path(path)).ok_or_else(bad)).collect()
+            }
+            Some(_) => Err(bad()),
+        }
     }
 
     pub(crate) fn job_spec(
@@ -445,7 +468,7 @@ impl Runner {
             quality: self.spec.get("quality").map(py_str).unwrap_or_else(|| "high".into()),
             image_model: self.default_image_model(),
             action: or_default(self.spec.get("action"), "generate"),
-            references: self.references(self.spec.get("reference_images")),
+            references: self.references(self.spec.get("reference_images"), "reference_images")?,
             background: self.get("background"),
             fit: self.get("fit"),
         };
@@ -489,6 +512,8 @@ impl Runner {
             }
         }
         outputs.sort();
+        // Python sorts single-mode failures by index, not completion order.
+        failures.sort_by_key(|f| f["index"].as_u64().unwrap_or_default());
         let output_dir = absolute(&output_dir).display().to_string();
         Ok(json!({
             "ok": failures.is_empty(), "mode": "single", "outputs": outputs, "failures": failures,
@@ -534,6 +559,7 @@ impl Runner {
                 return Err(invalid("job IDs collide after filename normalization"));
             }
         }
+        let default_references = self.references(self.spec.get("reference_images"), "reference_images")?;
         let mut items = Vec::new();
         let mut planned = Vec::new();
         let mut failures = Vec::new();
@@ -545,8 +571,8 @@ impl Runner {
             let prompt =
                 [prefix.as_str(), body.as_str(), suffix.as_str()].iter().filter(|p| !p.is_empty()).cloned().collect::<Vec<_>>().join("\n");
             let references = match job.get("reference_images") {
-                Some(Value::Null) | None => self.references(self.spec.get("reference_images")),
-                Some(value) => self.references(Some(value)),
+                Some(Value::Null) | None => Ok(default_references.clone()),
+                Some(value) => self.references(Some(value), &format!("jobs[{idx}].reference_images")),
             };
             let fields = ImageFields {
                 prompt,
@@ -554,12 +580,12 @@ impl Runner {
                 quality: field("quality").map(py_str).unwrap_or_else(|| default_quality.clone()),
                 image_model: field("image_model").map(py_str).unwrap_or_else(|| default_image_model.clone()),
                 action: field("action").map(py_str).unwrap_or_else(|| default_action.clone()),
-                references,
+                references: Vec::new(),
                 background: job.get("background").filter(|v| !v.is_null()).or(self.get("background")),
                 fit: job.get("fit").filter(|v| !v.is_null()).or(self.get("fit")),
             };
             let output = absolute(&output_dir.join(format!("{}.png", safe_topic_slug(&id))));
-            match self.build_request(fields) {
+            match references.and_then(|references| self.build_request(ImageFields { references, ..fields })) {
                 Err(err) => failures.push(json!({"id": id, "index": idx, "reason": err.reason(), "error": err})),
                 Ok(_) if dry_run => planned.push(json!({"id": id, "output": output.display().to_string()})),
                 Ok((request, fit)) => {
@@ -651,6 +677,18 @@ impl Runner {
     }
 }
 
+/// `job_timeout_sec` seconds: `<= 0` disables (Python), non-finite or above `MAX_JOB_TIMEOUT_SEC` is refused.
+fn timeout_from(secs: f64) -> Result<Option<Duration>, EngineError> {
+    let refuse = || invalid(format!("job_timeout_sec must be a finite number of seconds up to {MAX_JOB_TIMEOUT_SEC} (<=0 disables)"));
+    if !secs.is_finite() || secs > MAX_JOB_TIMEOUT_SEC {
+        return Err(refuse());
+    }
+    if secs <= 0.0 {
+        return Ok(None);
+    }
+    Duration::try_from_secs_f64(secs).map(Some).map_err(|_| refuse())
+}
+
 pub(crate) struct StopAfter {
     limit: usize,
     failed: AtomicUsize,
@@ -729,7 +767,7 @@ async fn run_item(
                     "delay_sec": round2(delay), "reason": err.reason()}),
                 );
                 tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_secs_f64(delay)) => {}
+                    _ = tokio::time::sleep(Duration::try_from_secs_f64(delay).unwrap_or(Duration::from_secs(60))) => {}
                     _ = cancel.cancelled() => break Err(EngineError::new(Category::Cancelled, "cancelled")),
                 }
             }
