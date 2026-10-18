@@ -3,7 +3,7 @@
 
 import { cardText, type Card, type CardStatus } from './run';
 import { ENV_NAME } from './connection';
-import type { ConnectionsView, GalleryItem, GenerateInput, ModelView, ReferenceView, ServiceError } from './types';
+import type { ConnectionsView, FolderView, GalleryItem, GenerateInput, ModelView, ReferenceView, ServiceError } from './types';
 
 /** Images per run (service MAX_COUNT). */
 export const MAX_COUNT = 50;
@@ -302,6 +302,17 @@ export function resumeFrom(group: GalleryItem[]): ItemSettings & { count: number
   let count = Math.max(group.length, ...numbers, 1);
   if (numbers.length > 0) count = Math.max(count, 2);
   return { ...formFromItem(first), topic: first.topic, resume: true, count: Math.min(count, MAX_COUNT) };
+}
+
+/** Why "이어서 생성" is not offered for a record outside the work folder. */
+export const RESUME_WORK_DIR_ONLY = '작업 폴더의 기록만 이어서 생성할 수 있습니다. 다른 폴더의 기록은 "이 설정 다시 쓰기"로 새로 만드세요.';
+
+/**
+ * The service always writes into the work folder, so resuming a record of another gallery folder would make every
+ * image again (paid) in a new place. Null when `folder` (GalleryItem.folder) is the work folder's gallery root.
+ */
+export function resumeBlocked(folder: string, folders: FolderView[]): string | null {
+  return folders.some((f) => f.isWorkDir && samePath(f.galleryRoot, folder)) ? null : RESUME_WORK_DIR_ONLY;
 }
 
 // ---- history (right panel) ----

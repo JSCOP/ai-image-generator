@@ -11,6 +11,7 @@ import {
   emptyForm,
   ENV_CHOICE,
   MAX_REFERENCES,
+  resumeBlocked,
   resumeFrom,
   formFromItem,
   toInput,
@@ -18,7 +19,7 @@ import {
   type ItemSettings,
 } from './generateForm';
 import { app, refreshConnections, toast, toastError } from './state.svelte';
-import type { GalleryItem, GenerateInput, ModelView, ReferenceView, RunSummary, ServiceError } from './types';
+import type { FolderView, GalleryItem, GenerateInput, ModelView, ReferenceView, RunSummary, ServiceError } from './types';
 
 export interface RunState {
   runId: string | null;
@@ -43,6 +44,8 @@ export const gen = $state({
   run: null as RunState | null,
   running: false,
   history: [] as GalleryItem[],
+  /** Gallery folders of the last history load (which one is the work folder). */
+  folders: [] as FolderView[],
   historyLoading: false,
   historyError: null as ServiceError | null,
   /** Center view: the run, or a history group key. */
@@ -140,6 +143,7 @@ export async function loadHistory(): Promise<void> {
   try {
     const view = await api.gallery();
     gen.history = view.items;
+    gen.folders = view.folders;
     gen.historyError = null;
   } catch (e) {
     gen.historyError = api.toServiceError(e);
@@ -251,6 +255,11 @@ export function reuseItem(item: GalleryItem): Promise<void> {
 /** "이어서 생성": the same topic with resume, so finished images are kept and only the rest are made. */
 export function resumeGroup(items: GalleryItem[]): Promise<void> {
   if (items.length === 0) return Promise.resolve();
+  const blocked = resumeBlocked(items[0].folder, gen.folders);
+  if (blocked) {
+    toast(blocked, 'warn', 7000);
+    return Promise.resolve();
+  }
   gen.view = 'run';
   return applySettings(resumeFrom(items));
 }

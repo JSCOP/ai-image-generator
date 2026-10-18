@@ -32,15 +32,18 @@
     onclose: () => void;
     onreuse?: (item: GalleryItem) => void;
     onresume?: (item: GalleryItem) => void;
+    /** Why resume is not possible for this record (button disabled, reason shown), or null. */
+    resumeNote?: (item: GalleryItem) => string | null;
     onreference?: (path: string) => void;
   }
 
-  let { entries, index = $bindable(), onclose, onreuse, onresume, onreference }: Props = $props();
+  let { entries, index = $bindable(), onclose, onreuse, onresume, resumeNote, onreference }: Props = $props();
 
   let actual = $state(false);
   let box: HTMLDivElement | undefined = $state();
   const entry = $derived(entries[Math.min(Math.max(index, 0), entries.length - 1)]);
   const item = $derived(entry?.item ?? null);
+  const resumeBlocked = $derived(item && resumeNote ? resumeNote(item) : null);
   const prompt = $derived(splitPrompt(item?.prompt ?? entry?.prompt ?? ''));
 
   $effect(() => {
@@ -150,7 +153,10 @@
           <Button icon="refresh" full onclick={() => item && onreuse(item)}>이 설정 다시 쓰기</Button>
         {/if}
         {#if item && onresume}
-          <Button icon="play" full onclick={() => item && onresume(item)}>이어서 생성</Button>
+          <Button icon="play" full disabled={!!resumeBlocked} title={resumeBlocked ?? undefined} onclick={() => item && onresume(item)}
+            >이어서 생성</Button
+          >
+          {#if resumeBlocked}<p class="note">{resumeBlocked}</p>{/if}
         {/if}
         {#if onreference}
           <Button icon="image" full onclick={() => onreference(entry.imagePath)}>참조로 사용</Button>

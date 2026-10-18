@@ -45,6 +45,7 @@
     MAX_COUNT,
     parseSize,
     QUALITIES,
+    resumeBlocked,
     runCard,
     samePath,
     SIZE_PRESETS,
@@ -72,6 +73,7 @@
   const customCheck = $derived(form.size === CUSTOM_SIZE ? parseSize(form.customSize) : null);
   const groups = $derived(historyGroups(gen.history));
   const group = $derived(gen.view === 'run' ? undefined : groups.find((g) => g.key === gen.view));
+  const groupResumeBlocked = $derived(group ? resumeBlocked(group.folder, gen.folders) : null);
   const run = $derived(gen.run);
 
   const cards: DisplayCard[] = $derived.by(() => {
@@ -354,9 +356,18 @@
         <div class="head-actions">
           {#if run}<Button size="sm" variant="ghost" icon="chevronLeft" onclick={() => (gen.view = 'run')}>현재 실행</Button>{/if}
           <Button size="sm" icon="refresh" disabled={gen.running} onclick={() => reuseItem(group.items[0])}>이 설정 다시 쓰기</Button>
-          <Button size="sm" icon="play" disabled={gen.running} onclick={() => resumeGroup(group.items)}>이어서 생성</Button>
+          <Button
+            size="sm"
+            icon="play"
+            disabled={gen.running || !!groupResumeBlocked}
+            title={groupResumeBlocked ?? undefined}
+            onclick={() => resumeGroup(group.items)}>이어서 생성</Button
+          >
           <Button size="sm" variant="ghost" icon="folder" label="탐색기에서 보기" title="탐색기에서 보기" onclick={() => reveal(group.items[0].imagePath)} />
         </div>
+        {#if groupResumeBlocked}
+          <p class="head-note"><Icon name="info" size={14} />{groupResumeBlocked}</p>
+        {/if}
       </header>
       <div class="grid" style:--cols={aspect > 1.4 ? 'minmax(260px, 1fr)' : 'minmax(200px, 1fr)'}>
         {#each cards as card (card.key)}
@@ -461,6 +472,7 @@
       const g = groupOf(item);
       void resumeGroup(g ? g.items : [item]);
     }}
+    resumeNote={(item) => resumeBlocked(item.folder, gen.folders)}
     onreference={(path) => {
       viewerIndex = null;
       void addReferencePaths([path]);
@@ -657,6 +669,15 @@
     gap: var(--s2) var(--s4);
     padding: var(--s3) var(--s4);
     border-bottom: 1px solid var(--border);
+  }
+  .head-note {
+    flex: 1 0 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--s2);
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
   }
   .title {
     flex: 1 1 220px;

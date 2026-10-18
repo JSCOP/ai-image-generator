@@ -14,6 +14,8 @@ import {
   itemCard,
   MAX_COUNT,
   parseSize,
+  RESUME_WORK_DIR_ONLY,
+  resumeBlocked,
   resumeFrom,
   runCard,
   samePath,
@@ -23,7 +25,7 @@ import {
   toInput,
   type GenerateForm,
 } from './generateForm';
-import type { ConnectionsView, GalleryItem, ModelView, ProfileView, ReferenceView } from './types';
+import type { ConnectionsView, FolderView, GalleryItem, ModelView, ProfileView, ReferenceView } from './types';
 
 const MB = 1024 * 1024;
 
@@ -283,6 +285,19 @@ describe('reusing a record', () => {
     expect(resumeFrom(group)).toMatchObject({ topic: 't', resume: true, count: 4, prompt: '고양이' });
     expect(imageNumber('C:\\x\\t_12.png')).toBe(12);
     expect(imageNumber('C:\\x\\t.png')).toBe(null);
+  });
+
+  it('resume is offered only for records of the work folder gallery', () => {
+    const folders: FolderView[] = [
+      { path: 'C:\\w', galleryRoot: 'C:\\w\\ImageGallery', available: true, isWorkDir: true },
+      { path: 'E:\\old', galleryRoot: 'E:\\old\\ImageGallery', available: true, isWorkDir: false },
+    ];
+    expect(resumeBlocked('C:\\w\\ImageGallery', folders)).toBe(null);
+    expect(resumeBlocked('c:/W/ImageGallery', folders)).toBe(null);
+    expect(resumeBlocked('E:\\old\\ImageGallery', folders)).toBe(RESUME_WORK_DIR_ONLY);
+    // Unknown folder (gallery not loaded yet, or the work folder changed): never resume blindly.
+    expect(resumeBlocked('D:\\x\\ImageGallery', folders)).toBe(RESUME_WORK_DIR_ONLY);
+    expect(resumeBlocked('C:\\w\\ImageGallery', [])).toBe(RESUME_WORK_DIR_ONLY);
   });
 
   it('samePath ignores case and slash direction', () => {
