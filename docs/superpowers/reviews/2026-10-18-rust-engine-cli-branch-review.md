@@ -245,3 +245,47 @@ P1 수정 전에는 저장·투명 동작이 보장되는 완료본으로 판단
 | `python-redirect-matrix.json` | Python 리다이렉트 10개 조합의 별도 검증 |
 
 가짜 공급자가 만든 진단용 이미지는 임시 폴더에서 사용한 뒤 정리됩니다. 다시 볼 실제 이미지 2장은 앞서 적은 `ImageGallery\output` 경로에 그대로 있습니다. 보고서는 커밋하지 않았습니다.
+
+## 9. 조치 결과 (2026-10-19)
+
+**F1–F10 10건 모두 재검사에서 더 이상 재현되지 않습니다.** 대상은 `55a0fff..acb134f` 커밋입니다. 2026-10-18 진단 스크립트를 같은 입력으로 다시 실행했고, 실행 파일은 `acb134f`에서 빌드한 `target\debug\image-cli.exe`입니다. 로컬 가짜 공급자만 사용했고 실제 API 호출은 0건입니다. 바뀐 저장 함수 API에 맞춘 부분은 저장 진단 1개뿐입니다(`finalize_existing(hash)`). 원래 진단 스크립트 2개는 실행 위치와, 개발자 프로필 폴더·키 보관소를 읽지 않도록 하는 환경변수(`IMAGE_STUDIO_HOME`, `IMAGE_STUDIO_KEYRING_SERVICE`)만 추가했습니다.
+
+| 검증 | 결과 |
+|---|---|
+| `cargo test --workspace --offline --locked` | **Rust 175개 통과, 실패 0** |
+| `cargo clippy --workspace --all-targets --offline --locked -- -D warnings` | 경고 없음 |
+| `.venv\Scripts\python.exe -m unittest discover -s tests` | **Python 39개 통과** |
+| `cargo test -p image-cli --test parity -- --nocapture` | 2개 통과(`rust_cli_matches_python_cli`, `rust_cli_matches_python_on_home_paths_and_failure_order`). "skipping parity" 출력이 없어 Python 실행까지 비교한 것으로 확인 |
+
+| ID | 수정 커밋 | 회귀 테스트 | 재검사 결과 |
+|---|---|---|---|
+| F1 | `d097319` | `store::run_that_inspected_before_another_completed_cannot_take_its_output`, `generate::output_locked_by_another_run_is_a_conflict_with_no_request` | **재현 안 됨.** 같은 교차 순서에서 A의 `write_pending`과 `finalize_existing(hash_a)`가 모두 `conflict`로 거부됩니다. 잠금 안의 재검사는 `Mismatch`, `a_request_can_finalize_b_image=false`이고 B의 기록·이미지·SHA-256이 유지됩니다(`storage-race-result.json`) |
+| F2 | `c1dce76` | `batch::batch_passes_background_and_fit_to_provider_and_record`, `batch::batch_rejects_bad_options_before_any_request` | **재현 안 됨.** 투명 batch는 요청 본문에 `background:"transparent"`가 들어가고 기록은 `transparent`·`contain`입니다(불투명 응답이라 F3 검사로 실패 처리). `rainbow`·`stretch`는 공급자 요청 0건, 종료 코드 2입니다 |
+| F3 | `c1dce76` | `generate::transparent_request_with_opaque_provider_image_fails`(RGB·불투명 RGBA·contain 여백 3가지), `generate::transparent_request_fails_when_fitting_removes_every_transparent_pixel`, `generate::transparent_request_with_real_transparent_pixels_succeeds` | **재현 안 됨.** 불투명 응답은 종료 코드 2, `ok=false`, `category=provider`, `retryable=false`, 기록 `failed`, 저장 이미지 0장입니다 |
+| F4 | `d097319` | `generate::resume_with_corrupt_record_fails_without_reuse_or_request`, `store::unreadable_or_unparsable_record_is_corrupt_not_legacy`, `store::finalize_refuses_a_corrupt_record` | **재현 안 됨.** `{broken` 기록 + 다른 프롬프트로 resume하면 새 요청 0건, `conflict`("existing record is damaged"), 기존 이미지는 재사용하지 않고 그대로 둡니다 |
+| F5 | `5b4a6f8` | `input_contract::single_reference_images_string_is_refused_without_a_request`, `input_contract::jobs_reference_images_must_be_arrays` | **재현 안 됨.** `reference_images:"missing.png"`는 요청 0건, `invalid_request`입니다 |
+| F6 | `c1dce76` | `batch::batch_rejects_bad_options_before_any_request`(count 0, -3, 0.5, 1e100) | **재현 안 됨.** batch `count:0`은 요청 0건, "count must be at least 1 when mode=batch"입니다 |
+| F7 | `5b4a6f8` | `input_contract::path_changing_model_ids_make_no_request`, `adapter::tests::segments_cannot_change_the_path` | **재현 안 됨.** `gemini-image/../../../admin/restart#`는 요청 0건이며 모델 ID 형식 오류입니다. `/admin/restart` POST가 발생하지 않습니다 |
+| F8 | `5b4a6f8`, `d0a70c0`(single `count` 후속) | `cli::out_of_range_seconds_give_json_errors_not_panics`, `input_contract::job_timeout_out_of_range_is_invalid_request`, `input_contract::backoff_out_of_range_is_refused_before_any_request`, `cli::huge_single_count_is_invalid_request_not_a_panic` | **재현 안 됨.** `job_timeout_sec:1e100` dry-run은 panic(101) 없이 JSON 오류와 종료 코드 2입니다. single `count` 1001·1e300도 JSON 오류입니다 |
+| F9 | `5b4a6f8` | `input_contract::tilde_topic_root_and_references_expand_to_home`, `input_contract::expand_user_follows_python`, `parity::rust_cli_matches_python_on_home_paths_and_failure_order` | **재현 안 됨.** `topic_root:"~/Pictures"` dry-run 결과가 Rust·Python 모두 `C:\Users\js\Pictures\ImageGallery\output\path-review`입니다 |
+| F10 | `5b4a6f8` | `input_contract::single_failures_are_sorted_by_index`, `parity::rust_cli_matches_python_on_home_paths_and_failure_order` | **재현 안 됨.** 응답 지연을 역순으로 준 경우(기존 `[2,1,3]` 재현 조건)와 후속 진단 3회 모두 `[1,2,3]`입니다 |
+
+2단계 최종 검토의 사소한 지적 중 함께 고친 것(`4cce622`, `036b3d2`, `b1fbfff`, `8e27921`, `fd6bd4b`, `acb134f`):
+
+- OpenAI 공식 프로필에서 공식 ID가 아닌 `gpt-image-2.5`를 몰래 바꾸지 않고 `-sunburst`/`-flare`를 쓰라는 오류로 거부합니다. xAI는 `grok-imagine-image*`만 받습니다.
+- Gemini 주소에 `/v1beta`가 있으면 고쳐 쓰지 않고 "호스트 주소만 입력" 오류를 냅니다. 후보 없는 `promptFeedback.blockReason` 응답은 재시도하지 않는 `provider` 오류입니다.
+- 손으로 고친 `profiles.json`도 읽을 때 항목별로 다시 검사합니다. 목록에 없는 기본 프로필은 "기본 없음"으로 읽습니다.
+- `profile check`는 401만 키 거부로 봅니다. `status.json`의 마지막 생성 결과는 성공과 403/402/429 응답만 갱신합니다. 결과 기록에 `profile_id`가 남습니다. 자격 증명 관리자의 길이 초과 오류에서 어느 속성이 문제인지 구분합니다.
+- CLI·동등성 테스트가 개발자 프로필 폴더와 자격 증명 관리자를 읽지 않습니다.
+- `profile add --default`와 `profile update --key-stdin/--key-env`는 실패하면 아무것도 바뀌지 않습니다.
+- 터미널에서 직접 입력한 `--key-stdin`은 키가 화면에 보이지 않도록 거부합니다.
+- `--list-models`는 성공과 실패 때 같은 키를 냅니다.
+- README와 설계서에 키가 꼭 필요한 프로필 종류와 grok 참조 장수 근거를 적었습니다.
+
+재검사 자료: `E:\ai-image-generator\ImageGallery\metadata\rust-branch-review-20261019-recheck`(`offline-probe-results.json`, `contract-followup-results.json`, `storage-race-result.json`, `storage-probe\`, `cargo-test.log`, `clippy.log`, `parity.log`, `python-unittest.log`). 2026-10-18 자료는 바꾸지 않았습니다.
+
+남은 사항(병합을 막지 않는 수준):
+
+- batch `count`는 Python처럼 상한이 없습니다. dry-run에서 1,000개는 1.6MB 결과를 바로 냈지만, 200,000개는 60초 안에 끝나지 않았습니다(232MB 출력 중 중단). 실제 실행에서 오타로 큰 값을 넣으면 그만큼 유료 요청을 보냅니다. single은 1000으로 제한하므로 두 모드의 기준이 다릅니다.
+- 투명 요청에 불투명 결과가 오면 실패로 기록하고 이미지를 저장하지 않습니다. 비용은 이미 발생했고 받은 이미지는 남지 않습니다. 설계 §7.3은 "모델이 투명을 적용하지 않음" 표시와 배경 제거 제안을 요구하므로, 4단계에서 배경 제거를 붙일 때 이 결과를 보존할지 다시 정해야 합니다.
+- `docs/RUST_PARITY.md`의 resume 행은 손상 기록을 모두 `conflict`로 적었습니다. 실제로는 이미지가 없으면 진행해 새 pending 기록으로 덮어씁니다(진행 기록 G1 판정). 문서에 이 조건을 덧붙이면 정확해집니다.
