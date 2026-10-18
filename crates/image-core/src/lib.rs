@@ -8,3 +8,4 @@ pub mod normalize;
 pub mod paths;
 pub mod provider;
 pub mod size;
+pub mod store;
