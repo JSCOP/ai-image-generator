@@ -1,0 +1,13 @@
+[package]
+name = "test-fixture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tiny_http = { workspace = true }
+image = { workspace = true }
+base64 = { workspace = true }
+serde_json = { workspace = true }
+image-core = { workspace = true }

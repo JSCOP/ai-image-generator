@@ -1,0 +1,21 @@
+[package]
+name = "image-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "image-cli"
+path = "src/main.rs"
+
+[dependencies]
+image-core = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+test-fixture = { workspace = true }
+tempfile = { workspace = true }
+image = { workspace = true }
