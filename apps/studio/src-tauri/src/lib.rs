@@ -23,6 +23,9 @@ macro_rules! handlers {
             commands::list_models,
             commands::start_generation,
             commands::cancel_generation,
+            commands::gallery,
+            commands::add_gallery_folder,
+            commands::remove_gallery_folder,
         ]
     };
 }
@@ -37,6 +40,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(state::AppState::system())
         .invoke_handler(handlers!())
+        .setup(|app| {
+            // Images of the registered galleries may show from the start.
+            let settings = service::settings::load_settings(&app.state::<state::AppState>().ctx.home);
+            commands::allow_galleries(app.handle(), &settings);
+            Ok(())
+        })
         .on_window_event(|window, event| {
             // Closing the window cancels every run and waits (bounded) until they have released their locks.
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -117,6 +126,43 @@ mod tests {
         let guard = app.state::<AppState>().runs.register("run-1");
         assert_eq!(invoke(&webview, "cancel_generation", json!({"runId": "run-1"})).unwrap(), true);
         assert!(guard.token().is_cancelled());
+    }
+
+    #[test]
+    fn gallery_commands_list_register_and_allow_folders_for_the_asset_protocol() {
+        let home = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (app, webview) = app(home.path(), Arc::new(MemoryStore::new()));
+        let work = dir.path().join("work");
+        let records = work.join("ImageGallery").join("metadata").join("t");
+        std::fs::create_dir_all(&records).unwrap();
+        std::fs::write(records.join("a.png.json"), json!({"prompt": "고양이", "output": "a.png"}).to_string()).unwrap();
+        let settings = json!({"workDir": work, "galleryFolders": []});
+        invoke(&webview, "save_settings", json!({ "settings": settings })).unwrap();
+
+        let view = invoke(&webview, "gallery", json!({})).unwrap();
+        assert_eq!(view["items"][0]["prompt"], "고양이");
+        assert_eq!(view["items"][0]["status"], "missing");
+        assert_eq!(view["folders"][0]["isWorkDir"], true);
+        assert_eq!(view["truncated"], false);
+        let image = work.join("ImageGallery").join("output").join("t").join("a.png");
+        assert!(app.asset_protocol_scope().is_allowed(&image), "listing allows the work folder's gallery");
+        assert_eq!(invoke(&webview, "gallery", json!({"limit": 0})).unwrap()["truncated"], true);
+
+        let project = dir.path().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let outside = project.join("ImageGallery").join("output").join("p").join("b.png");
+        assert!(!app.asset_protocol_scope().is_allowed(&outside));
+        let saved = invoke(&webview, "add_gallery_folder", json!({ "path": project })).unwrap();
+        assert_eq!(saved["galleryFolders"], json!([project]));
+        assert!(app.asset_protocol_scope().is_allowed(&outside), "adding a folder allows its gallery");
+
+        let err = invoke(&webview, "add_gallery_folder", json!({"path": dir.path().join("nowhere")})).unwrap_err();
+        assert_eq!(err["category"], "not_found");
+        let saved = invoke(&webview, "remove_gallery_folder", json!({ "path": project })).unwrap();
+        assert_eq!(saved["galleryFolders"], json!([]));
+        let err = invoke(&webview, "remove_gallery_folder", json!({ "path": work })).unwrap_err();
+        assert_eq!(err["category"], "invalid_request");
     }
 
     #[test]

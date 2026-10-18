@@ -1,5 +1,6 @@
 //! App services over `image-core`: plain Rust, no Tauri types, tested with fakes.
 
+pub mod gallery;
 pub mod generate;
 pub mod profiles;
 pub mod settings;

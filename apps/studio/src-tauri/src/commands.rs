@@ -6,8 +6,9 @@ use image_core::check::ConnectionReport;
 use image_core::error::Category;
 use serde::Serialize;
 use tauri::ipc::Channel;
-use tauri::State;
+use tauri::{AppHandle, Manager, Runtime, State};
 
+use crate::service::gallery::{self, GalleryView};
 use crate::service::generate::{self, GenerateInput, RunEvent, RunSummary};
 use crate::service::profiles::{self, ConnectionsView, ModelView, ProfileInput, ProfileView};
 use crate::service::settings::{self, default_work_dir, Settings};
@@ -113,6 +114,53 @@ pub async fn start_generation(
 #[tauri::command]
 pub fn cancel_generation(state: State<'_, AppState>, run_id: String) -> bool {
     state.runs.cancel(&run_id)
+}
+
+/// Lets the webview load images (asset protocol) from every registered gallery; repeats are harmless (a set).
+pub fn allow_galleries<R: Runtime>(app: &AppHandle<R>, settings: &Settings) {
+    for root in gallery::gallery_roots(settings) {
+        // A path the scope cannot hold only means its images do not show.
+        let _ = app.asset_protocol_scope().allow_directory(&root, true);
+    }
+}
+
+/// Newest records of the work folder and the registered folders (default limit 2000).
+#[tauri::command]
+pub async fn gallery<R: Runtime>(app: AppHandle<R>, state: State<'_, AppState>, limit: Option<usize>) -> Result<GalleryView, ServiceError> {
+    let home = state.ctx.home.clone();
+    let settings = blocking(move || Ok(settings::load_settings(&home))).await?;
+    allow_galleries(&app, &settings);
+    blocking(move || Ok(gallery::gallery(&settings, limit.unwrap_or(gallery::DEFAULT_LIMIT)))).await
+}
+
+/// Registers a folder; returns the saved settings.
+#[tauri::command]
+pub async fn add_gallery_folder<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    path: PathBuf,
+) -> Result<Settings, ServiceError> {
+    let home = state.ctx.home.clone();
+    let lock = state.settings_lock.clone();
+    let settings = blocking(move || {
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        gallery::add_folder(&home, &path)
+    })
+    .await?;
+    allow_galleries(&app, &settings);
+    Ok(settings)
+}
+
+/// Unregisters a folder (never the work folder); returns the saved settings.
+#[tauri::command]
+pub async fn remove_gallery_folder(state: State<'_, AppState>, path: PathBuf) -> Result<Settings, ServiceError> {
+    let home = state.ctx.home.clone();
+    let lock = state.settings_lock.clone();
+    blocking(move || {
+        let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+        gallery::remove_folder(&home, &path)
+    })
+    .await
 }
 
 #[tauri::command]
