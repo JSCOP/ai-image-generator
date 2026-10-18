@@ -29,6 +29,7 @@
     lock: 'M6 11h12v9H6z M8.5 11V8a3.5 3.5 0 0 1 7 0v3',
     edit: 'M4 20h4L19 9l-4-4L4 16z M13.5 6.5l4 4',
     terminal: 'M4 5h16v14H4z M7.5 9.5l3 2.5-3 2.5 M12.5 15h4',
+    search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4',
   } as const;
 
   export type IconName = keyof typeof PATHS;

@@ -11,7 +11,8 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function dayNumber(d: Date): number {
+/** Local calendar day number (days since the epoch). */
+export function dayNumber(d: Date): number {
   // Local calendar day, independent of DST hour shifts.
   return Math.round(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 86_400_000);
 }

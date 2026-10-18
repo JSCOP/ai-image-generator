@@ -68,6 +68,8 @@
   button {
     flex: 1;
     height: 34px;
+    padding: 0 var(--s3);
+    white-space: nowrap;
     border: 0;
     border-radius: var(--radius-sm);
     background: transparent;
