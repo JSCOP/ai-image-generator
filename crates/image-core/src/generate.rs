@@ -1,12 +1,13 @@
 //! One image, end to end: validate → resume check → reserve → call → fit → publish.
 
-use crate::catalog::{backend, supports_native_transparency, supports_references, Backend};
+use crate::adapter::{check_request, model_supported};
 use crate::connection::Connection;
 use crate::error::{Category, EngineError};
 use crate::http::Http;
 use crate::normalize::{alpha_stats, normalize, Fit};
 use crate::paths::absolute;
-use crate::provider::{build_call, classify_http_error, extract_image, Action, Background, ImageRequest};
+use crate::profiles::ProviderKind;
+use crate::provider::{build_call, classify_http_error, extract_image, ImageRequest};
 use crate::store::{inspect_existing, request_hash, reserve, Existing, Record, Reservation};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -39,16 +40,9 @@ pub enum JobOk {
 }
 
 /// Checks that need no network; anything failing here costs nothing.
-pub fn validate_request(req: &ImageRequest) -> Result<(), EngineError> {
-    if backend(&req.image_model) == Backend::Unsupported {
-        return Err(EngineError::new(
-            Category::Unsupported,
-            format!(
-                "{} is not an image model this CLI can call (gpt-image-*, gemini-*-image, grok-imagine-*); the legacy Responses API path was removed",
-                req.image_model
-            ),
-        ));
-    }
+/// Capabilities follow the connection kind (spec §6.3), so a kind–model mismatch never reaches the provider.
+pub fn validate_request(kind: ProviderKind, req: &ImageRequest) -> Result<(), EngineError> {
+    model_supported(kind, &req.image_model)?;
     for path in &req.references {
         if !path.is_file() {
             return Err(EngineError::new(Category::InvalidRequest, format!("reference image not found: {}", path.display())));
@@ -59,28 +53,7 @@ pub fn validate_request(req: &ImageRequest) -> Result<(), EngineError> {
             return Err(EngineError::new(Category::InvalidRequest, format!("reference image is not a readable image: {}", path.display())));
         }
     }
-    if !req.references.is_empty() && !supports_references(&req.image_model) {
-        return Err(EngineError::new(
-            Category::Unsupported,
-            format!(
-                "{} reference-image editing is not yet supported by this CLI; use a Gemini image model or gpt-image model",
-                req.image_model
-            ),
-        ));
-    }
-    if req.action == Action::Edit && req.references.is_empty() && req.image_model.to_lowercase().starts_with("gpt-image-") {
-        return Err(EngineError::new(Category::InvalidRequest, "GPT image edits require at least one reference image"));
-    }
-    if req.background == Background::Transparent && !supports_native_transparency(&req.image_model) {
-        return Err(EngineError::new(
-            Category::Unsupported,
-            format!(
-                "background \"transparent\" needs a model with native transparency (gpt-image-2.5-sunburst or gpt-image-2.5-flare); {} does not support it",
-                req.image_model
-            ),
-        ));
-    }
-    Ok(())
+    check_request(kind, req)
 }
 
 /// Python `{seconds:g}`: `0.2` → "0.2", `600.0` → "600".
@@ -95,7 +68,7 @@ pub fn format_seconds(duration: Duration) -> String {
 
 pub async fn generate_one(ctx: &JobContext, job: &JobSpec, cancel: &CancellationToken) -> Result<JobOk, EngineError> {
     let req = &job.request;
-    validate_request(req)?;
+    validate_request(ctx.conn.kind, req)?;
     let hash = request_hash(req, job.fit)?;
     match inspect_existing(&job.output, job.record.as_deref(), &hash) {
         Existing::Absent => {}
@@ -169,13 +142,13 @@ fn finish(reservation: Reservation, record: Record, outcome: Result<Vec<u8>, Eng
 /// Provider call through fitting; fills the record's provider-derived fields.
 async fn produce(ctx: &JobContext, job: &JobSpec, record: &mut Record) -> Result<Vec<u8>, EngineError> {
     let req = &job.request;
-    let call = build_call(&ctx.conn.base_url, req)?;
+    let call = build_call(&ctx.conn, req)?;
     let key = ctx.conn.api_key.as_ref();
     let (status, body) = ctx.http.post_json(&call.url, &call.body, ctx.conn.auth()).await?;
     if status != 200 {
         return Err(classify_http_error(status, &body, key));
     }
-    let (bytes, response_model) = extract_image(&call.backend, &body)?;
+    let (bytes, response_model) = extract_image(ctx.conn.kind, &call.backend, &body)?;
     record.response_model = response_model;
     let (target, fit) = (req.size, job.fit);
     let (normalized, alpha) = tokio::task::spawn_blocking(move || {

@@ -2,6 +2,7 @@ use image_core::catalog::Backend;
 use image_core::connection::{Connection, Secret};
 use image_core::error::Category;
 use image_core::http::Http;
+use image_core::profiles::ProviderKind;
 use image_core::provider::{build_call, classify_http_error, extract_image, list_models, Action, Background, ImageRequest};
 use image_core::size::parse_size;
 use serde_json::json;
@@ -21,6 +22,11 @@ fn req(model: &str, size: &str, references: Vec<PathBuf>) -> ImageRequest {
     }
 }
 
+/// Stage 1 CLIProxyAPI connection; these tests pin its unchanged behaviour.
+fn proxy() -> Connection {
+    Connection::cliproxy("http://h/v1".into(), None, "process_env")
+}
+
 fn png_ref(dir: &tempfile::TempDir) -> PathBuf {
     let path = dir.path().join("ref.png");
     std::fs::write(&path, png_bytes(8, 8, [1, 2, 3, 255])).unwrap();
@@ -29,7 +35,7 @@ fn png_ref(dir: &tempfile::TempDir) -> PathBuf {
 
 #[test]
 fn openai_generation_payload_matches_python() {
-    let call = build_call("http://h/v1", &req("gpt-image-2.5", "1000x1000", vec![])).unwrap();
+    let call = build_call(&proxy(), &req("gpt-image-2.5", "1000x1000", vec![])).unwrap();
     assert_eq!(call.url, "http://h/v1/images/generations");
     assert_eq!(call.body, json!({"model":"gpt-image-2.5","prompt":"p","n":1,"size":"1008x1008","quality":"high","output_format":"png"}));
     assert_eq!(call.backend, Backend::OpenAiImages);
@@ -40,7 +46,7 @@ fn gpt_edit_uses_images_data_urls() {
     let dir = tempfile::tempdir().unwrap();
     let mut r = req("gpt-image-2.5", "1024x1024", vec![png_ref(&dir)]);
     r.action = Action::Edit;
-    let call = build_call("http://h/v1", &r).unwrap();
+    let call = build_call(&proxy(), &r).unwrap();
     assert_eq!(call.url, "http://h/v1/images/edits");
     let url = call.body["images"][0]["image_url"].as_str().unwrap();
     assert_eq!(url, format!("data:image/png;base64,{}", b64(&png_bytes(8, 8, [1, 2, 3, 255]))));
@@ -50,39 +56,39 @@ fn gpt_edit_uses_images_data_urls() {
 fn gpt_edit_without_reference_is_rejected() {
     let mut r = req("gpt-image-2.5", "1024x1024", vec![]);
     r.action = Action::Edit;
-    let err = build_call("http://h/v1", &r).unwrap_err();
+    let err = build_call(&proxy(), &r).unwrap_err();
     assert_eq!(err.category, Category::InvalidRequest);
     assert_eq!(err.message, "GPT image edits require at least one reference image");
 }
 
 #[test]
 fn grok_payload_uses_b64_json_and_rejects_references() {
-    let call = build_call("http://h/v1", &req("grok-imagine-image-2.0", "1024x1024", vec![])).unwrap();
+    let call = build_call(&proxy(), &req("grok-imagine-image-2.0", "1024x1024", vec![])).unwrap();
     assert_eq!(call.url, "http://h/v1/images/generations");
     assert_eq!(call.body["response_format"], "b64_json");
     assert!(call.body.get("output_format").is_none());
     let dir = tempfile::tempdir().unwrap();
-    let err = build_call("http://h/v1", &req("grok-imagine-image-2.0", "1024x1024", vec![png_ref(&dir)])).unwrap_err();
+    let err = build_call(&proxy(), &req("grok-imagine-image-2.0", "1024x1024", vec![png_ref(&dir)])).unwrap_err();
     assert_eq!(err.category, Category::Unsupported);
 }
 
 #[test]
 fn transparent_background_is_sent_only_when_requested() {
     let mut r = req("gpt-image-2.5-sunburst", "1024x1024", vec![]);
-    assert!(build_call("http://h/v1", &r).unwrap().body.get("background").is_none());
+    assert!(build_call(&proxy(), &r).unwrap().body.get("background").is_none());
     r.background = Background::Transparent;
-    assert_eq!(build_call("http://h/v1", &r).unwrap().body["background"], "transparent");
+    assert_eq!(build_call(&proxy(), &r).unwrap().body["background"], "transparent");
     r.background = Background::Opaque;
-    assert_eq!(build_call("http://h/v1", &r).unwrap().body["background"], "opaque");
+    assert_eq!(build_call(&proxy(), &r).unwrap().body["background"], "opaque");
     let mut g = req("gemini-3.1-flash-image", "1024x1024", vec![]);
     g.background = Background::Opaque;
-    assert!(build_call("http://h/v1", &g).unwrap().body.get("background").is_none());
+    assert!(build_call(&proxy(), &g).unwrap().body.get("background").is_none());
 }
 
 #[test]
 fn gemini_payload_and_url() {
     let dir = tempfile::tempdir().unwrap();
-    let call = build_call("http://h/v1", &req("gemini-3.1-flash-image", "1920x1080", vec![png_ref(&dir)])).unwrap();
+    let call = build_call(&proxy(), &req("gemini-3.1-flash-image", "1920x1080", vec![png_ref(&dir)])).unwrap();
     assert_eq!(call.url, "http://h/v1beta/models/gemini-3.1-flash-image:generateContent");
     assert_eq!(call.body["generationConfig"]["imageConfig"], json!({"aspectRatio":"16:9","imageSize":"2K"}));
     assert_eq!(call.body["generationConfig"]["responseModalities"], json!(["IMAGE", "TEXT"]));
@@ -93,7 +99,7 @@ fn gemini_payload_and_url() {
 
 #[test]
 fn unsupported_model_is_rejected() {
-    let err = build_call("http://h/v1", &req("gpt-5.5", "1024x1024", vec![])).unwrap_err();
+    let err = build_call(&proxy(), &req("gpt-5.5", "1024x1024", vec![])).unwrap_err();
     assert_eq!(err.category, Category::Unsupported);
     assert!(err.message.contains("Responses API path was removed"));
 }
@@ -101,18 +107,18 @@ fn unsupported_model_is_rejected() {
 #[test]
 fn extracts_both_shapes() {
     let png = png_bytes(4, 4, [9, 9, 9, 255]);
-    let (bytes, model) = extract_image(&Backend::OpenAiImages, &openai_image_reply(&png).body).unwrap();
+    let (bytes, model) = extract_image(ProviderKind::Cliproxy, &Backend::OpenAiImages, &openai_image_reply(&png).body).unwrap();
     assert_eq!((bytes, model.as_deref()), (png.clone(), Some("gpt-image-test")));
-    let (bytes, model) = extract_image(&Backend::Gemini, &gemini_image_reply(&png, "gemini-x").body).unwrap();
+    let (bytes, model) = extract_image(ProviderKind::Cliproxy, &Backend::Gemini, &gemini_image_reply(&png, "gemini-x").body).unwrap();
     assert_eq!((bytes, model.as_deref()), (png.clone(), Some("gemini-x")));
     let snake = json!({"candidates":[{"content":{"parts":[{"text":"hi"},{"inline_data":{"mime_type":"image/png","data": b64(&png)}}]}}]});
-    assert_eq!(extract_image(&Backend::Gemini, snake.to_string().as_bytes()).unwrap().0, png);
+    assert_eq!(extract_image(ProviderKind::Cliproxy, &Backend::Gemini, snake.to_string().as_bytes()).unwrap().0, png);
 }
 
 #[test]
 fn non_image_200_is_retryable_provider_error() {
     for body in [&b"<html>oops</html>"[..], br#"{"data":[]}"#, br#"{"data":[{"b64_json":"%%%not base64"}]}"#] {
-        let err = extract_image(&Backend::OpenAiImages, body).unwrap_err();
+        let err = extract_image(ProviderKind::Cliproxy, &Backend::OpenAiImages, body).unwrap_err();
         assert_eq!(err.category, Category::Provider);
         assert!(err.retryable);
     }

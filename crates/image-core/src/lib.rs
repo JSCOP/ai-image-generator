@@ -1,5 +1,6 @@
 //! Image generation engine shared by `image-cli` and the Studio app.
 
+pub mod adapter;
 pub mod batch;
 pub mod catalog;
 pub mod connection;

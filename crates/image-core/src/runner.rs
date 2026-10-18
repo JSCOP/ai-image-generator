@@ -6,6 +6,7 @@ use crate::generate::{generate_one, validate_request, JobContext, JobOk, JobSpec
 use crate::http::Http;
 use crate::normalize::Fit;
 use crate::paths::{absolute, metadata_path, safe_topic_slug, topic_dirs};
+use crate::profiles::ProviderKind;
 use crate::provider::{Action, Background, ImageRequest};
 use crate::size::parse_size;
 use crate::store::{inspect_existing, request_hash, Existing};
@@ -307,7 +308,8 @@ impl Runner {
             references: fields.references,
             background,
         };
-        validate_request(&request)?;
+        // Stage 1 connections are CLIProxyAPI only; generate_one re-checks against the resolved kind.
+        validate_request(ProviderKind::Cliproxy, &request)?;
         Ok((request, fit))
     }
 

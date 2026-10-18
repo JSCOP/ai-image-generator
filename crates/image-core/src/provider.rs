@@ -1,12 +1,14 @@
-//! Provider request bodies, response parsing and HTTP error classification (`scripts/gen_image.py`).
+//! Request types, HTTP error classification (`scripts/gen_image.py`) and the per-kind entry points in `adapter`.
 
-use crate::catalog::{backend, Backend};
+use crate::adapter;
+use crate::catalog::Backend;
 use crate::connection::{Connection, Secret};
 use crate::error::{redact, Category, EngineError};
 use crate::http::Http;
-use crate::size::{gemini_aspect_ratio, gemini_image_size, Size};
+use crate::profiles::ProviderKind;
+use crate::size::Size;
 use base64::Engine;
-use serde_json::{json, Map, Value};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -89,117 +91,20 @@ pub fn mime_type(path: &Path) -> &'static str {
     }
 }
 
-fn read_reference(path: &Path) -> Result<String, EngineError> {
+pub(crate) fn read_reference(path: &Path) -> Result<String, EngineError> {
     let bytes = std::fs::read(path)
         .map_err(|e| EngineError::new(Category::InvalidRequest, format!("reference image not readable: {}: {e}", path.display())))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-fn root_base_url(base_url: &str) -> &str {
-    base_url.strip_suffix("/v1").unwrap_or(base_url)
+/// Request for this connection's kind; see `adapter::build_call`.
+pub fn build_call(conn: &Connection, req: &ImageRequest) -> Result<ProviderCall, EngineError> {
+    adapter::build_call(conn, req)
 }
 
-pub fn build_call(base_url: &str, req: &ImageRequest) -> Result<ProviderCall, EngineError> {
-    match backend(&req.image_model) {
-        Backend::Gemini => build_gemini(base_url, req),
-        Backend::OpenAiImages => build_openai_images(base_url, req),
-        Backend::Unsupported => Err(EngineError::new(
-            Category::Unsupported,
-            format!(
-                "{} is not an image model this CLI can call (gpt-image-*, gemini-*-image, grok-imagine-*); the legacy Responses API path was removed",
-                req.image_model
-            ),
-        )),
-    }
-}
-
-fn build_gemini(base_url: &str, req: &ImageRequest) -> Result<ProviderCall, EngineError> {
-    let mut parts = vec![json!({"text": req.prompt})];
-    for path in &req.references {
-        parts.push(json!({"inlineData": {"mimeType": mime_type(path), "data": read_reference(path)?}}));
-    }
-    let body = json!({
-        "contents": [{"role": "user", "parts": parts}],
-        "generationConfig": {
-            "responseModalities": ["IMAGE", "TEXT"],
-            "imageConfig": {"aspectRatio": gemini_aspect_ratio(req.size), "imageSize": gemini_image_size(req.size)},
-        },
-    });
-    let url = format!("{}/v1beta/models/{}:generateContent", root_base_url(base_url), req.image_model);
-    Ok(ProviderCall { url, body, backend: Backend::Gemini })
-}
-
-fn build_openai_images(base_url: &str, req: &ImageRequest) -> Result<ProviderCall, EngineError> {
-    let is_gpt = req.image_model.to_lowercase().starts_with("gpt-image-");
-    if !req.references.is_empty() && !is_gpt {
-        return Err(EngineError::new(
-            Category::Unsupported,
-            format!(
-                "{} reference-image editing is not yet supported by this CLI; use a Gemini image model or gpt-image model",
-                req.image_model
-            ),
-        ));
-    }
-    if is_gpt && req.action == Action::Edit && req.references.is_empty() {
-        return Err(EngineError::new(Category::InvalidRequest, "GPT image edits require at least one reference image"));
-    }
-    let mut body = Map::new();
-    body.insert("model".into(), json!(req.image_model));
-    body.insert("prompt".into(), json!(req.prompt));
-    body.insert("n".into(), json!(1));
-    body.insert("size".into(), json!(req.size.padded16().to_string()));
-    body.insert("quality".into(), json!(req.quality));
-    if is_gpt {
-        body.insert("output_format".into(), json!("png"));
-        if req.background != Background::Auto {
-            body.insert("background".into(), json!(req.background.as_str()));
-        }
-        if !req.references.is_empty() {
-            let images = req
-                .references
-                .iter()
-                .map(|p| Ok(json!({"image_url": format!("data:{};base64,{}", mime_type(p), read_reference(p)?)})))
-                .collect::<Result<Vec<_>, EngineError>>()?;
-            body.insert("images".into(), Value::Array(images));
-        }
-    } else {
-        body.insert("response_format".into(), json!("b64_json"));
-    }
-    let endpoint = if is_gpt && !req.references.is_empty() { "edits" } else { "generations" };
-    Ok(ProviderCall { url: format!("{base_url}/images/{endpoint}"), body: Value::Object(body), backend: Backend::OpenAiImages })
-}
-
-/// Image bytes and the provider's reported model (`model` or Gemini `modelVersion`).
-pub fn extract_image(backend: &Backend, body: &[u8]) -> Result<(Vec<u8>, Option<String>), EngineError> {
-    let no_image = || EngineError::new(Category::Provider, "No image data found in provider response.");
-    let response: Value = serde_json::from_slice(body).map_err(|_| no_image())?;
-    let (encoded, model) = match backend {
-        Backend::Gemini => {
-            let parts = response["candidates"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .flat_map(|c| c["content"]["parts"].as_array().into_iter().flatten());
-            let data = parts
-                .filter_map(|p| p.get("inlineData").or_else(|| p.get("inline_data")))
-                .find_map(|inline| inline["data"].as_str().map(str::to_string));
-            (data, response["modelVersion"].as_str())
-        }
-        _ => {
-            let data = response["data"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .find_map(|item| item["b64_json"].as_str().filter(|s| !s.is_empty()).map(str::to_string));
-            (data, response["model"].as_str())
-        }
-    };
-    let encoded = encoded.ok_or_else(no_image)?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(encoded.trim())
-        .map_err(|_| EngineError::new(Category::Provider, "provider image data is not valid base64"))?;
-    let model = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_string);
-    Ok((bytes, model))
+/// Image bytes and the provider's reported model; see `adapter::extract_image`.
+pub fn extract_image(kind: ProviderKind, backend: &Backend, body: &[u8]) -> Result<(Vec<u8>, Option<String>), EngineError> {
+    adapter::extract_image(kind, backend, body)
 }
 
 const QUOTA_MARKERS: [&str; 3] = ["spending-limit", "quota", "billing"];
@@ -233,19 +138,7 @@ pub fn classify_http_error(status: u16, body: &[u8], key: Option<&Secret>) -> En
     EngineError { category, provider_code: provider_code.map(|c| redact(&c, key)), http_status: Some(status), retryable, message }
 }
 
-/// `GET <base>/models` ids (at most 1000).
+/// Model ids for this connection's kind; see `adapter::list_models`.
 pub async fn list_models(http: &Http, conn: &Connection) -> Result<Vec<String>, EngineError> {
-    let (status, body) = http.get(&format!("{}/models", conn.base_url), conn.auth()).await?;
-    if status != 200 {
-        return Err(classify_http_error(status, &body, conn.api_key.as_ref()));
-    }
-    let parsed: Value = serde_json::from_slice(&body)
-        .map_err(|_| EngineError::new(Category::Provider, "모델 목록 응답을 해석하지 못했습니다.").with_status(status))?;
-    Ok(parsed["data"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|m| m["id"].as_str().filter(|s| !s.is_empty()).map(str::to_string))
-        .take(1000)
-        .collect())
+    adapter::list_models(http, conn).await
 }
