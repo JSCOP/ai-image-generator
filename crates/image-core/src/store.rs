@@ -66,7 +66,7 @@ pub fn request_hash(req: &ImageRequest, fit: Fit) -> Result<String, EngineError>
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
-    // serde_json maps are sorted by key, so this serialization is canonical.
+    // Keys are written in a fixed order, so this serialization is canonical.
     let identity = json!({
         "prompt": req.prompt, "image_model": req.image_model, "size": req.size.to_string(),
         "quality": req.quality, "action": req.action.as_str(), "references": references,
