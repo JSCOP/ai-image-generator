@@ -161,7 +161,6 @@ EXAMPLES = {
         "mode": "batch",
         "preset": "presets/extraction-rpg.json",
         "count": 50,
-        "concurrency": 16,
         "resume": True,
     },
     "jobs_with_per_image_refs": {
@@ -169,7 +168,6 @@ EXAMPLES = {
         "topic": "airport-topview-eagle-batch10",
         "size": "1920x1088",
         "quality": "high",
-        "concurrency": 10,
         "prompt_prefix": "Strict vertical orthographic top-down view of the EXACT physical airport space shown in the reference photo.",
         "prompt_suffix": "Constraints: no invented columns, no extra walls, no unrelated furniture.",
         "jobs": [

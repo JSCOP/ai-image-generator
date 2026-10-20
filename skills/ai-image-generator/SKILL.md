@@ -127,10 +127,9 @@ For airport security maps, keep facility interpretation inside existing source f
   "count": 2,
   "size": "1920x1080",
   "quality": "high",
-  "image_model": "gpt-image-2",
+  "image_model": "gpt-image-2.5",
   "action": "edit",
   "resume": true,
-  "concurrency": 2,
   "reference_images": [
     "C:/absolute/path/structure-source.png"
   ]
