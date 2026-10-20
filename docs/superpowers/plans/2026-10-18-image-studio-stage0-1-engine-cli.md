@@ -18,7 +18,7 @@
 - API 키는 저장소·spec·로그·기록 JSON·오류 메시지 어디에도 평문으로 남기지 않는다. 오류 문자열은 키 값과 `Bearer <값>`을 `***`로 바꾼 뒤 내보낸다.
 - 기존 이미지는 덮어쓰지 않는다. 최종 파일은 create-new 또는 같은 폴더 rename으로만 공개한다.
 - 요청한 모델을 다른 모델로 바꾸지 않는다.
-- Rust에는 머신별 하드코딩 주소(`DESKTOP-SB818KQ`, `100.98.54.122`)를 넣지 않는다. 연결 주소가 없으면 네트워크 호출 전에 오류를 낸다.
+- Rust에는 머신별 하드코딩 주소(`DESKTOP-SB818KQ`, 특정 Tailscale 주소)를 넣지 않는다. 연결 주소가 없으면 네트워크 호출 전에 오류를 낸다.
 - Responses API 경로(`POST /v1/responses`)는 옮기지 않는다. spec의 `model` 키는 받아서 무시하고 결과 `warnings`에 알린다.
 - 리다이렉트는 따라가지 않는다(`reqwest::redirect::Policy::none()`). 3xx는 `category:"redirect"` 오류다.
 - 기본값은 Python과 같다: size `1920x1080`, quality `high`, image_model `gpt-image-2.5`(환경변수 `CLIPROXY_IMAGE_MODEL`이 있으면 그 값), concurrency 30(1..32로 제한), retries 2(0..5), job_timeout_sec `CLIPROXY_TIMEOUT` 또는 600(<=0이면 끔), 재시도 백오프 기준 `AI_IMAGE_RETRY_BACKOFF_SEC` 또는 5.
@@ -180,7 +180,7 @@ Expected: 기존 34개 + 신규 5개, 모두 OK.
 
 - [ ] **Step 1:** 이 PC의 Windows 사용자 환경변수 `CLIPROXY_BASE_URL`이 비어 있는지 확인한 뒤 `http://127.0.0.1:8317/v1`로 설정한다(`[Environment]::SetEnvironmentVariable('CLIPROXY_BASE_URL','http://127.0.0.1:8317/v1','User')`). 이 값은 Python에서도 하드코딩 규칙보다 먼저 적용된다.
 - [ ] **Step 2:** 새 셸에서 `.venv/Scripts/python.exe tools/ai_image.py --list-models`를 실행한다. Expected: `ok:true`, `base_url`이 `http://127.0.0.1:8317/v1`. 프록시가 꺼져 있으면 사용자에게 실행을 요청한다.
-- [ ] **Step 3:** `tailscale status`와 `tailscale ip -4`로 이 PC의 현재 Tailscale 상태와 주소를 기록한다. 과거 주소(`100.98.54.122`)와 다르면 문서에는 현재 값을 쓴다.
+- [ ] **Step 3:** `tailscale status`와 `tailscale ip -4`로 이 PC의 현재 Tailscale 상태와 주소를 기록한다. 과거 주소(이전 주소)와 다르면 문서에는 현재 값을 쓴다.
 - [ ] **Step 4 (사용자와 함께, 노트북이 켜져 있을 때):** 노트북에서 `CLIPROXY_BASE_URL=http://<현재 Tailscale IP>:8317/v1`로 `--list-models`를 실행하고 1장을 생성한다. 결과(성공 또는 막힌 지점)를 `docs/SSOT.md` 머신 토폴로지 절에 날짜와 함께 적는다.
 
 ---

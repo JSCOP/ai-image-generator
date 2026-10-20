@@ -45,20 +45,27 @@ py -3 scripts/setup.py --agent codex --check
 
 ## 3. 프록시 주소와 키
 
-새 PC에서 사용할 서버 주소를 명시하세요. 예를 들어 그 PC에서 직접 CLIProxyAPI를 실행 중이면:
+이 저장소에는 특정 PC의 프록시 주소가 들어 있지 않습니다. 주소는 PC마다 사용자가 정하며, `CLIPROXY_BASE_URL`이 없으면 CLI는 이 PC의 로컬 프록시(`http://127.0.0.1:8317/v1`)만 시도합니다.
+
+### AI 에이전트가 설치할 때 지켜야 할 절차
+
+1. 먼저 기존 설정을 확인합니다. 프로세스 환경변수와 Windows 사용자 환경변수의 `CLIPROXY_BASE_URL`을 보고, 값이 있으면 그 주소로 `--list-models`를 확인합니다. 정상이면 사용자에게 묻지 않고 그대로 씁니다.
+2. 값이 없거나 연결에 실패하면 사용자에게 **로컬 프록시를 쓸지, 다른 PC의 프록시에 연결할지** 묻습니다.
+   - 로컬: 이 PC에서 CLIProxyAPI가 실행 중인지와 포트를 확인합니다(기본 `8317`). 주소는 `http://127.0.0.1:<포트>/v1`입니다.
+   - 다른 PC: 그 프록시 PC의 주소를 사용자에게 **물어서 받습니다.** Tailscale을 쓰면 프록시 PC에서 `tailscale ip -4`로 나온 주소나 Tailscale 기기 이름입니다. 주소는 `http://<받은 주소>:<포트>/v1` 형식입니다.
+3. 주소를 추측하지 않습니다. 이 저장소의 예전 문서, Git 기록, 다른 PC의 설정, `tailscale status`에 보이는 기기 목록에서 주소를 골라 쓰지 않습니다. 후보가 보여도 사용자에게 확인받은 주소만 씁니다.
+4. 받은 주소에 포트가 열려 있는지 확인한 뒤 환경변수로 설정합니다. 키는 아래처럼 사용자가 로컬에서 직접 입력하게 합니다.
 
 ```powershell
+# 로컬 프록시
 $env:CLIPROXY_BASE_URL = 'http://127.0.0.1:8317/v1'
+
+# 다른 PC의 프록시: <프록시 주소>는 사용자에게 받은 값
+$env:CLIPROXY_BASE_URL = 'http://<프록시 주소>:8317/v1'
+Test-NetConnection <프록시 주소> -Port 8317
 ```
 
-기존 JSCOP 프록시 PC를 공유할 때는 **같은 Tailscale 사설망에 접속되어 있고 서버가 실행 중인 경우에만** 다음 주소를 사용합니다.
-
-```powershell
-$env:CLIPROXY_BASE_URL = 'http://100.98.54.122:8317/v1'
-Test-NetConnection 100.98.54.122 -Port 8317
-```
-
-이는 기존 운영 환경의 주소이며 모든 PC에서 접근 가능한 공개 서비스가 아닙니다. 다른 서버를 쓰면 실제 HTTPS/사설망 URL로 바꿉니다. 상세한 기존 머신 정보는 [docs/SSOT.md](docs/SSOT.md)를 참조하세요. 코드의 역사적 기본값은 알려진 프록시 호스트에서 loopback, 나머지 호스트에서 위 Tailscale 주소이므로 새 설치에서는 `CLIPROXY_BASE_URL`을 직접 설정하는 편이 명확합니다.
+다른 PC의 프록시는 같은 사설망(예: Tailscale)에 접속되어 있고 그 PC에서 서버가 실행 중일 때만 연결됩니다. 프록시 PC의 주소가 바뀌면 각 PC의 `CLIPROXY_BASE_URL`만 새 주소로 바꾸면 됩니다.
 
 키는 AI 채팅이나 명령문에 적지 않고 로컬 PowerShell의 숨김 입력으로 넣을 수 있습니다.
 
@@ -177,7 +184,9 @@ https://github.com/JSCOP/ai-image-generator 를 이 PC의 C:\work\ai-image-gener
 clone 후 AGENTS.md와 INSTALL.md를 읽고, 실행 가능한 Python 3.11+를 확인한 뒤
 scripts/setup.py --agent codex 로 .venv와 의존성, Codex 스킬 링크를 설치해줘.
 같은 옵션에 --check를 붙이고 회귀 테스트로 로컬 설치를 검증해줘.
-프록시는 기존 환경변수를 우선 확인하고, 주소나 키가 없으면 필요한 정보만 알려줘.
+프록시는 기존 환경변수를 우선 확인하고, 주소가 없거나 연결되지 않으면
+INSTALL.md 3절대로 로컬 프록시를 쓸지 다른 PC의 프록시에 연결할지 나에게 묻고,
+다른 PC라면 그 프록시 주소를 나에게 받아서 설정해줘. 주소를 추측하지 마.
 키는 채팅/파일/로그에 기록하지 말고 내가 로컬에서 입력하게 안내해줘.
 프록시가 설정되면 .venv의 Python으로 tools/ai_image.py --list-models를 확인해줘.
 실제 이미지 생성 테스트는 내가 요청할 때 진행하고,
@@ -192,10 +201,10 @@ Claude Code를 쓰면 `--agent codex`를 `--agent claude`로 바꿉니다. 둘 �
 클라이언트 연결 후 도구 목록과 plan_generation까지 확인해줘.
 ```
 
-기존 JSCOP 프록시를 쓸 PC라면 다음 문장을 추가합니다.
+다른 PC의 프록시를 쓸 것을 이미 알고 있다면 다음 문장을 추가해 질문을 줄일 수 있습니다. `<프록시 주소>`는 실제 값으로 바꿉니다.
 
 ```text
-프록시 주소는 http://100.98.54.122:8317/v1 이고 같은 Tailscale 사설망을 사용해.
+프록시는 다른 PC에 있고 주소는 http://<프록시 주소>:8317/v1 이야.
 먼저 8317 포트 접근을 확인하고, API 키는 내가 이 PC의 로컬 입력창에서 넣을게.
 ```
 
@@ -215,7 +224,7 @@ Claude Code를 쓰면 `--agent codex`를 `--agent claude`로 바꿉니다. 둘 �
 | `py` 없음 / `python` 실행 실패 | Python 3.11+ 설치, 터미널 재시작, 실행 파일 절대 경로. 기존 앱의 venv를 재사용하지 않습니다. |
 | setup `--check` 실패 | 같은 옵션으로 setup을 먼저 실행. `.venv` Python과 Pillow/MCP 설치 오류 확인. |
 | 스킬이 안 보임 | 명시적 `--agent`로 링크 설치, `sync_skills.py --agent ... --check --json`, 새 에이전트 세션. |
-| 연결 시간 초과 / connection refused | 실제 프록시 실행 여부, URL/포트, Tailscale 로그인, 네트워크/방화벽. |
+| 연결 시간 초과 / connection refused | `CLIPROXY_BASE_URL` 설정 여부(없으면 로컬만 시도), 실제 프록시 실행 여부, URL/포트, 프록시 PC 주소 변경, Tailscale 로그인, 네트워크/방화벽. |
 | HTTP 401/403 | 해당 CLIProxyAPI 서버에 설정된 키와 제공자 인증. 웹 계정 비밀번호를 API 키로 쓰지 않습니다. |
 | 모델이 없음 / 크레딧 오류 | `--list-models`의 실제 목록과 해당 제공자 계정/크레딧. 다른 모델로 몰래 바꾸지 않습니다. |
 | MCP 파일 접근 거부 | 해당 프로젝트/참조 폴더를 `--allow-root`로 지정. |
