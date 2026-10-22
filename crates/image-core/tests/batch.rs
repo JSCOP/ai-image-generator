@@ -111,7 +111,7 @@ async fn batch_rejects_bad_options_before_any_request() {
     let cases = [
         (json!({"background": "rainbow"}), "invalid_request"),
         (json!({"fit": "stretch"}), "invalid_request"),
-        (json!({"background": "transparent"}), "unsupported"),
+        (json!({"background": "transparent", "image_model": "gpt-image-2"}), "unsupported"),
         (json!({"count": 0}), "invalid_request"),
         (json!({"count": -3}), "invalid_request"),
         (json!({"count": 0.5}), "invalid_request"),

@@ -30,6 +30,11 @@
     edit: 'M4 20h4L19 9l-4-4L4 16z M13.5 6.5l4 4',
     terminal: 'M4 5h16v14H4z M7.5 9.5l3 2.5-3 2.5 M12.5 15h4',
     search: 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14z M20 20l-4-4',
+    copy: 'M9 9h11v11H9z M5 15H4V4h11v1',
+    undo: 'M9 14L4 9l5-5 M4 9h10.5a5.5 5.5 0 0 1 0 11H11',
+    redo: 'M15 14l5-5-5-5 M20 9H9.5a5.5 5.5 0 0 0 0 11H13',
+    computer: 'M3 5h18v11H3z M8 20h8 M12 16v4',
+    scissors: 'M6 4.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z M6 14.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z M8.2 8.2L20 17 M8.2 15.8L20 7',
   } as const;
 
   export type IconName = keyof typeof PATHS;

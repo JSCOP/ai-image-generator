@@ -33,12 +33,15 @@ fn input() -> GenerateInput {
         profile: Some(PROFILE.into()),
         prompt: "A small ceramic teacup on a wooden desk by a sunny window, soft morning light".into(),
         avoid: "text, watermark".into(),
+        original_prompt: None,
         image_model: MODEL.into(),
         size: "1024x1024".into(),
         quality: "low".into(),
         count: 1,
         references: Vec::new(),
         background: "auto".into(),
+        fit: "contain".into(),
+        edit: None,
         topic: Some(TOPIC.into()),
         resume: false,
     }
@@ -108,4 +111,25 @@ async fn real_proxy_one_image() {
     println!("record image_model={} response_model={} status={}", record["image_model"], record["response_model"], record["status"]);
     assert_eq!(record["image_model"], json!(MODEL));
     assert_eq!(record["status"], json!("complete"));
+}
+
+/// One real text call (no image): `cargo test -p studio --test real_proxy real_enhance -- --ignored`.
+#[tokio::test]
+#[ignore = "real provider: one chat call that rewrites a Korean prompt in English"]
+async fn real_enhance_prompt() {
+    use studio_lib::service::enhance::{enhance, text_models, EnhanceInput};
+    let (_home, ctx) = setup();
+    let models = text_models(&ctx, Some(PROFILE)).await.unwrap();
+    assert!(models.iter().any(|m| m == "gpt-6-luna"), "{models:?}");
+    let input = EnhanceInput {
+        profile: Some(PROFILE.into()),
+        prompt: "비 오는 밤 서울 골목의 고양이, 간판에 '심야식당'".into(),
+        avoid: "워터마크".into(),
+        image_model: Some(MODEL.into()),
+        model: "gpt-6-luna".into(),
+    };
+    let view = enhance(&ctx, input).await.unwrap();
+    println!("model={}\n{}", view.model, view.prompt);
+    assert!(view.prompt.is_ascii() || view.prompt.contains("심야식당"), "{}", view.prompt);
+    assert!(view.prompt.split_whitespace().count() >= 30, "{}", view.prompt);
 }

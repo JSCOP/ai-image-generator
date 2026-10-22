@@ -16,9 +16,11 @@
     dragging?: boolean;
     onpick: () => void;
     onremove: (path: string) => void;
+    /** Opens the editor on a reference (mask edit, background removal). */
+    onedit?: (path: string) => void;
   }
 
-  let { references, max, disabled = false, reason = '', dragging = false, onpick, onremove }: Props = $props();
+  let { references, max, disabled = false, reason = '', dragging = false, onpick, onremove, onedit }: Props = $props();
 
   const full = $derived(references.length >= max);
   const over = $derived(references.length > max);
@@ -35,7 +37,7 @@
   {:else}
     <button type="button" class="drop" disabled={full} onclick={onpick} aria-describedby="ref-label">
       <Icon name="upload" size={18} />
-      <span>{dragging ? '여기에 놓으세요' : full ? `최대 ${max}장까지 넣었습니다` : '이미지를 끌어 놓거나 눌러서 고르기'}</span>
+      <span>{dragging ? '여기에 놓으세요' : full ? `최대 ${max}장까지 넣었습니다` : '끌어 놓기 · 눌러서 고르기 · Ctrl+V 붙여넣기'}</span>
       <small>PNG, JPEG, WebP · 장당 10MB · 한 변 8192px 이하</small>
     </button>
   {/if}
@@ -48,6 +50,11 @@
           <button type="button" class="x" aria-label="{ref.name} 빼기" onclick={() => onremove(ref.path)}>
             <Icon name="close" size={14} />
           </button>
+          {#if onedit}
+            <button type="button" class="x ed" aria-label="{ref.name} 편집" title="편집 · 배경 지우기" onclick={() => onedit(ref.path)}>
+              <Icon name="edit" size={14} />
+            </button>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -141,6 +148,13 @@
   }
   .x:hover {
     background: var(--error);
+  }
+  .x.ed {
+    right: auto;
+    left: 3px;
+  }
+  .x.ed:hover {
+    background: var(--accent);
   }
   .reason {
     display: flex;

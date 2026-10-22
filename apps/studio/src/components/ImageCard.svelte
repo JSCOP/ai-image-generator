@@ -105,11 +105,9 @@
   img {
     width: 100%;
     height: 100%;
+    /* The whole image, never cropped: a result of another shape shows with margins. */
     object-fit: contain;
     display: block;
-  }
-  .image:not(.checker) img {
-    object-fit: cover;
   }
   .tag,
   .corner {
@@ -164,7 +162,7 @@
   .waiting {
     background: linear-gradient(100deg, var(--panel) 30%, var(--panel-2) 50%, var(--panel) 70%);
     background-size: 300% 100%;
-    animation: shimmer 1.6s linear infinite;
+    animation: shimmer 2.4s linear infinite;
   }
   .running {
     border-color: var(--accent-line);
@@ -226,7 +224,7 @@
     border-radius: 50%;
     border: 3px solid var(--accent-soft);
     border-top-color: var(--accent);
-    animation: spin 0.9s linear infinite;
+    animation: spin 1.8s linear infinite;
   }
   .spinner.warn {
     border-color: var(--warn-soft);

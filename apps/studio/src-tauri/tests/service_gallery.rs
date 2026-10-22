@@ -14,6 +14,8 @@ fn settings(work_dir: &Path, extra: &[&Path]) -> Settings {
         gallery_folders: extra.iter().map(|p| p.to_path_buf()).collect(),
         last_profile: None,
         last_model: None,
+        enhance_model: None,
+        ..Settings::default()
     }
 }
 
@@ -57,6 +59,7 @@ fn lists_complete_failed_pending_legacy_and_missing() {
     complete["reference_images"] = json!(["D:\\refs\\cup.png"]);
     complete["provider_size"] = json!("1448x1086");
     complete["saved_size"] = json!("1024x1024");
+    complete["fit"] = json!("original");
     complete["request_id"] = json!("req_abc123");
     complete["background"] = json!("transparent");
     complete["alpha"] = json!({"has_alpha_channel": true, "transparent_ratio": 0.448, "partial_ratio": 0.01, "opaque_ratio": 0.542, "corner_alpha": [0, 0, 0, 0]});
@@ -89,9 +92,10 @@ fn lists_complete_failed_pending_legacy_and_missing() {
     assert_eq!(item.references, ["D:\\refs\\cup.png"]);
     assert_eq!(item.provider_size.as_deref(), Some("1448x1086"));
     assert_eq!(item.saved_size.as_deref(), Some("1024x1024"));
+    assert_eq!(item.fit.as_deref(), Some("original"));
     assert_eq!(item.request_id.as_deref(), Some("req_abc123"));
     let json = serde_json::to_value(item).unwrap();
-    for key in ["quality", "references", "providerSize", "savedSize", "requestId"] {
+    for key in ["quality", "references", "providerSize", "savedSize", "requestId", "fit"] {
         assert!(json.get(key).is_some(), "camelCase key {key} in {json}");
     }
     let python = find(&view.items, "파이썬 그림");

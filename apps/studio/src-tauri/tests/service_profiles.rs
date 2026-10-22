@@ -53,6 +53,8 @@ fn settings_default_work_dir_is_pictures_image_studio() {
         gallery_folders: vec![home.path().join("project")],
         last_profile: Some("local".into()),
         last_model: Some("gpt-image-2.5".into()),
+        enhance_model: Some("gpt-6-luna".into()),
+        ..Settings::default()
     };
     save_settings(home.path(), &saved).unwrap();
     let text = read(home.path().join("settings.json"));
@@ -142,7 +144,7 @@ fn save_profile_stores_key_only_in_secret_store() {
     }
 
     // Updating without a key keeps the stored one; the name and address change.
-    let mut edit = input("집 프록시", ProviderKind::Cliproxy, Some("http://100.98.54.122:8317/v1"), None);
+    let mut edit = input("집 프록시", ProviderKind::Cliproxy, Some("http://100.64.0.10:8317/v1"), None);
     edit.id = Some(view.id.clone());
     edit.concurrency = Some(8);
     let edited = save_profile(&ctx, edit).unwrap();
@@ -270,7 +272,7 @@ async fn models_view_marks_capabilities() {
     let ids: Vec<&str> = list.iter().map(|m| m.id.as_str()).collect();
     assert_eq!(ids, ["gpt-image-2.5", "gpt-image-2.5-sunburst", "gpt-image-2", "gemini-3.1-flash-image", "grok-imagine-image-2.0"]);
     let transparent: Vec<&str> = list.iter().filter(|m| m.transparency).map(|m| m.id.as_str()).collect();
-    assert_eq!(transparent, ["gpt-image-2.5-sunburst"]);
+    assert_eq!(transparent, ["gpt-image-2.5", "gpt-image-2.5-sunburst"]);
     let grok = list.iter().find(|m| m.id == "grok-imagine-image-2.0").unwrap();
     assert!(!grok.references);
     assert_eq!(grok.provider, "xAI Grok");
@@ -278,7 +280,7 @@ async fn models_view_marks_capabilities() {
     let json = serde_json::to_value(&list[0]).unwrap();
     assert_eq!(
         json,
-        serde_json::json!({"id": "gpt-image-2.5", "provider": "OpenAI", "references": true, "maxReferences": 4, "transparency": false})
+        serde_json::json!({"id": "gpt-image-2.5", "provider": "OpenAI", "references": true, "maxReferences": 4, "transparency": true})
     );
     // The screen caps references at the run limit (4) and at what the model takes (0 = none).
     assert_eq!(grok.max_references, 0);

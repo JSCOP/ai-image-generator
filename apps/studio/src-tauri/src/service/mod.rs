@@ -1,9 +1,15 @@
 //! App services over `image-core`: plain Rust, no Tauri types, tested with fakes.
 
+pub mod edit;
+pub mod enhance;
 pub mod gallery;
 pub mod generate;
+pub mod index;
+pub mod matte;
+pub mod peers;
 pub mod profiles;
 pub mod settings;
+pub mod share;
 
 use std::fmt;
 use std::path::PathBuf;

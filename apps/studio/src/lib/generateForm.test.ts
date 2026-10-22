@@ -8,12 +8,14 @@ import {
   defaultConnection,
   defaultModel,
   emptyForm,
+  FITS,
   formFromItem,
   historyGroups,
   imageNumber,
   itemCard,
   MAX_COUNT,
   parseSize,
+  pickTextModel,
   progressView,
   RESUME_WORK_DIR_ONLY,
   retryInput,
@@ -26,6 +28,7 @@ import {
   sizeOf,
   splitPrompt,
   tallyCards,
+  textModelOptions,
   toInput,
   type GenerateForm,
 } from './generateForm';
@@ -83,6 +86,7 @@ function item(change: Partial<GalleryItem> = {}): GalleryItem {
     providerSize: null,
     savedSize: null,
     requestId: null,
+    fit: null,
     ...change,
   };
 }
@@ -99,12 +103,14 @@ describe('toInput', () => {
         profile: 'local',
         prompt: '아늑한 독서 공간',
         avoid: '글자',
+        originalPrompt: null,
         imageModel: 'gpt-image-2.5',
         size: '1920x1080',
         quality: 'medium',
         count: 4,
         references: ['D:\\refs\\a.png'],
         background: 'auto',
+        fit: 'contain',
         topic: null,
         resume: false,
       },
@@ -267,12 +273,14 @@ describe('reusing a record', () => {
     );
     expect(filled).toEqual({
       prompt: 'mug',
+      originalPrompt: null,
       avoid: 'text',
       model: 'gpt-image-2.5-sunburst',
       size: CUSTOM_SIZE,
       customSize: '1600x900',
       quality: 'high',
       transparent: true,
+      fit: 'contain',
       referencePaths: ['D:\\r.png'],
       topic: null,
       resume: false,
@@ -407,6 +415,7 @@ describe('run header', () => {
       count: 6,
       references: ['C:\\r.png'],
       background: 'auto' as const,
+      fit: 'contain' as const,
       topic: null,
       resume: false,
     };
@@ -419,5 +428,69 @@ describe('emptyForm', () => {
   it('starts at the project default for final images: 1920x1080, high quality, one image', () => {
     const f = emptyForm();
     expect([f.size, f.quality, f.count]).toEqual(['1920x1080', 'high', 1]);
+  });
+});
+
+describe('pickTextModel', () => {
+  const listed = ['claude-sonnet-5-5', 'gpt-6-luna', 'gpt-6-sol'];
+  it('keeps the current choice, then the saved one, then gpt-6-luna, then the first', () => {
+    expect(pickTextModel(listed, 'gpt-6-sol', 'claude-sonnet-5-5')).toBe('gpt-6-sol');
+    expect(pickTextModel(listed, 'gone', 'claude-sonnet-5-5')).toBe('claude-sonnet-5-5');
+    expect(pickTextModel(listed, '', null)).toBe('gpt-6-luna');
+    expect(pickTextModel(['kimi-k3', 'grok-4.7'], '', 'gone')).toBe('kimi-k3');
+  });
+  it('falls back to gpt-6-luna when the list is empty or unknown (typed by hand)', () => {
+    expect(pickTextModel([], '', null)).toBe('gpt-6-luna');
+    expect(pickTextModel([], 'my-model', null)).toBe('my-model');
+  });
+});
+
+describe('textModelOptions', () => {
+  it('lists every chat model grouped by maker, with the maker in the label', () => {
+    const ids = ['kimi-k3', 'grok-4.7', 'claude-sonnet-5-5', 'gpt-6-sol', 'gemini-3.5-flash-lite', 'gpt-6-luna', 'opencode-go/glm-5.3'];
+    const opts = textModelOptions(ids, 'gpt-6-luna');
+    expect(opts.map((o) => o.value)).toEqual(['gpt-6-luna', 'gpt-6-sol', 'claude-sonnet-5-5', 'gemini-3.5-flash-lite', 'grok-4.7', 'kimi-k3', 'opencode-go/glm-5.3']);
+    expect(opts[0].label).toBe('gpt-6-luna · OpenAI');
+    expect(opts[2].label).toBe('claude-sonnet-5-5 · Claude');
+    expect(opts[6].label).toBe('opencode-go/glm-5.3');
+  });
+  it('keeps a chosen model that the list does not have, and offers gpt-6-luna without a list', () => {
+    expect(textModelOptions(['grok-4.7'], 'my-model').map((o) => o.value)).toEqual(['grok-4.7', 'my-model']);
+    expect(textModelOptions([], '').map((o) => o.value)).toEqual(['gpt-6-luna']);
+  });
+});
+
+describe('fit (how another shape is saved)', () => {
+  it('never crops by default: the whole image with margins', () => {
+    expect(emptyForm().fit).toBe('contain');
+    const r = toInput(form(), models);
+    expect(r.ok && r.input.fit).toBe('contain');
+    const o = toInput(form({ fit: 'original' }), models);
+    expect(o.ok && o.input.fit).toBe('original');
+    expect(FITS.map((f) => f.value)).toEqual(['contain', 'original', 'cover']);
+  });
+  it('reusing a record takes its fit, else the no-crop default', () => {
+    expect(formFromItem(item({ fit: 'original' })).fit).toBe('original');
+    expect(formFromItem(item({ fit: 'cover' })).fit).toBe('cover');
+    expect(formFromItem(item({ fit: 'none' })).fit).toBe('contain');
+    expect(formFromItem(item({ fit: null })).fit).toBe('contain');
+  });
+  it('resuming an older record keeps the fit it was made with, so finished images are not made again', () => {
+    expect(resumeFrom([item({ fit: 'original' })]).fit).toBe('original');
+    // Older records hold what was applied ("none") or nothing; the app cropped then, or padded transparent images.
+    expect(resumeFrom([item({ fit: 'none' })]).fit).toBe('cover');
+    expect(resumeFrom([item({ fit: null, background: 'transparent' })]).fit).toBe('contain');
+  });
+});
+
+describe('the request before "영어로 다듬기"', () => {
+  it('travels with the input and comes back from a record', () => {
+    const models = [{ id: 'gpt-image-2.5', provider: 'OpenAI', references: true, maxReferences: 4, transparency: true }];
+    const f = { ...emptyForm(), connection: 'local', model: 'gpt-image-2.5', prompt: 'A cute cartoon boy', originalPrompt: ' 남자 귀여운 캐릭터 ' };
+    const result = toInput(f, models);
+    expect(result.ok && result.input.originalPrompt).toBe('남자 귀여운 캐릭터');
+    expect(formFromItem(item({ prompt: 'A cute cartoon boy', originalPrompt: '남자 귀여운 캐릭터' })).originalPrompt).toBe('남자 귀여운 캐릭터');
+    const groups = historyGroups([item({ prompt: 'A cute cartoon boy', originalPrompt: '남자 귀여운 캐릭터' })]);
+    expect(groups[0].original).toBe('남자 귀여운 캐릭터');
   });
 });

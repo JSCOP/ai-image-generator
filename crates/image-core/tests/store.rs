@@ -30,6 +30,7 @@ fn request(prompt: &str) -> ImageRequest {
         action: Action::Generate,
         references: vec![],
         background: Background::Auto,
+        mask: None,
     }
 }
 

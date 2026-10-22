@@ -7,7 +7,7 @@ use crate::error::{Category, EngineError};
 use crate::http::Http;
 use crate::profiles::ProviderKind;
 use crate::provider::{classify_http_error, mime_type, read_reference, Action, Background, ImageRequest, ProviderCall};
-use crate::size::{gemini_aspect_ratio, gemini_image_size, Size};
+use crate::size::{aspect_line, gemini_aspect_ratio, gemini_image_size, Size};
 use base64::Engine;
 use serde_json::{json, Map, Value};
 use std::path::Path;
@@ -143,7 +143,7 @@ pub fn check_request(kind: ProviderKind, req: &ImageRequest) -> Result<(), Engin
         return Err(EngineError::new(
             Category::Unsupported,
             format!(
-                "background \"transparent\" needs a model with native transparency (gpt-image-2.5-sunburst or gpt-image-2.5-flare); {model} does not support it"
+                "background \"transparent\" needs a model with native transparency (gpt-image-2.5, gpt-image-2.5-sunburst or gpt-image-2.5-flare); {model} does not support it"
             ),
         ));
     }
@@ -200,7 +200,18 @@ fn openai_images_call(base_url: &str, req: &ImageRequest) -> Result<ProviderCall
     let is_gpt = is_gpt_image(&req.image_model);
     let mut body = Map::new();
     body.insert("model".into(), json!(req.image_model));
-    body.insert("prompt".into(), json!(req.prompt));
+    let prompt = if is_gpt {
+        format!(
+            "{}
+
+{}",
+            req.prompt,
+            aspect_line(req.size)
+        )
+    } else {
+        req.prompt.clone()
+    };
+    body.insert("prompt".into(), json!(prompt));
     body.insert("n".into(), json!(1));
     body.insert("size".into(), json!(req.size.padded16().to_string()));
     body.insert("quality".into(), json!(req.quality));

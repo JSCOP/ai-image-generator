@@ -21,6 +21,8 @@
   import { revealItemInDir } from '@tauri-apps/plugin-opener';
   import { imageSrc, toServiceError } from '../lib/api';
   import { formatRelativeTime, formatSize, truncateMiddle } from '../lib/format';
+  import { openEditor } from '../lib/editor.svelte';
+  import { copyPrompt, refineFromOriginal } from '../lib/generate.svelte';
   import { splitPrompt } from '../lib/generateForm';
   import { toastError } from '../lib/state.svelte';
   import Button from './Button.svelte';
@@ -44,6 +46,8 @@
   const entry = $derived(entries[Math.min(Math.max(index, 0), entries.length - 1)]);
   const item = $derived(entry?.item ?? null);
   const resumeBlocked = $derived(item && resumeNote ? resumeNote(item) : null);
+  /** Another PC's image: its file is not on this PC, so no editor, Explorer or reference. */
+  const remote = $derived(!!item?.machine);
   const prompt = $derived(splitPrompt(item?.prompt ?? entry?.prompt ?? ''));
 
   $effect(() => {
@@ -106,12 +110,19 @@
     <aside class="info">
       <header>
         <h2>{entry.label || '결과'} <span class="pos">{index + 1} / {entries.length}</span></h2>
+        <Button variant="ghost" size="sm" icon="copy" label="프롬프트 복사" title="프롬프트 복사" onclick={() => copyPrompt(prompt.prompt, prompt.avoid)} />
         <Button variant="ghost" size="sm" icon={actual ? 'shrink' : 'expand'} label={actual ? '화면에 맞추기' : '원래 크기'} onclick={() => (actual = !actual)} />
         <Button variant="ghost" size="sm" icon="close" label="닫기" onclick={onclose} />
       </header>
 
       <dl>
-        <dt>프롬프트</dt>
+        {#if item?.originalPrompt}
+          <dt>원래 요청 <button type="button" class="mini" onclick={() => item?.originalPrompt && copyPrompt(item.originalPrompt)}>복사</button></dt>
+          <dd class="prompt">{item.originalPrompt}</dd>
+          <dt>보낸 프롬프트(영어로 다듬음) <button type="button" class="mini" onclick={() => copyPrompt(prompt.prompt, prompt.avoid)}>복사</button></dt>
+        {:else}
+          <dt>프롬프트</dt>
+        {/if}
         <dd class="prompt">{prompt.prompt}</dd>
         {#if prompt.avoid}
           <dt>Avoid</dt>
@@ -148,8 +159,33 @@
       </dl>
 
       <div class="actions">
-        <Button icon="folder" full onclick={reveal}>탐색기에서 보기</Button>
-        {#if item && onreuse}
+        {#if !remote}
+          <Button
+            variant="primary"
+            icon="edit"
+            full
+            onclick={() => {
+              const path = entry.imagePath;
+              onclose();
+              void openEditor(path);
+            }}>편집 · 배경 지우기</Button
+          >
+          <Button icon="folder" full onclick={reveal}>탐색기에서 보기</Button>
+        {:else}
+          <p class="note">{item?.machine}의 이미지입니다. 보기와 설정 다시 쓰기만 할 수 있습니다.</p>
+        {/if}
+        {#if item?.originalPrompt}
+          <Button
+            icon="edit"
+            full
+            onclick={() => {
+              const it = item;
+              onclose();
+              if (it) void refineFromOriginal(it);
+            }}>원래 요청으로 다시 다듬기</Button
+          >
+        {/if}
+        {#if item && onreuse && item.action !== 'remove_background'}
           <Button icon="refresh" full onclick={() => item && onreuse(item)}>이 설정 다시 쓰기</Button>
         {/if}
         {#if item && onresume}
@@ -158,7 +194,7 @@
           >
           {#if resumeBlocked}<p class="note">{resumeBlocked}</p>{/if}
         {/if}
-        {#if onreference}
+        {#if onreference && !remote}
           <Button icon="image" full onclick={() => onreference(entry.imagePath)}>참조로 사용</Button>
         {/if}
         {#if !item}<p class="note">기록을 읽는 중이면 일부 정보가 잠시 뒤에 나타납니다.</p>{/if}
@@ -293,6 +329,19 @@
     white-space: pre-wrap;
     max-height: 180px;
     overflow: auto;
+  }
+  .mini {
+    margin-left: var(--s1);
+    padding: 0 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--muted);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .mini:hover {
+    color: var(--text);
   }
   .sub {
     display: block;

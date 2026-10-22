@@ -9,9 +9,11 @@ import type {
   Category,
   ConnectionReport,
   ConnectionsView,
+  EnhanceInput,
   GalleryItem,
   GalleryView,
   GenerateInput,
+  MatteEvent,
   ModelView,
   ProfileInput,
   ProfileView,
@@ -47,8 +49,10 @@ const OFFICIAL_URLS: Partial<Record<keyof typeof KIND_LABELS, string>> = {
   xai: 'https://api.x.ai/v1',
 };
 
+const TEXT_MODELS = ['gpt-6-luna', 'gpt-6-sol', 'gpt-5.6', 'claude-sonnet-5-5', 'claude-opus-5-5', 'gemini-3.5-flash-lite', 'grok-4.7', 'kimi-k3'];
+
 const MODELS: ModelView[] = [
-  { id: 'gpt-image-2.5', provider: 'OpenAI', references: true, maxReferences: 4, transparency: false },
+  { id: 'gpt-image-2.5', provider: 'OpenAI', references: true, maxReferences: 4, transparency: true },
   { id: 'gpt-image-2.5-flare', provider: 'OpenAI', references: true, maxReferences: 4, transparency: true },
   { id: 'gpt-image-2.5-sunburst', provider: 'OpenAI', references: true, maxReferences: 4, transparency: true },
   { id: 'gpt-image-2', provider: 'OpenAI', references: true, maxReferences: 4, transparency: false },
@@ -77,6 +81,7 @@ const pictureOf = new Map<string, string>();
 function pictureFor(path: string): string {
   const known = pictureOf.get(path);
   if (known) return known;
+  if (path.includes('-nobg-')) return TRANSPARENT;
   let h = 0;
   for (const ch of path) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return OPAQUE[h % OPAQUE.length];
@@ -126,6 +131,7 @@ function galleryItems(): GalleryItem[] {
       providerSize: status === 'complete' ? (size === '1024x1024' ? '1448x1086' : size) : null,
       savedSize: status === 'complete' ? size : null,
       requestId: status === 'complete' ? `req_mock${i + 1}` : null,
+      fit: 'contain',
     };
   });
 }
@@ -169,7 +175,7 @@ export function installMock(mode: string | null): void {
   const items = empty ? [] : galleryItems();
   const runs = new Map<string, MockRun>();
   let nextId = 1;
-  const envConn = mode === 'env' ? { baseUrl: 'http://100.98.54.122:8317/v1', source: 'user_env', keyConfigured: true } : null;
+  const envConn = mode === 'env' ? { baseUrl: 'http://100.64.0.10:8317/v1', source: 'user_env', keyConfigured: true } : null;
 
   const view = (): ConnectionsView => {
     const def = profiles.find((p) => p.isDefault);
@@ -224,7 +230,7 @@ export function installMock(mode: string | null): void {
         image_models: [],
         last_generation: null,
         warning: null,
-        error: { category: 'timeout', provider_code: null, http_status: null, retryable: true, message: 'GET http://100.98.54.122:8317/v1/models: 15초 안에 응답이 없습니다' },
+        error: { category: 'timeout', provider_code: null, http_status: null, retryable: true, message: 'GET http://100.64.0.10:8317/v1/models: 15초 안에 응답이 없습니다' },
       };
     }
     const p = find(name);
@@ -325,6 +331,7 @@ export function installMock(mode: string | null): void {
       topic,
       status,
       prompt,
+      originalPrompt: input.originalPrompt ?? null,
       imageModel: input.imageModel,
       responseModel: status === 'complete' ? `${input.imageModel}-2026-10-01` : null,
       size: input.size,
@@ -337,6 +344,7 @@ export function installMock(mode: string | null): void {
       providerSize: status === 'complete' ? '1536x1024' : null,
       savedSize: status === 'complete' ? input.size : null,
       requestId: status === 'complete' ? `req_mock${nextId++}` : null,
+      fit: input.fit,
     });
     const known = (path: string) => items.findIndex((i) => i.imagePath === path);
     const put = (item: GalleryItem) => {
@@ -358,10 +366,19 @@ export function installMock(mode: string | null): void {
     const roots = [WORK, ...settings.galleryFolders];
     return {
       items,
-      folders: roots.map((path, i) => ({ path, galleryRoot: `${path}\\ImageGallery`, available: path !== MISSING, isWorkDir: i === 0 })),
+      folders: roots.map((path, i) => ({
+        path,
+        galleryRoot: `${path}\\ImageGallery`,
+        available: path !== MISSING,
+        isWorkDir: i === 0,
+        source: i === 0 ? ('work' as const) : ('added' as const),
+      })),
       truncated: false,
+      scanned: true,
     };
   }
+
+  let share = { enabled: false, port: 8329, running: false, address: '100.64.0.10', name: 'MOCK-PC', token: 'mock-share-token-0123456789abcdef', error: null };
 
   const handlers: Record<string, (args: Record<string, unknown>) => unknown> = {
     app_info: () => ({ version: '0.1.0-mock', home: HOME, workDir: WORK }),
@@ -388,6 +405,17 @@ export function installMock(mode: string | null): void {
     },
     check_profile: (a) => check((a.name as string | null) ?? null),
     list_models: (a) => (check((a.name as string | null) ?? null).models_listed ? MODELS : []),
+    text_models: (a) => (check((a.name as string | null) ?? null).models_listed ? TEXT_MODELS : []),
+    enhance_prompt: async (a) => {
+      const input = a.input as EnhanceInput;
+      await new Promise((r) => setTimeout(r, 1200));
+      if (!input.prompt.trim()) throw fail('invalid_request', '다듬을 프롬프트가 비어 있습니다.');
+      const avoid = input.avoid.trim() ? ` Avoid: ${input.avoid.trim()}.` : '';
+      return {
+        prompt: `A detailed, cinematic illustration of ${input.prompt.trim()}, soft natural lighting, balanced composition, rich color palette, high detail, no text or watermark.${avoid}`,
+        model: input.model,
+      };
+    },
     start_generation: (a) => generate(a.input as GenerateInput, a.onEvent as Channel<RunEvent>),
     cancel_generation: (a) => {
       const run = runs.get(a.runId as string);
@@ -408,6 +436,52 @@ export function installMock(mode: string | null): void {
       settings = { ...settings, galleryFolders: settings.galleryFolders.filter((f) => f.toLowerCase() !== path.toLowerCase()) };
       return settings;
     },
+    discover_galleries: async () => {
+      await new Promise((r) => setTimeout(r, 800));
+      return 0;
+    },
+    share_status: () => share,
+    set_share: (a) => {
+      const wanted = a.share as { enabled: boolean; port: number };
+      share = { ...share, ...wanted, running: wanted.enabled };
+      return share;
+    },
+    new_share_token: () => {
+      share = { ...share, token: `mock-share-token-${Date.now()}` };
+      return share;
+    },
+    check_peer: () => ({ name: 'OTHER-PC', version: '0.1.6' }),
+    add_peer: (a) => {
+      const peer = { id: `peer-${nextId++}`, name: (a.name as string) || 'OTHER-PC', url: `http://${String(a.url).replace(/^https?:\/\//, '')}` };
+      settings = { ...settings, peers: [...(settings.peers ?? []), peer] };
+      return settings;
+    },
+    remove_peer: (a) => {
+      settings = { ...settings, peers: (settings.peers ?? []).filter((x) => x.id !== a.id) };
+      return settings;
+    },
+    paste_reference: (a) => {
+      if (!String(a.data).startsWith('data:image/')) throw fail('invalid_request', '붙여 넣은 내용이 이미지가 아닙니다(PNG, JPEG, WebP, GIF).');
+      const name = `pasted-${Date.now()}.png`;
+      return { path: `${WORK}\\ImageGallery\\references\\${name}`, name, bytes: 120_000, width: 1280, height: 720 };
+    },
+    // Local cut-out: the first call "downloads" the model; the result is a transparent picture.
+    remove_background: async (a) => {
+      const channel = a.onEvent as Channel<MatteEvent>;
+      const total = 178_648_008;
+      if (!modelReady) {
+        for (let i = 1; i <= 10; i++) {
+          await sleep(150);
+          channel.onmessage({ event: 'downloading', data: { done: (total * i) / 10, total } });
+        }
+        modelReady = true;
+      }
+      channel.onmessage({ event: 'removing' });
+      await sleep(600);
+      const stem = ((a.path as string).split(/[\\/]/).pop() ?? 'image').replace(/\.[^.]+$/, '');
+      const topic = `${stem}-nobg-${Date.now()}`;
+      return { output: `${WORK}\\ImageGallery\\output\\${topic}\\${topic}.png`, topic, transparentRatio: 0.448 };
+    },
     // Plugins: folder/file picker returns a fixed path; opener does nothing.
     inspect_reference: (a) => {
       const path = a.path as string;
@@ -426,6 +500,7 @@ export function installMock(mode: string | null): void {
     'plugin:opener|open_path': () => null,
   };
 
+  let modelReady = false;
   clearMocks();
   mockWindows('main');
   mockIPC(

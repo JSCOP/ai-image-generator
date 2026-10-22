@@ -13,10 +13,10 @@ fn temp_store() -> (tempfile::TempDir, ProfileStore) {
 fn add_list_default_remove() {
     let (_dir, store) = temp_store();
     assert!(store.load().unwrap().profiles.is_empty());
-    let p = store.add("집 PC", ProviderKind::Cliproxy, Some("http://100.98.54.122:8317"), None).unwrap();
+    let p = store.add("집 PC", ProviderKind::Cliproxy, Some("http://100.64.0.10:8317"), None).unwrap();
     assert!(p.id.starts_with("p-") && p.id.len() == 10, "{}", p.id);
     assert!(p.id[2..].chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
-    assert_eq!(p.base_url, "http://100.98.54.122:8317/v1");
+    assert_eq!(p.base_url, "http://100.64.0.10:8317/v1");
     assert_eq!(p.name, "집 PC");
     assert_eq!(store.load().unwrap().profiles, vec![p.clone()]);
     store.set_default(Some("집 PC")).unwrap();
@@ -291,7 +291,7 @@ fn transport_warning_rules() {
         "http://10.0.0.5/v1",
         "http://172.20.1.1/v1",
         "http://192.168.0.2/v1",
-        "http://100.98.54.122:8317/v1",
+        "http://100.64.0.10:8317/v1",
         "http://desk.tail1234.ts.net:8317/v1",
         "http://[::1]:1/v1",
         // MagicDNS short names and other single-label LAN hosts.

@@ -214,6 +214,7 @@ pub(crate) struct ImageFields<'a> {
     pub(crate) references: Vec<PathBuf>,
     pub(crate) background: Option<&'a Value>,
     pub(crate) fit: Option<&'a Value>,
+    pub(crate) mask: Option<PathBuf>,
 }
 
 pub(crate) struct Item {
@@ -258,13 +259,16 @@ impl Runner {
 
     fn unsupported_keys(&self) -> Option<EngineError> {
         let jobs = self.spec.get("jobs").and_then(Value::as_array).cloned().unwrap_or_default();
+        let single = self.spec.get("mode").map(py_str).is_none_or(|m| m == "single");
         let objects = std::iter::once((false, &self.spec)).chain(jobs.iter().filter_map(Value::as_object).map(|job| (true, job)));
         for (is_job, object) in objects {
             let has = |key: &str| object.get(key).is_some_and(|v| !v.is_null());
             let message = if is_job && has("profile") {
                 "profile can only be set at the top level of the spec: one run uses one connection"
-            } else if has("mask") || has("keep_outside_mask") {
-                "mask editing is not supported yet (planned for stage 4)"
+            } else if has("mask") && (is_job || !single) {
+                "mask is supported in single mode only"
+            } else if object.get("keep_outside_mask") == Some(&Value::Bool(false)) {
+                "keep_outside_mask false is not supported: pixels outside the mask are always kept"
             } else if truthy(object.get("remove_background")) {
                 "remove_background is not supported yet (planned for stage 4); use background \"transparent\" with gpt-image-2.5-sunburst or gpt-image-2.5-flare"
             } else {
@@ -391,9 +395,8 @@ impl Runner {
         let fit = match fields.fit {
             None if background == Background::Transparent => Fit::Contain,
             None => Fit::Cover,
-            Some(value) => {
-                Fit::parse(&py_str(value)).ok_or_else(|| invalid(format!("invalid fit {}; expected cover or contain", py_repr(value))))?
-            }
+            Some(value) => Fit::parse(&py_str(value))
+                .ok_or_else(|| invalid(format!("invalid fit {}; expected cover, contain, or original", py_repr(value))))?,
         };
         let request = ImageRequest {
             prompt: fields.prompt,
@@ -403,6 +406,7 @@ impl Runner {
             action,
             references: fields.references,
             background,
+            mask: fields.mask,
         };
         // Kind–model mismatches and missing capabilities are refused here, before any paid call.
         validate_request(self.kind(), &request)?;
@@ -431,7 +435,17 @@ impl Runner {
         timeout: Option<Duration>,
     ) -> JobSpec {
         let record = (self.spec.get("record_metadata") != Some(&Value::Bool(false))).then(|| metadata_path(&output, workspace, slug));
-        JobSpec { request, fit, output, record, lock_dir: topic_dirs(workspace, slug).1, resume: truthy(self.spec.get("resume")), timeout }
+        let original_prompt = self.get("original_prompt").map(py_str).map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+        JobSpec {
+            request,
+            fit,
+            output,
+            record,
+            lock_dir: topic_dirs(workspace, slug).1,
+            resume: truthy(self.spec.get("resume")),
+            timeout,
+            original_prompt,
+        }
     }
 
     pub(crate) fn connect(&self, limits: &Limits) -> Result<Arc<JobContext>, EngineError> {
@@ -479,6 +493,11 @@ impl Runner {
             references: self.references(self.spec.get("reference_images"), "reference_images")?,
             background: self.get("background"),
             fit: self.get("fit"),
+            mask: match self.get("mask") {
+                None => None,
+                Some(Value::String(path)) => Some(self.resolve_user_path(path)),
+                Some(_) => return Err(invalid("mask must be an image path string")),
+            },
         };
         let (request, fit) = self.build_request(fields)?;
         let names: Vec<String> =
@@ -591,6 +610,7 @@ impl Runner {
                 references: Vec::new(),
                 background: job.get("background").filter(|v| !v.is_null()).or(self.get("background")),
                 fit: job.get("fit").filter(|v| !v.is_null()).or(self.get("fit")),
+                mask: None,
             };
             let output = absolute(&output_dir.join(format!("{}.png", safe_topic_slug(&id))));
             match references.and_then(|references| self.build_request(ImageFields { references, ..fields })) {

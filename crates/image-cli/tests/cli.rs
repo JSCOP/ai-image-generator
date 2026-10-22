@@ -123,7 +123,8 @@ fn schema_has_python_keys_plus_new_keys() {
     ] {
         assert!(schema.get(key).is_some(), "schema lacks {key}");
     }
-    assert!(schema["mask"]["description"].as_str().unwrap().contains("stage 4"));
+    assert!(schema["mask"]["description"].as_str().unwrap().contains("alpha 0"));
+    assert!(schema["remove_background"]["description"].as_str().unwrap().contains("stage 4"));
     assert!(schema["profile"]["description"].as_str().unwrap().contains("image-cli profile"));
     let cwd = image_core::paths::absolute(tmp.path()).display().to_string();
     assert_eq!(schema["topic_root"]["default"], cwd);

@@ -100,7 +100,7 @@ pub struct ModelView {
     pub transparency: bool,
 }
 
-fn store(ctx: &Ctx) -> ProfileStore {
+pub(super) fn store(ctx: &Ctx) -> ProfileStore {
     ProfileStore::open(ctx.home.clone())
 }
 
@@ -238,7 +238,7 @@ pub fn set_default_profile(ctx: &Ctx, id: Option<&str>) -> Result<(), ServiceErr
 }
 
 /// `name: None` follows the resolution order (environment, then default profile).
-fn connection(ctx: &Ctx, store: &ProfileStore, name: Option<&str>) -> Result<Connection, ServiceError> {
+pub(super) fn connection(ctx: &Ctx, store: &ProfileStore, name: Option<&str>) -> Result<Connection, ServiceError> {
     let resolver = Resolver { env: ctx.env.as_ref(), profiles: Some(store), secrets: ctx.secrets.as_ref() };
     Ok(resolve(&resolver, name.map(str::trim).filter(|n| !n.is_empty()))?)
 }

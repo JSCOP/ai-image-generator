@@ -26,6 +26,7 @@ import argparse
 import base64
 import json
 import io
+import math
 import mimetypes
 import os
 import queue
@@ -230,6 +231,39 @@ def provider_request_size(size: str) -> str:
     return f"{padded_width}x{padded_height}"
 
 
+COMMON_RATIOS = [(1, 1), (16, 9), (9, 16), (4, 3), (3, 4), (3, 2), (2, 3), (21, 9), (9, 21), (2, 1), (1, 2), (5, 4), (4, 5)]
+
+
+def _ratio_label(width: int, height: int) -> str:
+    g = math.gcd(width, height) or 1
+    a, b = width // g, height // g
+    if a <= 32 and b <= 32:
+        return f"{a}:{b}"
+    ratio = width / height
+    for a, b in COMMON_RATIOS:
+        if abs((a / b) / ratio - 1) <= 0.01:
+            return f"{a}:{b}"
+    return f"{ratio:.2f}:1" if ratio >= 1 else f"1:{1 / ratio:.2f}"
+
+
+def aspect_line(size: str) -> str:
+    """Line added to GPT image prompts: behind CLIProxyAPI the model picks the shape from the prompt and may ignore
+    `size` (2026-10-19: portrait results for a 16:9 request until the prompt named the shape). Same text as image-core."""
+    width, height = parse_size(size)
+    ratio = width / height
+    if ratio >= 1.6:
+        shape = "wide landscape"
+    elif ratio > 1.02:
+        shape = "landscape"
+    elif ratio >= 1 / 1.02:
+        shape = "square"
+    elif ratio > 1 / 1.6:
+        shape = "portrait"
+    else:
+        shape = "tall portrait"
+    return f"Image format: {shape} {_ratio_label(width, height)} ({width}x{height}). Compose the scene for exactly this aspect ratio."
+
+
 def build_payload(args: GenerateImageOptions) -> dict[str, object]:
     tool: dict[str, object] = {
         "type": "image_generation",
@@ -339,7 +373,7 @@ def build_openai_images_payload(args: GenerateImageOptions) -> dict[str, object]
 
     payload: dict[str, object] = {
         "model": args.image_model,
-        "prompt": args.prompt,
+        "prompt": f"{args.prompt}\n\n{aspect_line(args.size)}" if is_gpt_image else args.prompt,
         "n": 1,
         "size": provider_request_size(args.size),
         "quality": args.quality,

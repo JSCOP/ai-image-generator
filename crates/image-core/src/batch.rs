@@ -321,6 +321,7 @@ async fn run_batch_inner(run: &Runner) -> Result<Value, EngineError> {
             references: Vec::new(),
             background: run.get("background"),
             fit: run.get("fit"),
+            mask: None,
         };
         match run.build_request(fields) {
             Err(err) => failures.push(json!({"id": plan.id, "reason": err.reason(), "error": err})),

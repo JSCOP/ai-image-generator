@@ -2,11 +2,13 @@
   // App shell: icon navigation, top bar, current screen, toasts and the confirm dialog.
   import Button from './components/Button.svelte';
   import ConfirmHost from './components/ConfirmHost.svelte';
+  import Editor from './components/Editor.svelte';
   import Empty from './components/Empty.svelte';
   import NavRail from './components/NavRail.svelte';
   import Toast from './components/Toast.svelte';
   import TopBar from './components/TopBar.svelte';
   import { errorText } from './lib/api';
+  import { editor } from './lib/editor.svelte';
   import { app, loadApp, navigate } from './lib/state.svelte';
   import Connections from './screens/Connections.svelte';
   import Gallery from './screens/Gallery.svelte';
@@ -37,6 +39,9 @@
   </div>
 </div>
 
+{#if editor.source}
+  <Editor source={editor.source} />
+{/if}
 <Toast />
 <ConfirmHost />
 

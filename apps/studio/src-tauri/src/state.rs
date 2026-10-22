@@ -19,11 +19,23 @@ pub struct AppState {
     pub settings_lock: Arc<Mutex<()>>,
     /// Generations in progress.
     pub runs: Runs,
+    /// "이 PC 공유" server, when it runs.
+    pub share: Arc<Mutex<ShareRun>>,
+}
+
+/// State of the "이 PC 공유" server.
+#[derive(Default)]
+pub struct ShareRun {
+    /// Stops the running server; None = not running.
+    pub stop: Option<CancellationToken>,
+    pub port: Option<u16>,
+    /// Why the last start failed.
+    pub error: Option<String>,
 }
 
 impl AppState {
     pub fn new(ctx: Ctx) -> AppState {
-        AppState { ctx, settings_lock: Arc::new(Mutex::new(())), runs: Runs::default() }
+        AppState { ctx, settings_lock: Arc::new(Mutex::new(())), runs: Runs::default(), share: Arc::new(Mutex::new(ShareRun::default())) }
     }
 
     /// Real environment and the user's Credential Manager (memory only where that is unsupported).

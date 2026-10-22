@@ -4,7 +4,7 @@
 import { cardText, type Card, type CardStatus } from './run';
 import { categoryLabel, formatElapsed } from './format';
 import { ENV_NAME } from './connection';
-import type { ConnectionsView, FolderView, GalleryItem, GenerateInput, ModelView, ReferenceView, ServiceError } from './types';
+import type { ConnectionsView, Fit, FolderView, GalleryItem, GenerateInput, ModelView, ReferenceView, ServiceError } from './types';
 
 /** Images per run (service MAX_COUNT). */
 export const MAX_COUNT = 50;
@@ -48,6 +48,8 @@ export interface GenerateForm {
   /** Profile name, ENV_CHOICE, or null (nothing to choose from). */
   connection: string | null;
   prompt: string;
+  /** The text the user wrote before "영어로 다듬기" replaced `prompt`; null when the prompt is their own. */
+  originalPrompt: string | null;
   avoid: string;
   model: string;
   /** A preset value or CUSTOM_SIZE. */
@@ -58,6 +60,8 @@ export interface GenerateForm {
   references: ReferenceView[];
   /** Model-made transparent background (background "transparent"), else "auto". */
   transparent: boolean;
+  /** How a result of another shape is saved; never cropping by default. */
+  fit: Fit;
   /** Set by "이어서 생성": the topic to continue. */
   topic: string | null;
   resume: boolean;
@@ -67,6 +71,7 @@ export function emptyForm(): GenerateForm {
   return {
     connection: null,
     prompt: '',
+    originalPrompt: null,
     avoid: '',
     model: '',
     size: '1920x1080',
@@ -75,6 +80,7 @@ export function emptyForm(): GenerateForm {
     count: 1,
     references: [],
     transparent: false,
+    fit: 'contain',
     topic: null,
     resume: false,
   };
@@ -204,6 +210,49 @@ export function defaultModel(models: ModelView[], current: string, last: string 
   return models[0]?.id ?? '';
 }
 
+/** Chat model suggested for "영어로 다듬기". */
+export const DEFAULT_TEXT_MODEL = 'gpt-6-luna';
+
+/**
+ * Chat model for enhancement: the current one if listed, else the saved one if listed, else gpt-6-luna if listed,
+ * else the first. Without a list (not loaded or failed) the current one or gpt-6-luna.
+ */
+export function pickTextModel(models: string[], current: string, saved: string | null): string {
+  if (models.length === 0) return current || saved || DEFAULT_TEXT_MODEL;
+  for (const id of [current, saved, DEFAULT_TEXT_MODEL]) {
+    if (id && models.includes(id)) return id;
+  }
+  return models[0];
+}
+
+const TEXT_MAKERS: [pattern: RegExp, label: string][] = [
+  [/^(gpt-|chatgpt-|o\d)/i, 'OpenAI'],
+  [/^claude-/i, 'Claude'],
+  [/^gemini-/i, 'Gemini'],
+  [/^grok-/i, 'xAI Grok'],
+  [/^kimi-/i, 'Kimi'],
+];
+
+/** Group order and label of a chat model; unknown makers come last without a label. */
+function textMaker(id: string): [rank: number, label: string] {
+  const at = TEXT_MAKERS.findIndex(([pattern]) => pattern.test(id));
+  return at < 0 ? [TEXT_MAKERS.length, ''] : [at, TEXT_MAKERS[at][1]];
+}
+
+/**
+ * Every chat model of the connection for the "다듬기 모델" select, grouped by maker (OpenAI, Claude, Gemini, Grok, Kimi,
+ * then the rest by name). A chosen model missing from the list stays as the last option; no list offers gpt-6-luna.
+ */
+export function textModelOptions(models: string[], current: string): { value: string; label: string }[] {
+  const ids = [...new Set(models)];
+  if (current && !ids.includes(current)) ids.push(current);
+  if (ids.length === 0) ids.push(DEFAULT_TEXT_MODEL);
+  const listed = new Set(models);
+  const keyed = ids.map((id) => ({ id, maker: textMaker(id), extra: !listed.has(id) && models.length > 0 }));
+  keyed.sort((a, b) => Number(a.extra) - Number(b.extra) || a.maker[0] - b.maker[0] || a.id.localeCompare(b.id));
+  return keyed.map(({ id, maker }) => ({ value: id, label: maker[1] ? `${id} · ${maker[1]}` : id }));
+}
+
 // ---- form -> GenerateInput ----
 
 export type InputResult = { ok: true; input: GenerateInput } | { ok: false; errors: string[] };
@@ -233,16 +282,30 @@ export function toInput(form: GenerateForm, models: ModelView[]): InputResult {
       profile: form.connection === ENV_CHOICE ? null : form.connection,
       prompt: form.prompt.trim(),
       avoid: form.avoid.trim(),
+      originalPrompt: form.originalPrompt?.trim() || null,
       imageModel: form.model,
       size: size as string,
       quality: form.quality,
       count: form.count,
       references: form.references.map((r) => r.path),
       background: form.transparent ? 'transparent' : 'auto',
+      fit: form.fit,
       topic: resume ? form.topic : null,
       resume,
     },
   };
+}
+
+// ---- fit ----
+
+export const FITS: { value: Fit; label: string; hint: string }[] = [
+  { value: 'contain', label: '여백 채움', hint: '그림을 자르지 않고 정한 크기에 맞춥니다. 모양이 다르면 남는 곳은 투명한 여백이 됩니다.' },
+  { value: 'original', label: '원본 크기', hint: '모델이 보낸 그림을 크기 그대로 저장합니다. 정한 크기와 다를 수 있습니다.' },
+  { value: 'cover', label: '잘라 채움', hint: '정한 크기를 꽉 채우도록 가운데만 남기고 넘치는 부분을 잘라냅니다.' },
+];
+
+export function isFit(value: string | null | undefined): value is Fit {
+  return FITS.some((f) => f.value === value);
 }
 
 // ---- reusing a record ----
@@ -257,12 +320,14 @@ export function splitPrompt(text: string): { prompt: string; avoid: string } {
 /** Form fields a record gives back; references come as paths and are checked again before use. */
 export interface ItemSettings {
   prompt: string;
+  originalPrompt: string | null;
   avoid: string;
   model: string;
   size: string;
   customSize: string;
   quality: Quality;
   transparent: boolean;
+  fit: Fit;
   referencePaths: string[];
   topic: string | null;
   resume: boolean;
@@ -275,12 +340,14 @@ export function formFromItem(item: GalleryItem): ItemSettings {
   const quality = QUALITIES.find((q) => q.value === item.quality)?.value ?? 'high';
   return {
     prompt,
+    originalPrompt: item.originalPrompt ?? null,
     avoid,
     model: item.imageModel,
     size: preset ? item.size : CUSTOM_SIZE,
     customSize: preset ? '' : item.size,
     quality,
     transparent: item.background === 'transparent',
+    fit: isFit(item.fit) ? item.fit : 'contain',
     referencePaths: [...item.references],
     topic: null,
     resume: false,
@@ -302,7 +369,10 @@ export function resumeFrom(group: GalleryItem[]): ItemSettings & { count: number
   const numbers = group.map((i) => imageNumber(i.imagePath)).filter((n): n is number => n !== null);
   let count = Math.max(group.length, ...numbers, 1);
   if (numbers.length > 0) count = Math.max(count, 2);
-  return { ...formFromItem(first), topic: first.topic, resume: true, count: Math.min(count, MAX_COUNT) };
+  // Resuming needs the fit the images were made with. Older records hold what was applied ("none") or nothing;
+  // the app cropped then, or padded transparent images.
+  const fit: Fit = isFit(first.fit) ? first.fit : first.background === 'transparent' ? 'contain' : 'cover';
+  return { ...formFromItem(first), fit, topic: first.topic, resume: true, count: Math.min(count, MAX_COUNT) };
 }
 
 /** Why "이어서 생성" is not offered for a record outside the work folder. */
@@ -323,6 +393,8 @@ export interface HistoryGroup {
   topic: string;
   folder: string;
   prompt: string;
+  /** The user's request before "영어로 다듬기", shown as the title when there is one. */
+  original: string | null;
   model: string;
   /** Newest record time in the group. */
   modified: number;
@@ -361,6 +433,7 @@ export function historyGroups(items: GalleryItem[], limit = 40): HistoryGroup[] 
       topic: sorted[0].topic,
       folder: sorted[0].folder,
       prompt: sorted[0].prompt,
+      original: sorted[0].originalPrompt ?? null,
       model: sorted[0].imageModel,
       modified: Math.max(...sorted.map((i) => i.modified)),
       items: sorted,

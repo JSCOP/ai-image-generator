@@ -8,8 +8,8 @@ use chrono::TimeZone;
 use image_core::error::Category;
 use image_core::secrets::MemoryStore;
 use studio_lib::service::generate::{
-    build_spec, inspect_reference, run_generation, GenerateInput, RunEvent, MAX_COUNT, MAX_REFERENCES, MAX_REFERENCE_BYTES,
-    MAX_REFERENCE_SIDE,
+    build_spec, inspect_reference, run_generation, save_pasted_reference, GenerateInput, RunEvent, MAX_COUNT, MAX_REFERENCES,
+    MAX_REFERENCE_BYTES, MAX_REFERENCE_SIDE,
 };
 use studio_lib::service::settings::{save_settings, Settings};
 use studio_lib::service::Ctx;
@@ -21,12 +21,15 @@ fn input(prompt: &str) -> GenerateInput {
         profile: None,
         prompt: prompt.to_string(),
         avoid: String::new(),
+        original_prompt: None,
         image_model: "gpt-image-2.5".into(),
         size: "16x16".into(),
         quality: "low".into(),
         count: 1,
         references: Vec::new(),
         background: "auto".into(),
+        fit: "contain".into(),
+        edit: None,
         topic: None,
         resume: false,
     }
@@ -110,6 +113,7 @@ fn build_spec_composes_avoid_and_topic() {
     assert_eq!(spec["quality"], "low");
     assert_eq!(spec["image_model"], "gpt-image-2.5");
     assert_eq!(spec["background"], "auto");
+    assert_eq!(spec["fit"], "contain", "the app never crops unless asked");
     assert_eq!(spec["resume"], false);
     assert_eq!(spec["reference_images"], serde_json::json!([]));
     assert!(spec.get("profile").is_none());
@@ -120,6 +124,14 @@ fn build_spec_composes_avoid_and_topic() {
     let (spec, _) = build_spec(&plain, &settings(work.path()), now()).unwrap();
     assert_eq!(spec["prompt"], "한 줄");
     assert_eq!(spec["profile"], "local");
+    assert!(spec.get("original_prompt").is_none());
+
+    // The request before "영어로 다듬기" travels with the spec (the engine records it, never sends it).
+    let mut refined = input("A cute cartoon boy character");
+    refined.original_prompt = Some("  남자 귀여운 캐릭터 ".into());
+    let (spec, _) = build_spec(&refined, &settings(work.path()), now()).unwrap();
+    assert_eq!(spec["original_prompt"], "남자 귀여운 캐릭터");
+    assert_eq!(spec["prompt"], "A cute cartoon boy character");
 
     // A very long Korean prompt with line breaks and emoji still gives a short, safe name.
     let long = format!("{}\n두 번째 줄 🎨🎨 그리고/역슬래시\\콜론: 끝", "가".repeat(300));
@@ -171,6 +183,22 @@ fn build_spec_validates_count_and_references() {
     req.prompt = "cat".into();
     req.background = "opaque-ish".into();
     assert_eq!(build_spec(&req, &s, now()).unwrap_err().category, Category::InvalidRequest);
+    req.background = "auto".into();
+    for fit in ["original", "cover"] {
+        req.fit = fit.into();
+        assert_eq!(build_spec(&req, &s, now()).unwrap().0["fit"], fit);
+    }
+    req.fit = "stretch".into();
+    assert_eq!(build_spec(&req, &s, now()).unwrap_err().category, Category::InvalidRequest);
+}
+
+#[test]
+fn input_without_fit_defaults_to_contain() {
+    let parsed: GenerateInput = serde_json::from_value(serde_json::json!({
+        "profile": null, "prompt": "cat", "imageModel": "gpt-image-2.5", "size": "16x16", "quality": "low", "count": 1
+    }))
+    .unwrap();
+    assert_eq!(parsed.fit, "contain");
 }
 
 #[test]
@@ -362,4 +390,96 @@ fn inspect_reference_reports_size_and_refuses_what_the_run_would_refuse() {
     let err = inspect_reference(&wide).unwrap_err();
     assert_eq!(err.category, Category::InvalidRequest);
     assert!(err.message.contains("8192"), "{}", err.message);
+}
+
+#[test]
+fn claimed_topics_never_collide_between_runs_or_with_existing_folders() {
+    use studio_lib::service::generate::claim_topic;
+    let work = tempfile::tempdir().unwrap();
+    let first = claim_topic(work.path(), "cat-20261019-170034");
+    let second = claim_topic(work.path(), "cat-20261019-170034");
+    assert_eq!(first.topic(), "cat-20261019-170034");
+    assert_eq!(second.topic(), "cat-20261019-170034-2", "a run started in the same second gets its own folder");
+    drop(first);
+    // Released, but a folder made by the finished run keeps the name taken.
+    std::fs::create_dir_all(image_core::paths::topic_dirs(work.path(), "cat-20261019-170034").0).unwrap();
+    let third = claim_topic(work.path(), "cat-20261019-170034");
+    assert_eq!(third.topic(), "cat-20261019-170034-3");
+    drop(second);
+    let fourth = claim_topic(work.path(), "cat-20261019-170034");
+    assert_eq!(fourth.topic(), "cat-20261019-170034-2");
+}
+
+fn layer_b64(w: u32, h: u32, area: (std::ops::Range<u32>, std::ops::Range<u32>)) -> String {
+    use base64::Engine;
+    let layer = image::RgbaImage::from_fn(w, h, |x, y| {
+        image::Rgba(if area.0.contains(&x) && area.1.contains(&y) { [255, 0, 0, 255] } else { [0, 0, 0, 0] })
+    });
+    let mut out = std::io::Cursor::new(Vec::new());
+    layer.write_to(&mut out, image::ImageFormat::Png).unwrap();
+    base64::engine::general_purpose::STANDARD.encode(out.into_inner())
+}
+
+#[tokio::test]
+async fn mask_edit_keeps_everything_outside_and_stores_the_mask() {
+    let p = FakeProvider::start(|_| openai_image_reply(&png_bytes(64, 64, [255, 0, 0, 255])));
+    let s = Setup::new(&p.base_url());
+    let source = s.work.path().join("src.png");
+    let original = image::RgbaImage::from_fn(120, 80, |x, y| image::Rgba([x as u8, y as u8, 50, 255]));
+    original.save(&source).unwrap();
+    let mut req = input("a red square");
+    req.size = "120x80".into();
+    req.references = vec![source.clone()];
+    req.edit = Some(studio_lib::service::edit::EditInput { mask: layer_b64(120, 80, (40..60, 20..40)), strokes: None });
+    let (result, _) = s.run(req, CancellationToken::new()).await;
+    let summary = result.unwrap();
+    assert!(summary.ok, "{summary:?}");
+    let saved = image::open(&summary.outputs[0]).unwrap().to_rgba8();
+    for (x, y, px) in saved.enumerate_pixels() {
+        if !((40..60).contains(&x) && (20..40).contains(&y)) {
+            assert_eq!(px, original.get_pixel(x, y), "{x},{y}");
+        }
+    }
+    assert_eq!(*saved.get_pixel(50, 30), image::Rgba([255, 0, 0, 255]));
+    let mask = s.work.path().join(format!("ImageGallery/metadata/{0}/{0}-mask.png", summary.topic));
+    assert!(mask.is_file());
+    assert!(p.requests()[0].path.ends_with("/images/edits"));
+}
+
+#[tokio::test]
+async fn refused_mask_edit_leaves_no_files() {
+    let p = ok_provider(0);
+    let s = Setup::new(&p.base_url());
+    let source = s.work.path().join("src.png");
+    image::RgbaImage::from_pixel(32, 32, image::Rgba([1, 2, 3, 255])).save(&source).unwrap();
+    let mut req = input("edit");
+    req.size = "32x32".into();
+    req.references = vec![source];
+    // Grok through CLIProxyAPI takes no reference image: the dry run refuses it after the mask was written.
+    req.image_model = "grok-imagine-image-2.0".into();
+    req.edit = Some(studio_lib::service::edit::EditInput { mask: layer_b64(32, 32, (0..8, 0..8)), strokes: None });
+    let (result, events) = s.run(req, CancellationToken::new()).await;
+    assert!(result.is_err());
+    assert!(events.is_empty());
+    assert!(s.files_under("ImageGallery").is_empty(), "{:?}", s.files_under("ImageGallery"));
+    assert_eq!(p.requests().len(), 0);
+}
+
+#[test]
+fn pasted_images_are_saved_as_new_reference_files() {
+    use base64::Engine;
+    let work = tempfile::tempdir().unwrap();
+    let png = png_bytes(12, 8, [1, 2, 3, 255]);
+    let data = format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&png));
+    let first = save_pasted_reference(work.path(), &data, now()).unwrap();
+    let second = save_pasted_reference(work.path(), &data, now()).unwrap();
+    assert_ne!(first.path, second.path, "the same second never reuses a name");
+    assert!(first.name.starts_with("pasted-20261018-140509-") && first.name.ends_with(".png"), "{}", first.name);
+    assert!(first.path.contains("ImageGallery") && first.path.contains("references"), "{}", first.path);
+    assert_eq!((first.width, first.height), (12, 8));
+    assert_eq!(std::fs::read(&first.path).unwrap(), png);
+    let text = base64::engine::general_purpose::STANDARD.encode(b"just text");
+    assert_eq!(save_pasted_reference(work.path(), &text, now()).unwrap_err().category, Category::InvalidRequest);
+    assert_eq!(save_pasted_reference(work.path(), "%%%", now()).unwrap_err().category, Category::InvalidRequest);
+    assert_eq!(std::fs::read_dir(work.path().join("ImageGallery/references")).unwrap().count(), 2);
 }

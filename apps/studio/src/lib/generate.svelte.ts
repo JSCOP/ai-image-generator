@@ -2,12 +2,14 @@
 // user switches screens (runs are cancelled only by the cancel button or by closing the window).
 
 import * as api from './api';
+import { copyText, promptText } from './clipboard';
 import { failRun, reduce, type Card } from './run';
 import {
   addReferences,
   capabilities,
   defaultConnection,
   defaultModel,
+  DEFAULT_TEXT_MODEL,
   emptyForm,
   ENV_CHOICE,
   MAX_REFERENCES,
@@ -15,15 +17,20 @@ import {
   resumeFrom,
   retryInput,
   formFromItem,
+  pickTextModel,
   toInput,
   type GenerateForm,
   type ItemSettings,
 } from './generateForm';
-import { app, refreshConnections, toast, toastError } from './state.svelte';
-import type { FolderView, GalleryItem, GenerateInput, ModelView, ReferenceView, RunSummary, ServiceError } from './types';
+import { app, navigate, refreshConnections, toast, toastError } from './state.svelte';
+import type { EnhanceView, FolderView, GalleryItem, GenerateInput, ModelView, ReferenceView, RunSummary, ServiceError } from './types';
 
 export interface RunState {
+  /** Local key for lists (the run id arrives later with `started`). */
+  key: string;
   runId: string | null;
+  /** Still running (no summary or error yet). */
+  running: boolean;
   input: GenerateInput;
   cards: Card[];
   topic: string;
@@ -42,8 +49,8 @@ export const gen = $state({
   modelsFor: null as string | null,
   modelsLoading: false,
   modelsError: null as ServiceError | null,
-  run: null as RunState | null,
-  running: false,
+  /** Runs of this session, newest first; several can run at once. */
+  runs: [] as RunState[],
   history: [] as GalleryItem[],
   /** Gallery folders of the last history load (which one is the work folder). */
   folders: [] as FolderView[],
@@ -51,6 +58,15 @@ export const gen = $state({
   historyError: null as ServiceError | null,
   /** Center view: the run, or a history group key. */
   view: 'run' as string,
+  /** "영어로 다듬기": chat model, its list, the preview waiting for "적용" and the prompt before the last apply. */
+  enhance: {
+    model: '',
+    models: [] as string[],
+    busy: false,
+    result: null as EnhanceView | null,
+    error: null as ServiceError | null,
+    undo: null as string | null,
+  },
 });
 
 /** First visit: pick the connection, load its models and the history. Later visits keep the form. */
@@ -58,6 +74,7 @@ export function initGenerate(): void {
   if (!gen.ready) {
     gen.ready = true;
     gen.form.connection = defaultConnection(app.connections);
+    gen.enhance.model = app.settings?.enhanceModel || DEFAULT_TEXT_MODEL;
     void loadHistory();
   }
   syncConnection();
@@ -86,6 +103,7 @@ export async function loadModels(): Promise<void> {
     gen.models = [];
     return;
   }
+  void loadTextModels(connection);
   gen.modelsLoading = true;
   try {
     const models = await api.listModels(connection === ENV_CHOICE ? null : connection);
@@ -100,6 +118,90 @@ export async function loadModels(): Promise<void> {
   } finally {
     if (request === modelsRequest) gen.modelsLoading = false;
   }
+}
+
+let textModelsRequest = 0;
+
+/** Chat models of the connection for "영어로 다듬기"; a failure only leaves the list empty (the saved model stays). */
+async function loadTextModels(connection: string): Promise<void> {
+  const request = ++textModelsRequest;
+  let models: string[] = [];
+  try {
+    models = await api.textModels(connection === ENV_CHOICE ? null : connection);
+  } catch {
+    models = [];
+  }
+  if (request !== textModelsRequest) return;
+  gen.enhance.models = models;
+  gen.enhance.model = pickTextModel(models, gen.enhance.model, app.settings?.enhanceModel ?? null);
+}
+
+let enhanceRequest = 0;
+
+/** Asks the chat model for an English prompt; the answer waits in `gen.enhance.result` until applied or discarded. */
+export async function enhancePrompt(): Promise<void> {
+  const e = gen.enhance;
+  const connection = gen.form.connection;
+  if (e.busy || !connection || !gen.form.prompt.trim()) return;
+  const request = ++enhanceRequest;
+  e.busy = true;
+  e.error = null;
+  e.result = null;
+  const model = e.model.trim() || pickTextModel(e.models, '', app.settings?.enhanceModel ?? null);
+  try {
+    const result = await api.enhancePrompt({
+      profile: connection === ENV_CHOICE ? null : connection,
+      prompt: gen.form.prompt,
+      avoid: gen.form.avoid,
+      imageModel: gen.form.model || null,
+      model,
+    });
+    if (request !== enhanceRequest) return;
+    e.result = result;
+    rememberEnhanceModel(model);
+  } catch (err) {
+    if (request === enhanceRequest) e.error = api.toServiceError(err);
+  } finally {
+    if (request === enhanceRequest) e.busy = false;
+  }
+}
+
+/** Puts the English prompt in the prompt box; the previous text can come back with undoEnhance. */
+export function applyEnhanced(): void {
+  const result = gen.enhance.result;
+  if (!result) return;
+  gen.enhance.undo = gen.form.prompt;
+  // The first own text stays the original through repeated refinements.
+  gen.form.originalPrompt ??= gen.form.prompt.trim() || null;
+  gen.form.prompt = result.prompt;
+  gen.enhance.result = null;
+}
+
+export function discardEnhanced(): void {
+  enhanceRequest++;
+  gen.enhance.busy = false;
+  gen.enhance.result = null;
+  gen.enhance.error = null;
+}
+
+export function undoEnhance(): void {
+  if (gen.enhance.undo === null) return;
+  gen.form.prompt = gen.enhance.undo;
+  gen.form.originalPrompt = null;
+  gen.enhance.undo = null;
+}
+
+function rememberEnhanceModel(model: string): void {
+  const settings = app.settings;
+  if (!settings || settings.enhanceModel === model) return;
+  const next = { ...settings, enhanceModel: model };
+  // A convenience for the next start, like rememberChoice.
+  api.saveSettings(next).then(
+    () => {
+      app.settings = next;
+    },
+    () => {},
+  );
 }
 
 export function chooseConnection(connection: string): void {
@@ -122,7 +224,25 @@ export function referenceLimit(): number {
 /** Checks picked or dropped files and adds the usable ones; says why the others were left out. */
 export async function addReferencePaths(paths: string[]): Promise<void> {
   if (paths.length === 0) return;
-  const checked = await Promise.allSettled(paths.map((p) => api.inspectReference(p)));
+  mergeReferences(await Promise.allSettled(paths.map((p) => api.inspectReference(p))));
+}
+
+function dataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Ctrl+V: pasted images are saved into the work folder first (a reference is a file), then added like picked ones. */
+export async function pasteReferenceFiles(files: File[]): Promise<void> {
+  if (files.length === 0) return;
+  mergeReferences(await Promise.allSettled(files.map(async (f) => api.pasteReference(await dataUrl(f)))));
+}
+
+function mergeReferences(checked: PromiseSettledResult<ReferenceView>[]): void {
   const views: ReferenceView[] = [];
   const problems: string[] = [];
   for (const result of checked) {
@@ -142,7 +262,7 @@ export function removeReference(path: string): void {
 export async function loadHistory(): Promise<void> {
   gen.historyLoading = true;
   try {
-    const view = await api.gallery();
+    const view = await api.gallery(undefined, false);
     gen.history = view.items;
     gen.folders = view.folders;
     gen.historyError = null;
@@ -167,9 +287,17 @@ function rememberChoice(input: GenerateInput): void {
   );
 }
 
-/** Starts a run with the form; the button is disabled while toInput reports reasons, so a refusal here is rare. */
+/** Finished runs kept on screen besides the running ones. */
+export const KEEP_FINISHED_RUNS = 6;
+
+export function runningCount(): number {
+  return gen.runs.filter((r) => r.running).length;
+}
+
+let runKeys = 0;
+
+/** Starts a run with the form, also while other runs go on; the button is disabled while toInput reports reasons. */
 export async function startRun(): Promise<void> {
-  if (gen.running) return;
   const result = toInput(gen.form, gen.models);
   if (!result.ok) {
     toast(result.errors[0], 'warn');
@@ -178,18 +306,51 @@ export async function startRun(): Promise<void> {
   await runWith(result.input, true);
 }
 
-/** "실패한 장 다시 만들기": the last run's settings resumed on its topic, so only the missing images are made. */
-export async function retryFailed(): Promise<void> {
-  const last = gen.run;
-  if (gen.running || !last || !last.topic) return;
-  await runWith(retryInput(last.input, last.topic), false);
+/** "실패한 장 다시 만들기": that run's settings resumed on its topic, so only the missing images are made. */
+export async function retryFailed(run: RunState): Promise<void> {
+  if (run.running || !run.topic) return;
+  if (gen.runs.some((r) => r.running && r.topic === run.topic)) {
+    toast('이 주제는 이미 다시 만드는 중입니다.', 'info');
+    return;
+  }
+  await runWith(retryInput(run.input, run.topic), false);
+}
+
+/** A run the editor built (mask edit, AI transparency); it shows in the run list like any other. */
+export function runInput(input: GenerateInput): Promise<void> {
+  return runWith(input, false);
+}
+
+/** Removes a finished run from the screen (its images stay in the gallery). */
+export function dismissRun(run: RunState): void {
+  if (run.running) return;
+  gen.runs = gen.runs.filter((r) => r.key !== run.key);
 }
 
 async function runWith(input: GenerateInput, fromForm: boolean): Promise<void> {
-  gen.running = true;
   gen.view = 'run';
-  gen.run = { runId: null, input, cards: [], topic: input.topic ?? '', outputDir: '', summary: null, error: null, cancelling: false };
-  const run = gen.run;
+  gen.runs.unshift({
+    key: `local-${++runKeys}`,
+    runId: null,
+    running: true,
+    input,
+    cards: [],
+    topic: input.topic ?? '',
+    outputDir: '',
+    summary: null,
+    error: null,
+    cancelling: false,
+  });
+  // The reactive copy: mutations through it update the screen.
+  const run = gen.runs[0];
+  // Older finished runs make room; running ones always stay.
+  let finished = 0;
+  gen.runs = gen.runs.filter((r) => r.running || ++finished <= KEEP_FINISHED_RUNS);
+  if (fromForm && gen.form.resume) {
+    // The run carries the topic now; the next start makes a new one.
+    gen.form.resume = false;
+    gen.form.topic = null;
+  }
   rememberChoice(input);
   try {
     const summary = await api.startGeneration(input, (ev) => {
@@ -218,20 +379,14 @@ async function runWith(input: GenerateInput, fromForm: boolean): Promise<void> {
     toastError(error);
   } finally {
     run.cancelling = false;
-    gen.running = false;
-    if (fromForm && gen.form.resume) {
-      // A finished resume run is done with that topic; the next start makes a new one.
-      gen.form.resume = false;
-      gen.form.topic = null;
-    }
+    run.running = false;
     void loadHistory();
     void refreshConnections();
   }
 }
 
-export async function cancelRun(): Promise<void> {
-  const run = gen.run;
-  if (!run || !gen.running || run.cancelling) return;
+export async function cancelRun(run: RunState): Promise<void> {
+  if (!run.running || run.cancelling) return;
   run.cancelling = true;
   if (!run.runId) return; // not started yet: the `started` handler cancels it
   try {
@@ -245,11 +400,13 @@ export async function cancelRun(): Promise<void> {
 async function applySettings(settings: ItemSettings & { count?: number }): Promise<void> {
   const f = gen.form;
   f.prompt = settings.prompt;
+  f.originalPrompt = settings.originalPrompt;
   f.avoid = settings.avoid;
   f.size = settings.size;
   f.customSize = settings.customSize;
   f.quality = settings.quality;
   f.transparent = settings.transparent;
+  f.fit = settings.fit;
   f.topic = settings.topic;
   f.resume = settings.resume;
   if (settings.count) f.count = settings.count;
@@ -282,4 +439,26 @@ export function resumeGroup(items: GalleryItem[]): Promise<void> {
 export function stopResume(): void {
   gen.form.resume = false;
   gen.form.topic = null;
+}
+
+/** "원래 요청으로 다시 다듬기": that record's settings with the user's own request back in the prompt box. */
+export async function refineFromOriginal(item: GalleryItem): Promise<void> {
+  if (!item.originalPrompt) return;
+  navigate('generate');
+  await reuseItem(item);
+  gen.form.prompt = item.originalPrompt;
+  gen.form.originalPrompt = null;
+  gen.enhance.undo = null;
+  gen.enhance.result = null;
+}
+
+/** The prompt box was emptied: a stale original must not ride along with the next, new prompt. */
+export function promptEdited(): void {
+  if (!gen.form.prompt.trim()) gen.form.originalPrompt = null;
+}
+
+/** "프롬프트 복사": the prompt as sent (with its Avoid line) to the clipboard. */
+export async function copyPrompt(prompt: string, avoid = ''): Promise<void> {
+  if (await copyText(promptText(prompt, avoid))) toast('프롬프트를 복사했습니다.', 'ok', 2500);
+  else toast('클립보드에 복사하지 못했습니다.', 'warn');
 }

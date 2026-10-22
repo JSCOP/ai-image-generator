@@ -31,9 +31,9 @@ pub fn supports_references(model: &str) -> bool {
     backend(model) == Backend::Gemini || model.to_lowercase().starts_with("gpt-image-")
 }
 
-/// Officially documented native transparent output.
+/// Native transparent output: documented for -sunburst/-flare; CLIProxyAPI's bare `gpt-image-2.5` returned real alpha (2026-10-19).
 pub fn supports_native_transparency(model: &str) -> bool {
-    matches!(model.to_lowercase().as_str(), "gpt-image-2.5-sunburst" | "gpt-image-2.5-flare")
+    matches!(model.to_lowercase().as_str(), "gpt-image-2.5" | "gpt-image-2.5-sunburst" | "gpt-image-2.5-flare")
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -56,7 +56,7 @@ const fn model(
 }
 
 static MODELS: [ModelInfo; 9] = [
-    model("gpt-image-2.5", "GPT Image 2.5 (최신)", "OpenAI", true, false),
+    model("gpt-image-2.5", "GPT Image 2.5 (최신)", "OpenAI", true, true),
     model("gpt-image-2.5-flare", "GPT Image 2.5 Flare", "OpenAI", true, true),
     model("gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst", "OpenAI", true, true),
     model("gpt-image-2", "GPT Image 2", "OpenAI", true, false),

@@ -4,7 +4,7 @@ use image_core::error::Category;
 use image_core::http::Http;
 use image_core::profiles::ProviderKind;
 use image_core::provider::{build_call, classify_http_error, extract_image, list_models, Action, Background, ImageRequest};
-use image_core::size::parse_size;
+use image_core::size::{aspect_line, parse_size};
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -19,6 +19,7 @@ fn req(model: &str, size: &str, references: Vec<PathBuf>) -> ImageRequest {
         action: Action::Generate,
         references,
         background: Background::Auto,
+        mask: None,
     }
 }
 
@@ -37,8 +38,32 @@ fn png_ref(dir: &tempfile::TempDir) -> PathBuf {
 fn openai_generation_payload_matches_python() {
     let call = build_call(&proxy(), &req("gpt-image-2.5", "1000x1000", vec![])).unwrap();
     assert_eq!(call.url, "http://h/v1/images/generations");
-    assert_eq!(call.body, json!({"model":"gpt-image-2.5","prompt":"p","n":1,"size":"1008x1008","quality":"high","output_format":"png"}));
+    let prompt = format!(
+        "p
+
+{}",
+        aspect_line(parse_size("1000x1000").unwrap())
+    );
+    assert_eq!(call.body, json!({"model":"gpt-image-2.5","prompt":prompt,"n":1,"size":"1008x1008","quality":"high","output_format":"png"}));
     assert_eq!(call.backend, Backend::OpenAiImages);
+}
+
+/// Behind CLIProxyAPI the GPT model picks the shape from the prompt and ignores `size` (a character prompt at
+/// 1920x1088 came back 1024x1536 three times out of three, 2026-10-19); one line naming the shape fixed it 3/3.
+#[test]
+fn gpt_prompts_name_the_requested_shape() {
+    let line = |size: &str| aspect_line(parse_size(size).unwrap());
+    assert_eq!(line("1920x1080"), "Image format: wide landscape 16:9 (1920x1080). Compose the scene for exactly this aspect ratio.");
+    assert_eq!(line("1080x1920"), "Image format: tall portrait 9:16 (1080x1920). Compose the scene for exactly this aspect ratio.");
+    assert_eq!(line("1024x1024"), "Image format: square 1:1 (1024x1024). Compose the scene for exactly this aspect ratio.");
+    assert_eq!(line("1536x1024"), "Image format: landscape 3:2 (1536x1024). Compose the scene for exactly this aspect ratio.");
+    assert_eq!(line("3840x2160"), "Image format: wide landscape 16:9 (3840x2160). Compose the scene for exactly this aspect ratio.");
+    assert_eq!(line("1366x768"), "Image format: wide landscape 16:9 (1366x768). Compose the scene for exactly this aspect ratio.");
+    assert_eq!(line("1000x700"), "Image format: landscape 10:7 (1000x700). Compose the scene for exactly this aspect ratio.");
+    assert_eq!(line("1234x567"), "Image format: wide landscape 2.18:1 (1234x567). Compose the scene for exactly this aspect ratio.");
+    // Grok and Gemini get the shape as parameters; their prompts stay as written.
+    let grok = build_call(&proxy(), &req("grok-imagine-image-2.0", "1920x1080", vec![])).unwrap();
+    assert_eq!(grok.body["prompt"], "p");
 }
 
 #[test]

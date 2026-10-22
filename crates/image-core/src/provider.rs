@@ -72,6 +72,8 @@ pub struct ImageRequest {
     pub action: Action,
     pub references: Vec<PathBuf>,
     pub background: Background,
+    /// OpenAI-style mask over the first reference (alpha 0 = edit); see `mask`.
+    pub mask: Option<PathBuf>,
 }
 
 #[derive(Debug)]

@@ -168,7 +168,10 @@ async fn jobs_mode_overrides_prefix_suffix_and_collisions() {
     assert_eq!(ids, vec!["a 1", "b/2"]);
     assert_eq!(r.files_under("ImageGallery/output/set"), vec!["a_1.png", "b_2.png"]);
     let bodies: Vec<Value> = p.requests().iter().map(|q| q.json()).collect();
-    let first = bodies.iter().find(|b| b["prompt"] == "PRE\nfirst\nPOST").expect("prefix/suffix joined with newlines");
+    let first = bodies
+        .iter()
+        .find(|b| b["prompt"].as_str().unwrap().starts_with("PRE\nfirst\nPOST\n\nImage format:"))
+        .expect("prefix/suffix joined with newlines");
     assert_eq!(first["size"], "32x16");
     assert!(bodies.iter().any(|b| b["model"] == "grok-imagine-image-2.0"));
     let collide = json!({"mode": "jobs", "jobs": [{"id": "a/b", "prompt": "x"}, {"id": "A_b", "prompt": "y"}]});
@@ -207,9 +210,18 @@ async fn validation_errors_match_python_shape() {
     assert_eq!(out.result["error"], "invalid action 'paint'; expected auto, generate, or edit");
     let out = r.go(spec(json!({"concurrency": "many"})), env(), CancellationToken::new()).await;
     assert_eq!(out.result["error"], "job_timeout_sec, concurrency, and retries must be numbers");
-    for extra in [json!({"mask": "m.png"}), json!({"keep_outside_mask": true}), json!({"remove_background": true})] {
+    for extra in [
+        json!({"mask": "m.png", "mode": "jobs", "jobs": [{"id": "a", "prompt": "p"}]}),
+        json!({"keep_outside_mask": false}),
+        json!({"remove_background": true}),
+    ] {
         let out = r.go(spec(extra.clone()), env(), CancellationToken::new()).await;
         assert_eq!((out.exit_code, out.result["error_category"].clone()), (2, json!("unsupported")), "{extra}");
+    }
+    // A mask without the image to edit, or a missing mask file, is refused before any request.
+    for extra in [json!({"mask": "m.png"}), json!({"mask": 3})] {
+        let out = r.go(spec(extra.clone()), env(), CancellationToken::new()).await;
+        assert_eq!(out.result["error_category"], "invalid_request", "{extra}: {}", out.result);
     }
     // Without a profile store a named profile cannot be found; the environment is never used instead.
     let out = r.go(spec(json!({"profile": "home"})), env(), CancellationToken::new()).await;
@@ -220,7 +232,9 @@ async fn validation_errors_match_python_shape() {
         let out = r.go(spec(extra), env(), CancellationToken::new()).await;
         assert_eq!(out.result["error_category"], "invalid_request");
     }
-    let out = r.go(spec(json!({"background": "transparent", "topic": "tr"})), env(), CancellationToken::new()).await;
+    let out = r
+        .go(spec(json!({"background": "transparent", "topic": "tr", "image_model": "gpt-image-2"})), env(), CancellationToken::new())
+        .await;
     assert_eq!(out.result["error_category"], "unsupported");
     let calls = p.requests().len();
     let out = r.go(spec(json!({"topic": "noconn"})), MapEnv::new(&[], &[]), CancellationToken::new()).await;
@@ -305,4 +319,91 @@ async fn a_panicking_task_is_reported_as_a_failure_not_dropped() {
     assert_eq!(failures.len(), 1);
     assert_eq!(failures[0]["index"], 2);
     assert_eq!(failures[0]["error"]["category"], "internal");
+}
+
+#[tokio::test]
+async fn mask_edit_sends_a_crop_and_keeps_everything_outside_the_mask() {
+    let p = FakeProvider::start(|_| openai_image_reply(&png_bytes(512, 512, [255, 0, 0, 255])));
+    let r = Run::new();
+    let (w, h) = (300u32, 200u32);
+    let source = image::RgbaImage::from_fn(w, h, |x, y| image::Rgba([(x % 251) as u8, (y % 241) as u8, 7, 255]));
+    source.save(r.root().join("src.png")).unwrap();
+    // Mark x 100..150, y 60..110.
+    let mask = image::RgbaImage::from_fn(w, h, |x, y| {
+        image::Rgba([0, 0, 0, if (100..150).contains(&x) && (60..110).contains(&y) { 0 } else { 255 }])
+    });
+    mask.save(r.root().join("mask.png")).unwrap();
+    let edit = json!({"reference_images": ["src.png"], "mask": "mask.png", "keep_outside_mask": true, "size": "300x200", "image_model": "gpt-image-2.5"});
+    let out = r.go(spec(edit), MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
+    assert_eq!(out.result["ok"], true, "{}", out.result);
+
+    let sent = p.requests()[0].json();
+    assert!(p.requests()[0].path.ends_with("/images/edits"));
+    // Crop x 52..198, y 12..158 (48px context) → 146x146, asked as 1024x1024.
+    assert_eq!(sent["size"], "1024x1024");
+    let prompt = sent["prompt"].as_str().unwrap();
+    assert!(
+        prompt.starts_with(
+            "a mug
+
+The first image is a crop"
+        ),
+        "{prompt}"
+    );
+    // Marked x 100..150 inside crop x 52..198 → 33%-67%.
+    assert!(prompt.contains("33%-67% of the width"), "{prompt}");
+    let guide_b64 = sent["images"][1]["image_url"].as_str().unwrap().split(',').nth(1).unwrap().to_string();
+    let guide = image::load_from_memory(&base64_decode(&guide_b64)).unwrap().to_luma8();
+    assert_eq!((guide.get_pixel(73, 73)[0], guide.get_pixel(0, 0)[0]), (255, 0), "white = marked");
+    let crop_b64 = sent["images"][0]["image_url"].as_str().unwrap().split(',').nth(1).unwrap().to_string();
+    let crop = image::load_from_memory(&base64_decode(&crop_b64)).unwrap();
+    assert_eq!((crop.width(), crop.height()), (146, 146));
+    assert!(sent.get("mask").is_none());
+
+    let saved = image::open(r.root().join("ImageGallery/output/t/t.png")).unwrap().to_rgba8();
+    assert_eq!(saved.dimensions(), (w, h));
+    for (x, y, px) in saved.enumerate_pixels() {
+        if !((100..150).contains(&x) && (60..110).contains(&y)) {
+            assert_eq!(px, source.get_pixel(x, y), "outside pixel changed at {x},{y}");
+        }
+    }
+    assert_eq!(*saved.get_pixel(125, 85), image::Rgba([255, 0, 0, 255]));
+    let record: Value =
+        serde_json::from_str(&std::fs::read_to_string(r.root().join("ImageGallery/metadata/t/t.png.json")).unwrap()).unwrap();
+    assert!(record["mask"].as_str().unwrap().ends_with("mask.png"));
+    assert_eq!(record["fit_applied"], "mask");
+    assert_eq!(record["saved_size"], "300x200");
+    assert_eq!(record["provider_size"], "512x512");
+}
+
+fn base64_decode(text: &str) -> Vec<u8> {
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(text).unwrap()
+}
+
+/// The user's own words before "영어로 다듬기" stay in the record; only `prompt` is sent.
+#[tokio::test]
+async fn original_prompt_is_recorded_but_never_sent() {
+    let p = ok_provider(0);
+    let r = Run::new();
+    let spec = spec(json!({"prompt": "A cute cartoon boy character", "original_prompt": "남자 귀여운 캐릭터"}));
+    let out = r.go(spec, MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
+    assert_eq!(out.result["ok"], true, "{}", out.result);
+    let sent = p.requests()[0].json();
+    assert!(!sent.to_string().contains("남자"), "{sent}");
+    let record: Value =
+        serde_json::from_str(&std::fs::read_to_string(r.root().join("ImageGallery/metadata/t/t.png.json")).unwrap()).unwrap();
+    assert_eq!(record["prompt"], "A cute cartoon boy character");
+    assert_eq!(record["original_prompt"], "남자 귀여운 캐릭터");
+    // Without it the record has no such key.
+    let r2 = Run::new();
+    let out = r2.go(spec_plain(), MapEnv::proxy(&p.base_url()), CancellationToken::new()).await;
+    assert_eq!(out.result["ok"], true);
+    let record: Value =
+        serde_json::from_str(&std::fs::read_to_string(r2.root().join("ImageGallery/metadata/t/t.png.json")).unwrap()).unwrap();
+    assert!(record.get("original_prompt").is_none());
+}
+
+fn spec_plain() -> Value {
+    spec(json!({}))
 }

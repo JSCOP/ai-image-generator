@@ -26,7 +26,8 @@
   const badge = $derived(statusBadge(item));
   const hasImage = $derived(item.status === 'complete' || item.status === 'legacy');
   const transparent = $derived(item.background === 'transparent');
-  const prompt = $derived(truncateEnd(oneLine(item.prompt), 90) || item.topic);
+  // The user's own request reads better than its English rewrite.
+  const prompt = $derived(truncateEnd(oneLine(item.originalPrompt || item.prompt), 90) || item.topic);
 </script>
 
 <button
@@ -40,7 +41,7 @@
 >
   <span class="thumb" class:checker={transparent && hasImage && !broken}>
     {#if hasImage && !broken}
-      <img src={imageSrc(item.imagePath)} alt="" loading="lazy" decoding="async" class:contain={transparent} onerror={() => (broken = true)} />
+      <img src={imageSrc(item.imagePath, true)} alt="" loading="lazy" decoding="async" onerror={() => (broken = true)} />
     {:else}
       <span class="state">
         {#if item.status === 'failed'}
@@ -59,7 +60,7 @@
   </span>
   <span class="text">
     <span class="prompt ellipsis">{prompt}</span>
-    <span class="meta ellipsis">{item.imageModel} · {formatSize(item.savedSize ?? item.size)}</span>
+    <span class="meta ellipsis">{#if item.machine}<span class="pc">{item.machine}</span> · {/if}{item.imageModel} · {formatSize(item.savedSize ?? item.size)}</span>
   </span>
 </button>
 
@@ -97,9 +98,7 @@
     width: 100%;
     height: 100%;
     display: block;
-    object-fit: cover;
-  }
-  img.contain {
+    /* The whole image, never cropped. */
     object-fit: contain;
   }
   .badge {
@@ -161,5 +160,9 @@
   .meta {
     font-size: 12px;
     color: var(--muted);
+  }
+  /* Another PC's record: its PC name first. */
+  .pc {
+    color: var(--accent);
   }
 </style>

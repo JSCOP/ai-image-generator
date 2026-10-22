@@ -77,6 +77,44 @@ export interface Settings {
   galleryFolders: string[];
   lastProfile: string | null;
   lastModel: string | null;
+  /** Chat model of "영어로 다듬기"; null = suggest one. Older settings files lack it. */
+  enhanceModel?: string | null;
+  /** Galleries found on this PC that the user took out of the list. */
+  hiddenFolders?: string[];
+  /** "이 PC 공유". */
+  share?: ShareSettings;
+  /** Other PCs whose shared galleries the gallery shows (their tokens stay in the key store). */
+  peers?: Peer[];
+}
+
+export interface ShareSettings {
+  enabled: boolean;
+  port: number;
+}
+
+export interface Peer {
+  id: string;
+  name: string;
+  /** http://<address>:<port> of that PC's "이 PC 공유". */
+  url: string;
+}
+
+/** "이 PC 공유" as the screen shows it. */
+export interface ShareView {
+  enabled: boolean;
+  port: number;
+  running: boolean;
+  /** This PC's Tailscale address, null when Tailscale is not connected. */
+  address: string | null;
+  name: string;
+  /** What another PC needs to read this PC's galleries. */
+  token: string;
+  error: string | null;
+}
+
+export interface ShareInfo {
+  name: string;
+  version: string;
 }
 
 export interface ProfileView {
@@ -139,18 +177,61 @@ export interface ReferenceView {
 
 export type Background = 'auto' | 'opaque' | 'transparent';
 
+/** How a provider image of another shape is saved: whole with transparent margins, untouched at its own size, or cropped. */
+export type Fit = 'contain' | 'original' | 'cover';
+
+/** service::enhance::EnhanceInput. */
+export interface EnhanceInput {
+  /** Profile name; null = the active connection. */
+  profile: string | null;
+  prompt: string;
+  avoid: string;
+  imageModel: string | null;
+  /** Chat model that writes the prompt. */
+  model: string;
+}
+
+/** service::enhance::EnhanceView. */
+export interface EnhanceView {
+  prompt: string;
+  /** Model the provider reported, else the requested one. */
+  model: string;
+}
+
 export interface GenerateInput {
   profile: string | null;
   prompt: string;
   avoid: string;
+  /** The user's own request when `prompt` came from "영어로 다듬기"; recorded with each image, never sent. */
+  originalPrompt?: string | null;
   imageModel: string;
   size: string;
   quality: string;
   count: number;
   references: string[];
   background: Background;
+  fit: Fit;
   topic: string | null;
   resume: boolean;
+  /** Mask edit of references[0]: everything outside the painted area stays as it is. */
+  edit?: EditInput | null;
+}
+
+/** Painted layers of the editor, PNG data URLs of the source size. */
+export interface EditInput {
+  /** Area to change (painted pixels have alpha above 0). */
+  mask: string;
+  /** Drawing over the image, sent as part of the picture; drawn pixels count as marked. */
+  strokes: string | null;
+}
+
+/** Progress of "배경 제거 (내 PC)". */
+export type MatteEvent = { event: 'downloading'; data: { done: number; total: number } } | { event: 'removing' };
+
+export interface MatteResult {
+  output: string;
+  topic: string;
+  transparentRatio: number;
 }
 
 export interface FailureView {
@@ -191,6 +272,8 @@ export interface GalleryItem {
   topic: string;
   status: GalleryStatus;
   prompt: string;
+  /** The user's request before "영어로 다듬기" rewrote `prompt`. */
+  originalPrompt?: string | null;
   imageModel: string;
   responseModel: string | null;
   size: string;
@@ -206,7 +289,18 @@ export interface GalleryItem {
   providerSize: string | null;
   savedSize: string | null;
   requestId: string | null;
+  /** Requested fit; older records may hold "none" (what was applied) and Python records nothing. */
+  fit: string | null;
+  /** generate | edit | auto | remove_background (local cut-out). */
+  action?: string | null;
+  /** Mask file of a partial edit. */
+  mask?: string | null;
+  /** Other PC it came from; null = this PC. Its paths are then peer://<id>/<path there>. */
+  machine?: string | null;
 }
+
+/** work = the work folder, added = "폴더 추가", found = found on this PC (CLI runs, "이 PC에서 찾기"), peer = another PC. */
+export type FolderSource = 'work' | 'added' | 'found' | 'peer';
 
 export interface FolderView {
   /** Path as registered. */
@@ -214,12 +308,19 @@ export interface FolderView {
   galleryRoot: string;
   available: boolean;
   isWorkDir: boolean;
+  source?: FolderSource;
+  /** Other PC's name (source peer). */
+  machine?: string | null;
+  /** Why another PC could not be read. */
+  note?: string | null;
 }
 
 export interface GalleryView {
   items: GalleryItem[];
   folders: FolderView[];
   truncated: boolean;
+  /** "이 PC에서 찾기" has run at least once. */
+  scanned?: boolean;
 }
 
 export type Screen = 'generate' | 'gallery' | 'connections';

@@ -141,8 +141,10 @@ class GalleryTests(unittest.TestCase):
                              "jobs": [{"id": "sleep", "prompt": "sleeping kitten"},
                                       {"id": "run", "prompt": "running kitten", "image_model": "gpt-image-2.5-flare"}]})
             self.assertTrue(result["ok"], result)
-            self.assertEqual({call["prompt"]: call["model"] for call in calls[-2:]},
+            # GPT prompts carry a line naming the requested shape after the user's prompt.
+            self.assertEqual({call["prompt"].split("\n\nImage format:")[0]: call["model"] for call in calls[-2:]},
                              {"sleeping kitten": "gpt-image-2.5", "running kitten": "gpt-image-2.5-flare"})
+            self.assertTrue(all("Image format: square 1:1 (8x8)." in call["prompt"] for call in calls[-2:]))
             preset = workspace / "preset.json"
             preset.write_text(json.dumps({"topic": "batch", "size": "8x8", "categories": [
                 {"name": "cat", "templates": ["fluffy cat"]}]}), encoding="utf-8")

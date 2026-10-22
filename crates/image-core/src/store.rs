@@ -17,6 +17,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Record {
     pub prompt: String,
+    /// The user's request before the prompt was rewritten ("영어로 다듬기"); not part of the request identity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_prompt: Option<String>,
     pub image_model: String,
     pub size: String,
     pub quality: String,
@@ -35,6 +38,12 @@ pub struct Record {
     pub background: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fit: Option<String>,
+    /// What fitting actually did: `none` (already the right PNG), `cover`, `contain` or `original` (re-encoded only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fit_applied: Option<String>,
+    /// Mask file of a partial edit; the saved image is the source with only the masked area replaced.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_size: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,23 +67,24 @@ pub fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Identity of a request for resume: prompt, model, size, quality, action, reference contents, background, fit.
+/// Identity of a request for resume: prompt, model, size, quality, action, reference contents, background, fit,
+/// and the mask contents when there is one (absent otherwise, so older hashes stay valid).
 pub fn request_hash(req: &ImageRequest, fit: Fit) -> Result<String, EngineError> {
-    let references = req
-        .references
-        .iter()
-        .map(|p| {
-            std::fs::read(p)
-                .map(|bytes| sha256_hex(&bytes))
-                .map_err(|e| EngineError::new(Category::InvalidRequest, format!("reference image not readable: {}: {e}", p.display())))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let file_hash = |p: &PathBuf| {
+        std::fs::read(p)
+            .map(|bytes| sha256_hex(&bytes))
+            .map_err(|e| EngineError::new(Category::InvalidRequest, format!("reference image not readable: {}: {e}", p.display())))
+    };
+    let references = req.references.iter().map(file_hash).collect::<Result<Vec<_>, _>>()?;
     // Keys are written in a fixed order, so this serialization is canonical.
-    let identity = json!({
+    let mut identity = json!({
         "prompt": req.prompt, "image_model": req.image_model, "size": req.size.to_string(),
         "quality": req.quality, "action": req.action.as_str(), "references": references,
         "background": req.background.as_str(), "fit": fit.as_str(),
     });
+    if let Some(mask) = &req.mask {
+        identity["mask"] = json!(file_hash(mask)?);
+    }
     Ok(sha256_hex(identity.to_string().as_bytes()))
 }
 

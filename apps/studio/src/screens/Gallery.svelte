@@ -1,6 +1,7 @@
 <script lang="ts">
-  // Gallery screen: registered folders (filter, add, remove; a missing folder is shown as "찾을 수 없음"), status filter,
-  // search, records grouped by day, and the selected record's details with reuse / reference / resume actions.
+  // Gallery screen: this PC's folders (work folder, added, found by CLI runs or "이 PC에서 찾기") and other PCs' shared
+  // galleries (filter, add, remove; a missing folder is shown as "찾을 수 없음"), status filter, search, records grouped
+  // by day, and the selected record's details with reuse / reference / resume actions (another PC's records: view only).
   import { open } from '@tauri-apps/plugin-dialog';
   import { revealItemInDir } from '@tauri-apps/plugin-opener';
   import Badge from '../components/Badge.svelte';
@@ -9,10 +10,11 @@
   import GalleryCard from '../components/GalleryCard.svelte';
   import Icon from '../components/Icon.svelte';
   import Segmented from '../components/Segmented.svelte';
+  import SharePanel from '../components/SharePanel.svelte';
   import Viewer, { type ViewerEntry } from '../components/Viewer.svelte';
   import { errorText, imageSrc, toServiceError } from '../lib/api';
   import { truncateMiddle } from '../lib/format';
-  import { addFolder, gal, loadGallery, PAGE, removeFolder, resetPage } from '../lib/gallery.svelte';
+  import { addFolder, discover, gal, loadGallery, PAGE, removeFolder, resetPage } from '../lib/gallery.svelte';
   import {
     detailRows,
     filterItems,
@@ -24,7 +26,8 @@
     takeItems,
     type StatusFilter,
   } from '../lib/galleryView';
-  import { addReferencePaths, gen, resumeGroup, reuseItem } from '../lib/generate.svelte';
+  import { openEditor } from '../lib/editor.svelte';
+  import { addReferencePaths, copyPrompt, refineFromOriginal, resumeGroup, reuseItem } from '../lib/generate.svelte';
   import { resumeBlocked, samePath, splitPrompt } from '../lib/generateForm';
   import { ask, navigate, toastError } from '../lib/state.svelte';
   import type { FolderView, GalleryItem } from '../lib/types';
@@ -42,6 +45,17 @@
   const missingFolders = $derived(gal.folders.filter((f) => !f.available));
   const selected = $derived(gal.selected === null ? null : (gal.items.find((i) => i.recordPath === gal.selected) ?? null));
   const statusOptions = $derived(STATUS_FILTERS.map((s) => ({ value: s.value, label: `${s.label} ${counts[s.value]}` })));
+
+  /** Another PC that could not be read has no folder path: it shows by its PC name. */
+  function chipLabel(folder: FolderView): string {
+    return folder.source === 'peer' && !folder.available ? (folder.machine ?? '다른 PC') : folderName(folder.path);
+  }
+
+  function chipTitle(folder: FolderView): string {
+    const where = folder.source === 'peer' ? `${folder.machine ?? '다른 PC'} · ${folder.path.replace(/^peer:\/\/[^/]+\//, '')}` : folder.path;
+    if (folder.available) return where;
+    return folder.note ?? `찾을 수 없음: ${where}`;
+  }
 
   function folderCount(folder: FolderView): number {
     return gal.items.filter((i) => samePath(i.folder, folder.galleryRoot)).length;
@@ -107,7 +121,6 @@
   }
 
   const selectedResumeBlocked = $derived(selected ? resumeBlocked(selected.folder, gal.folders) : null);
-  const runningNote = '생성이 진행 중입니다. 끝난 뒤에 쓸 수 있습니다.';
 
   // ---- large view over the finished images of the current filter ----
   let viewerIndex: number | null = $state(null);
@@ -133,6 +146,9 @@
 
   const selectedPrompt = $derived(selected ? splitPrompt(selected.prompt) : null);
   const selectedHasImage = $derived(selected?.status === 'complete' || selected?.status === 'legacy');
+  /** A record of another PC: shown and reusable as settings, but its files are not on this PC. */
+  const selectedRemote = $derived(!!selected?.machine);
+  const shownPath = (path: string) => path.replace(/^peer:\/\/[^/]+\//, '');
 </script>
 
 <div class="gallery" class:with-detail={!!selected}>
@@ -148,15 +164,16 @@
               type="button"
               class="chip inner"
               aria-pressed={gal.folder !== null && samePath(gal.folder, f.galleryRoot)}
-              title={f.available ? f.path : `찾을 수 없음: ${f.path}`}
+              title={chipTitle(f)}
               onclick={() => chooseFolder(f.galleryRoot)}
             >
-              <Icon name="folder" size={15} />
-              <span class="name">{folderName(f.path)}</span>
+              <Icon name={f.source === 'peer' ? 'computer' : 'folder'} size={15} />
+              <span class="name">{chipLabel(f)}</span>
               {#if f.isWorkDir}<span class="tag">작업 폴더</span>{/if}
-              {#if f.available}<span class="n">{folderCount(f)}</span>{:else}<span class="tag gone-tag">찾을 수 없음</span>{/if}
+              {#if f.source === 'peer' && f.available}<span class="tag pc">{f.machine}</span>{/if}
+              {#if f.available}<span class="n">{folderCount(f)}</span>{:else}<span class="tag gone-tag">{f.source === 'peer' ? '연결 안 됨' : '찾을 수 없음'}</span>{/if}
             </button>
-            {#if !f.isWorkDir}
+            {#if !f.isWorkDir && f.source !== 'peer'}
               <button type="button" class="x" aria-label="{folderName(f.path)} 폴더를 목록에서 빼기" title="목록에서 빼기" disabled={gal.busy} onclick={() => askRemove(f)}>
                 <Icon name="close" size={13} />
               </button>
@@ -164,6 +181,15 @@
           </span>
         {/each}
         <Button size="sm" variant="ghost" icon="plus" disabled={gal.busy} onclick={pickFolder}>폴더 추가</Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          icon="search"
+          disabled={gal.discovering}
+          title="이 PC의 드라이브에서 ImageGallery 폴더(에이전트·CLI가 만든 이미지)를 찾아 함께 보여 줍니다"
+          onclick={() => discover()}>{gal.discovering ? '찾는 중…' : '이 PC에서 찾기'}</Button
+        >
+        <Button size="sm" variant="ghost" icon="computer" title="다른 PC의 갤러리 함께 보기 · 이 PC 공유" onclick={() => (gal.shareOpen = true)}>다른 PC</Button>
       </div>
       <div class="filters">
         <Segmented label="상태" options={statusOptions} value={gal.status} onchange={chooseStatus} />
@@ -185,19 +211,28 @@
         <div class="loading"><span class="mini-spin" aria-hidden="true"></span> 갤러리를 읽는 중…</div>
       {:else if currentFolder && !currentFolder.available}
         <Empty
-          icon="folder"
-          title="폴더를 찾을 수 없습니다"
-          text="{currentFolder.path} — 외장 드라이브가 빠졌거나, 폴더 이름이 바뀌었거나, 읽을 권한이 없습니다. 다시 연결한 뒤 새로 읽으세요."
+          icon={currentFolder.source === 'peer' ? 'computer' : 'folder'}
+          title={currentFolder.source === 'peer' ? '다른 PC에 연결할 수 없습니다' : '폴더를 찾을 수 없습니다'}
+          text={currentFolder.source === 'peer'
+            ? (currentFolder.note ?? `${currentFolder.machine}에 연결할 수 없습니다.`)
+            : `${currentFolder.path} — 외장 드라이브가 빠졌거나, 폴더 이름이 바뀌었거나, 읽을 권한이 없습니다. 다시 연결한 뒤 새로 읽으세요.`}
         >
           <Button icon="refresh" onclick={loadGallery}>새로 읽기</Button>
-          {#if !currentFolder.isWorkDir}
+          {#if currentFolder.source === 'peer'}
+            <Button variant="ghost" icon="computer" onclick={() => (gal.shareOpen = true)}>다른 PC 설정</Button>
+          {:else if !currentFolder.isWorkDir}
             <Button variant="ghost" icon="close" onclick={() => currentFolder && askRemove(currentFolder)}>목록에서 빼기</Button>
           {/if}
         </Empty>
       {:else if gal.items.length === 0}
-        <Empty icon="gallery" title="아직 이미지가 없습니다" text="생성 화면에서 만든 이미지와 추가한 폴더의 이미지가 여기에 날짜별로 모입니다.">
+        <Empty
+          icon="gallery"
+          title={gal.discovering ? '이 PC에서 갤러리 폴더를 찾는 중입니다' : '아직 이미지가 없습니다'}
+          text="생성 화면에서 만든 이미지, 에이전트·CLI가 이 PC에 만든 이미지, 추가한 폴더와 다른 PC의 이미지가 여기에 날짜별로 모입니다."
+        >
           <Button variant="primary" icon="generate" onclick={() => navigate('generate')}>생성 화면으로</Button>
           <Button icon="plus" disabled={gal.busy} onclick={pickFolder}>폴더 추가</Button>
+          <Button icon="search" disabled={gal.discovering} onclick={() => discover()}>이 PC에서 찾기</Button>
         </Empty>
       {:else if filtered.length === 0}
         <Empty icon="search" title="조건에 맞는 이미지가 없습니다" text="폴더, 상태, 검색어를 바꿔 보세요.">
@@ -208,10 +243,13 @@
           {#if gal.error}
             <p class="band error"><Icon name="alert" size={16} /> 새로 읽지 못해 이전 목록을 보여 줍니다. {errorText(gal.error)}</p>
           {/if}
+          {#if gal.discovering}
+            <p class="band"><span class="mini-spin" aria-hidden="true"></span> 이 PC의 드라이브에서 갤러리 폴더를 찾는 중입니다. 찾는 대로 목록에 더합니다.</p>
+          {/if}
           {#if gal.folder === null && missingFolders.length > 0}
             <p class="band warn">
               <Icon name="alert" size={16} />
-              찾을 수 없는 폴더 {missingFolders.length}개: {missingFolders.map((f) => folderName(f.path)).join(', ')} — 나머지 폴더는 그대로 보여 줍니다.
+              찾을 수 없거나 연결되지 않은 곳 {missingFolders.length}개: {missingFolders.map((f) => chipLabel(f)).join(', ')} — 나머지는 그대로 보여 줍니다.
             </p>
           {/if}
           {#if gal.truncated}
@@ -251,10 +289,20 @@
       <div class="detail-scroll">
         {#if selectedHasImage}
           <button type="button" class="preview" class:checker={selected.background === 'transparent'} title="크게 보기" onclick={() => openViewer(selected)}>
-            <img src={imageSrc(selected.imagePath)} alt="선택한 이미지" />
+            <img src={imageSrc(selected.imagePath, true)} alt="선택한 이미지" />
           </button>
         {/if}
-        <h2>프롬프트</h2>
+        {#if selected.originalPrompt}
+          <h2>원래 요청</h2>
+          <p class="prompt">{selected.originalPrompt}</p>
+          <div class="minor">
+            <Button size="sm" icon="copy" onclick={() => selected.originalPrompt && copyPrompt(selected.originalPrompt)}>원래 요청 복사</Button>
+            <Button size="sm" icon="edit" onclick={() => refineFromOriginal(selected)}>이걸로 다시 다듬기</Button>
+          </div>
+          <h2>보낸 프롬프트(영어로 다듬음)</h2>
+        {:else}
+          <h2>프롬프트</h2>
+        {/if}
         <p class="prompt">{selectedPrompt.prompt || '(없음)'}</p>
         {#if selectedPrompt.avoid}
           <h2>Avoid</h2>
@@ -274,30 +322,38 @@
               {/if}
             </dd>
           {/each}
+          {#if selected.machine}
+            <dt>PC</dt>
+            <dd>{selected.machine}</dd>
+          {/if}
           <dt>폴더</dt>
-          <dd class="path" title={selected.folder}>{truncateMiddle(selected.folder, 48)}</dd>
+          <dd class="path" title={shownPath(selected.folder)}>{truncateMiddle(shownPath(selected.folder), 48)}</dd>
           <dt>파일</dt>
-          <dd class="path mono" title={selected.imagePath}>{truncateMiddle(selected.imagePath, 64)}</dd>
+          <dd class="path mono" title={shownPath(selected.imagePath)}>{truncateMiddle(shownPath(selected.imagePath), 64)}</dd>
         </dl>
       </div>
       <div class="actions">
-        <Button variant="primary" icon="refresh" full disabled={gen.running} title={gen.running ? runningNote : undefined} onclick={() => reuse(selected)}
-          >이 설정 다시 쓰기</Button
-        >
+        <Button variant="primary" icon="refresh" full onclick={() => reuse(selected)}>이 설정 다시 쓰기</Button>
         <div class="minor">
-          <Button size="sm" icon="folder" title="탐색기에서 보기" onclick={() => reveal(selectedHasImage ? selected.imagePath : selected.recordPath)}>탐색기</Button>
-          {#if selectedHasImage}
+          <Button size="sm" icon="copy" title="프롬프트 복사" onclick={() => copyPrompt(selected.prompt)}>복사</Button>
+          {#if !selectedRemote}
+            <Button size="sm" icon="folder" title="탐색기에서 보기" onclick={() => reveal(selectedHasImage ? selected.imagePath : selected.recordPath)}>탐색기</Button>
+          {/if}
+          {#if selectedHasImage && !selectedRemote}
+            <Button size="sm" icon="edit" title="편집 · 배경 지우기" onclick={() => openEditor(selected.imagePath)}>편집</Button>
             <Button size="sm" icon="image" title="참조로 사용" onclick={() => useAsReference(selected.imagePath)}>참조로</Button>
           {/if}
           <Button
             size="sm"
             icon="play"
-            disabled={gen.running || !!selectedResumeBlocked}
-            title={selectedResumeBlocked ?? (gen.running ? runningNote : '이어서 생성')}
+            disabled={!!selectedResumeBlocked}
+            title={selectedResumeBlocked ?? '이어서 생성'}
             onclick={() => resume(selected)}>이어서</Button
           >
         </div>
-        {#if selectedResumeBlocked}<p class="note">{selectedResumeBlocked}</p>{/if}
+        {#if selectedRemote}
+          <p class="note">{selected.machine}의 이미지입니다. 이 PC에서는 보기와 설정 다시 쓰기만 할 수 있습니다.</p>
+        {:else if selectedResumeBlocked}<p class="note">{selectedResumeBlocked}</p>{/if}
       </div>
     </aside>
   {/if}
@@ -323,6 +379,8 @@
     }}
   />
 {/if}
+
+<SharePanel open={gal.shareOpen} onclose={() => (gal.shareOpen = false)} />
 
 <style>
   .gallery {
@@ -418,6 +476,10 @@
   .gone-tag {
     color: #fcd34d;
     background: var(--warn-soft);
+  }
+  .tag.pc {
+    color: var(--text);
+    background: var(--accent-soft);
   }
   .x {
     flex: none;
@@ -547,7 +609,7 @@
     border-radius: 50%;
     border: 2px solid var(--accent-soft);
     border-top-color: var(--accent);
-    animation: spin 0.9s linear infinite;
+    animation: spin 1.8s linear infinite;
   }
   @keyframes spin {
     to {

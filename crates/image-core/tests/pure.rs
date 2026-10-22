@@ -38,7 +38,9 @@ fn backends_and_capabilities() {
     assert!(supports_references("gpt-image-2.5"));
     assert!(supports_native_transparency("gpt-image-2.5-sunburst"));
     assert!(supports_native_transparency("gpt-image-2.5-flare"));
-    assert!(!supports_native_transparency("gpt-image-2.5"));
+    // CLIProxyAPI returns real alpha for the bare id too (measured 2026-10-19).
+    assert!(supports_native_transparency("gpt-image-2.5"));
+    assert!(!supports_native_transparency("gpt-image-2"));
     assert_eq!(catalog().len(), 9);
     assert!(image_core::catalog::is_listable_image_model("grok-imagine-image-quality"));
     assert!(!image_core::catalog::is_listable_image_model("gpt-5.5"));

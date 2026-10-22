@@ -6,9 +6,10 @@ use std::time::UNIX_EPOCH;
 
 use image_core::error::Category;
 use image_core::paths::gallery_root;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::index::{load_index, GalleryIndex};
 use super::settings::{load_settings, save_settings, Settings};
 use super::ServiceError;
 
@@ -16,7 +17,7 @@ use super::ServiceError;
 pub const DEFAULT_LIMIT: usize = 2000;
 
 /// One record (and its image, when it is there).
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GalleryItem {
     pub image_path: String,
@@ -27,6 +28,8 @@ pub struct GalleryItem {
     /// complete | pending | failed | legacy (Python record, no status) | missing (record without its image).
     pub status: String,
     pub prompt: String,
+    /// The user's request before "영어로 다듬기" rewrote `prompt`.
+    pub original_prompt: Option<String>,
     pub image_model: String,
     pub response_model: Option<String>,
     pub size: String,
@@ -42,9 +45,18 @@ pub struct GalleryItem {
     pub provider_size: Option<String>,
     pub saved_size: Option<String>,
     pub request_id: Option<String>,
+    /// Requested fit (`contain`, `original`, `cover`); older Rust records may hold `none`, Python records nothing.
+    pub fit: Option<String>,
+    /// `generate`, `edit`, `auto`, or `remove_background` (local cut-out).
+    pub action: Option<String>,
+    /// Mask file of a partial edit.
+    pub mask: Option<String>,
+    /// Name of the other PC it came from ("다른 PC"); None = this PC. Its paths are then `peer://<id>/<path there>`.
+    #[serde(default)]
+    pub machine: Option<String>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct FolderView {
     /// The folder as registered (the work folder for `is_work_dir`).
@@ -53,9 +65,36 @@ pub struct FolderView {
     /// False when the folder is gone (e.g. unplugged drive) or cannot be read.
     pub available: bool,
     pub is_work_dir: bool,
+    #[serde(default = "FolderSource::added")]
+    pub source: FolderSource,
+    /// Other PC's name for `FolderSource::Peer`.
+    #[serde(default)]
+    pub machine: Option<String>,
+    /// Why an other PC's gallery could not be read.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
-#[derive(Serialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum FolderSource {
+    /// The work folder (settings).
+    Work,
+    /// Added with "폴더 추가".
+    Added,
+    /// Found on this PC: written by a CLI run or by "이 PC에서 찾기" (gallery-index.json).
+    Found,
+    /// A gallery shared by another PC.
+    Peer,
+}
+
+impl FolderSource {
+    fn added() -> FolderSource {
+        FolderSource::Added
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct GalleryView {
     pub items: Vec<GalleryItem>,
@@ -75,21 +114,38 @@ pub fn normalize_folders(folders: &[PathBuf]) -> Vec<PathBuf> {
     folders.iter().map(|folder| gallery_root(folder)).filter(|root| seen.insert(key(root))).collect()
 }
 
-/// (registered path, gallery root, is work folder): the work folder first, then the extra folders, without repeats.
-fn registered(settings: &Settings) -> Vec<(PathBuf, PathBuf, bool)> {
+/// (registered path, gallery root, source): the work folder, the added folders, then the found galleries that still
+/// exist and are not hidden, without repeats.
+fn registered(settings: &Settings, index: &GalleryIndex) -> Vec<(PathBuf, PathBuf, FolderSource)> {
     let mut seen = HashSet::new();
-    std::iter::once((&settings.work_dir, true))
-        .chain(settings.gallery_folders.iter().map(|folder| (folder, false)))
-        .filter_map(|(folder, is_work)| {
+    let hidden: HashSet<String> = settings.hidden_folders.iter().map(|folder| key(&gallery_root(folder))).collect();
+    // Shown by their project folder (`...	2in-cctv-plan`), not by the `ImageGallery` folder inside it.
+    let found: Vec<PathBuf> = index
+        .roots
+        .iter()
+        .map(|root| &root.path)
+        .filter(|root| root.join("metadata").is_dir())
+        .map(|root| match root.parent() {
+            Some(parent) if root.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case("imagegallery")) => parent.to_path_buf(),
+            _ => root.clone(),
+        })
+        .collect();
+    std::iter::once((&settings.work_dir, FolderSource::Work))
+        .chain(settings.gallery_folders.iter().map(|folder| (folder, FolderSource::Added)))
+        .chain(found.iter().map(|folder| (folder, FolderSource::Found)))
+        .filter_map(|(folder, source)| {
             let root = gallery_root(folder);
-            seen.insert(key(&root)).then(|| (folder.clone(), root, is_work))
+            if source == FolderSource::Found && hidden.contains(&key(&root)) {
+                return None;
+            }
+            seen.insert(key(&root)).then(|| (folder.clone(), root, source))
         })
         .collect()
 }
 
 /// Gallery roots the screen may show images from (asset protocol scope).
-pub fn gallery_roots(settings: &Settings) -> Vec<PathBuf> {
-    registered(settings).into_iter().map(|(_, root, _)| root).collect()
+pub fn gallery_roots(settings: &Settings, index: &GalleryIndex) -> Vec<PathBuf> {
+    registered(settings, index).into_iter().map(|(_, root, _)| root).collect()
 }
 
 /// A folder without records yet is available when it exists; the work folder also when only its parent does
@@ -107,21 +163,41 @@ fn available(root: &Path, is_work_dir: bool) -> bool {
     }
 }
 
-/// Newest first; folders that are gone or unreadable are reported, never fatal.
+/// The registered folders only (no found galleries).
 pub fn gallery(settings: &Settings, limit: usize) -> GalleryView {
+    gallery_with(settings, &GalleryIndex::default(), limit)
+}
+
+/// Newest first; folders that are gone or unreadable are reported, never fatal.
+pub fn gallery_with(settings: &Settings, index: &GalleryIndex, limit: usize) -> GalleryView {
     let mut items = Vec::new();
     let mut folders = Vec::new();
-    for (path, root, is_work_dir) in registered(settings) {
+    for (path, root, source) in registered(settings, index) {
+        let is_work_dir = source == FolderSource::Work;
         let available = available(&root, is_work_dir);
         if available {
             scan_gallery(&root, &mut items);
         }
-        folders.push(FolderView { path: path.display().to_string(), gallery_root: root.display().to_string(), available, is_work_dir });
+        folders.push(FolderView {
+            path: path.display().to_string(),
+            gallery_root: root.display().to_string(),
+            available,
+            is_work_dir,
+            source,
+            machine: None,
+            note: None,
+        });
     }
+    let truncated = sort_and_limit(&mut items, limit);
+    GalleryView { items, folders, truncated }
+}
+
+/// Newest first, then the first `limit`; true when records were left out.
+pub fn sort_and_limit(items: &mut Vec<GalleryItem>, limit: usize) -> bool {
     items.sort_by(|a, b| b.modified.total_cmp(&a.modified).then_with(|| a.record_path.cmp(&b.record_path)));
     let truncated = items.len() > limit;
     items.truncate(limit);
-    GalleryView { items, folders, truncated }
+    truncated
 }
 
 fn entries(dir: &Path) -> impl Iterator<Item = (PathBuf, bool)> {
@@ -222,6 +298,11 @@ fn read_item(root: &Path, topic: &str, topic_dir: &Path, file: &Path) -> Option<
         provider_size: text(&record, "provider_size"),
         saved_size: text(&record, "saved_size"),
         request_id: text(&record, "request_id"),
+        fit: text(&record, "fit"),
+        action: text(&record, "action"),
+        mask: text(&record, "mask"),
+        original_prompt: text(&record, "original_prompt"),
+        machine: None,
     })
 }
 
@@ -235,11 +316,15 @@ pub fn add_folder(home: &Path, folder: &Path) -> Result<Settings, ServiceError> 
     }
     let mut settings = load_settings(home);
     let root = key(&gallery_root(folder));
-    if gallery_roots(&settings).iter().any(|known| key(known) == root) {
-        return Ok(settings);
+    let hidden = settings.hidden_folders.len();
+    settings.hidden_folders.retain(|known| key(&gallery_root(known)) != root);
+    let listed = gallery_roots(&settings, &load_index(home)).iter().any(|known| key(known) == root);
+    if !listed {
+        settings.gallery_folders.push(folder.to_path_buf());
     }
-    settings.gallery_folders.push(folder.to_path_buf());
-    save_settings(home, &settings)?;
+    if !listed || settings.hidden_folders.len() != hidden {
+        save_settings(home, &settings)?;
+    }
     Ok(settings)
 }
 
@@ -255,7 +340,14 @@ pub fn remove_folder(home: &Path, folder: &Path) -> Result<Settings, ServiceErro
     }
     let before = settings.gallery_folders.len();
     settings.gallery_folders.retain(|known| key(&gallery_root(known)) != root);
-    if settings.gallery_folders.len() != before {
+    let mut changed = settings.gallery_folders.len() != before;
+    // A found gallery would come back with the next run or search, so it is hidden instead.
+    let found = load_index(home).roots.iter().any(|known| key(&gallery_root(&known.path)) == root);
+    if found && !settings.hidden_folders.iter().any(|known| key(&gallery_root(known)) == root) {
+        settings.hidden_folders.push(gallery_root(folder));
+        changed = true;
+    }
+    if changed {
         save_settings(home, &settings)?;
     }
     Ok(settings)

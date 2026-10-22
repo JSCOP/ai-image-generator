@@ -26,7 +26,13 @@ export const gal = $state({
   shown: PAGE,
   /** A folder add/remove is running. */
   busy: false,
+  /** "이 PC에서 찾기" is running. */
+  discovering: false,
+  /** "다른 PC" dialog. */
+  shareOpen: false,
 });
+
+let searchedOnce = false;
 
 let request = 0;
 
@@ -37,13 +43,15 @@ export async function loadGallery(): Promise<void> {
   try {
     const view = await api.gallery();
     if (mine !== request) return;
+    lastScanned = view.scanned ?? true;
     gal.items = view.items;
     gal.folders = view.folders;
     gal.truncated = view.truncated;
     gal.error = null;
     gal.loaded = true;
-    gen.history = view.items;
-    gen.folders = view.folders;
+    // The generate screen works on this PC's records only.
+    gen.history = view.items.filter((i) => !i.machine);
+    gen.folders = view.folders.filter((f) => f.source !== 'peer');
     if (gal.folder !== null && !view.folders.some((f) => samePath(f.galleryRoot, gal.folder as string))) gal.folder = null;
     if (gal.selected !== null && !view.items.some((i) => i.recordPath === gal.selected)) gal.selected = null;
   } catch (e) {
@@ -52,8 +60,29 @@ export async function loadGallery(): Promise<void> {
   } finally {
     if (mine === request) gal.loading = false;
   }
+  // The first time ever, look for galleries made by the CLI or agents elsewhere on this PC.
+  if (gal.loaded && !gal.error && !searchedOnce && !lastScanned) {
+    searchedOnce = true;
+    void discover(true);
+  }
 }
 
+let lastScanned = true;
+
+/** "이 PC에서 찾기": every ImageGallery folder on this PC's drives joins the gallery. */
+export async function discover(quiet = false): Promise<void> {
+  if (gal.discovering) return;
+  gal.discovering = true;
+  try {
+    const found = await api.discoverGalleries();
+    await loadGallery();
+    if (!quiet || found > 0) toast(`이 PC에서 갤러리 폴더 ${found}개를 찾았습니다.`, 'ok');
+  } catch (e) {
+    toastError(api.toServiceError(e));
+  } finally {
+    gal.discovering = false;
+  }
+}
 /** Registers a picked folder (its images show after the reload). */
 export async function addFolder(path: string): Promise<void> {
   gal.busy = true;

@@ -1,5 +1,5 @@
 //! Exact output size (spec §7.1): `cover` crops the centre like Pillow `ImageOps.fit`,
-//! `contain` keeps the whole subject on a transparent canvas.
+//! `contain` keeps the whole subject on a transparent canvas, `original` keeps the provider image and its size.
 
 use crate::error::{Category, EngineError};
 use crate::size::Size;
@@ -12,6 +12,8 @@ use std::io::Cursor;
 pub enum Fit {
     Cover,
     Contain,
+    /// Save what the provider sent (as PNG) at its own size; nothing is cropped or padded.
+    Original,
 }
 
 impl Fit {
@@ -19,6 +21,7 @@ impl Fit {
         match text {
             "cover" => Some(Fit::Cover),
             "contain" => Some(Fit::Contain),
+            "original" => Some(Fit::Original),
             _ => None,
         }
     }
@@ -27,9 +30,13 @@ impl Fit {
         match self {
             Fit::Cover => "cover",
             Fit::Contain => "contain",
+            Fit::Original => "original",
         }
     }
 }
+
+/// Relative shape difference below which `contain` crops instead of padding (at most 1% of one side).
+pub const NEAR_RATIO: f64 = 0.01;
 
 #[derive(Debug)]
 pub struct Normalized {
@@ -59,14 +66,25 @@ pub fn normalize(bytes: &[u8], target: Size, fit: Fit) -> Result<Normalized, Eng
     if provider_size == target && format == Some(ImageFormat::Png) {
         return Ok(Normalized { png: bytes.to_vec(), provider_size, saved_size: target, fit_applied: "none" });
     }
+    // A shape within 1% (e.g. 1672x941 for 1920x1080) is filled: padding would only add a 1px transparent seam.
+    let ratio = |w: u32, h: u32| w as f64 / h as f64;
+    let near = (ratio(image.width(), image.height()) / ratio(target.width, target.height) - 1.0).abs() <= NEAR_RATIO;
+    let fit = if fit == Fit::Contain && near { Fit::Cover } else { fit };
     let fitted = match fit {
         Fit::Cover => cover(&image, target),
         Fit::Contain => contain(&image, target),
+        Fit::Original if format == Some(ImageFormat::Png) => {
+            return Ok(Normalized { png: bytes.to_vec(), provider_size, saved_size: provider_size, fit_applied: "none" });
+        }
+        Fit::Original => {
+            return Ok(Normalized { png: encode_png(&image)?, provider_size, saved_size: provider_size, fit_applied: "original" })
+        }
     };
     Ok(Normalized { png: encode_png(&fitted)?, provider_size, saved_size: target, fit_applied: fit.as_str() })
 }
 
-fn cover(image: &DynamicImage, target: Size) -> DynamicImage {
+/// Centre crop to the target shape, then resize (Pillow `ImageOps.fit`).
+pub fn cover(image: &DynamicImage, target: Size) -> DynamicImage {
     let (w, h) = (image.width() as f64, image.height() as f64);
     let target_ratio = target.width as f64 / target.height as f64;
     let (crop_w, crop_h) = if w / h > target_ratio { (h * target_ratio, h) } else { (w, w / target_ratio) };

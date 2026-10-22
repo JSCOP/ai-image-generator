@@ -45,6 +45,7 @@ function item(over: Partial<GalleryItem> = {}): GalleryItem {
     providerSize: null,
     savedSize: null,
     requestId: null,
+    fit: null,
     ...over,
   };
 }

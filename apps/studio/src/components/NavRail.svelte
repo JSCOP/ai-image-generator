@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Left icon navigation (64px): generate, gallery, connections. No mask/background screens in stage 3.
+  // Left icon navigation (64px): generate, gallery, connections. The editor (mask edit, background removal) opens over any screen.
   import type { Screen } from '../lib/types';
   import Icon, { type IconName } from './Icon.svelte';
 

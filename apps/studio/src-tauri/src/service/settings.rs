@@ -18,12 +18,55 @@ pub struct Settings {
     pub gallery_folders: Vec<PathBuf>,
     pub last_profile: Option<String>,
     pub last_model: Option<String>,
+    /// Chat model of "영어로 다듬기"; `None` = suggest one.
+    pub enhance_model: Option<String>,
+    /// Galleries found on this PC (gallery-index.json) that the user took out of the list.
+    pub hidden_folders: Vec<PathBuf>,
+    /// "이 PC 공유": other PCs on the private network (Tailscale) may read this PC's galleries.
+    pub share: ShareSettings,
+    /// Other PCs whose shared galleries this gallery shows; each one's token is in the key store under its id.
+    pub peers: Vec<Peer>,
 }
 
 impl Default for Settings {
     fn default() -> Settings {
-        Settings { work_dir: default_work_dir(), gallery_folders: Vec::new(), last_profile: None, last_model: None }
+        Settings {
+            work_dir: default_work_dir(),
+            gallery_folders: Vec::new(),
+            last_profile: None,
+            last_model: None,
+            enhance_model: None,
+            hidden_folders: Vec::new(),
+            share: ShareSettings::default(),
+            peers: Vec::new(),
+        }
     }
+}
+
+/// Port of "이 PC 공유" unless the user picks another.
+pub const DEFAULT_SHARE_PORT: u16 = 8329;
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShareSettings {
+    pub enabled: bool,
+    pub port: u16,
+}
+
+impl Default for ShareSettings {
+    fn default() -> ShareSettings {
+        ShareSettings { enabled: false, port: DEFAULT_SHARE_PORT }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Peer {
+    /// `peer-` + 8 hex; also the key-store id of its token.
+    pub id: String,
+    pub name: String,
+    /// `http://<address>:<port>` of the other PC's "이 PC 공유".
+    pub url: String,
 }
 
 /// `%USERPROFILE%\Pictures\Image Studio` (falls back to `<home>\Pictures`, then the current folder).

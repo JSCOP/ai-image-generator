@@ -64,8 +64,34 @@ describe('api command names and arguments', () => {
     expect(calls[7].args).toEqual({ name: 'a' });
     expect(calls[8].args).toEqual({ name: null });
     expect(calls[9].args).toEqual({ runId: 'run-1' });
-    expect(calls[10].args).toEqual({ limit: 100 });
+    expect(calls[10].args).toEqual({ limit: 100, peers: true });
     expect(calls[11].args).toEqual({ path: 'D:/proj' });
+  });
+
+  it('gallery sharing commands send their arguments', async () => {
+    await api.gallery(undefined, false);
+    await api.discoverGalleries();
+    await api.shareStatus();
+    await api.setShare({ enabled: true, port: 8329 });
+    await api.newShareToken();
+    await api.checkPeer('100.64.0.10', 't');
+    await api.addPeer('', '100.64.0.10', 't');
+    await api.removePeer('peer-1');
+    expect(calls).toEqual([
+      { cmd: 'gallery', args: { limit: null, peers: false } },
+      { cmd: 'discover_galleries', args: undefined },
+      { cmd: 'share_status', args: undefined },
+      { cmd: 'set_share', args: { share: { enabled: true, port: 8329 } } },
+      { cmd: 'new_share_token', args: undefined },
+      { cmd: 'check_peer', args: { url: '100.64.0.10', token: 't' } },
+      { cmd: 'add_peer', args: { name: '', url: '100.64.0.10', token: 't' } },
+      { cmd: 'remove_peer', args: { id: 'peer-1' } },
+    ]);
+  });
+
+  it("isRemotePath tells another PC's paths from local ones", () => {
+    expect(api.isRemotePath('peer://peer-1/C:/w/a.png')).toBe(true);
+    expect(api.isRemotePath('C:/w/a.png')).toBe(false);
   });
 
   it('inspect_reference sends the path', async () => {
@@ -85,6 +111,7 @@ describe('api command names and arguments', () => {
       count: 1,
       references: [],
       background: 'auto' as const,
+      fit: 'contain' as const,
       topic: null,
       resume: false,
     };

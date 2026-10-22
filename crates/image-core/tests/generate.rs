@@ -38,7 +38,16 @@ impl Setup {
         self.tmp.path().join("ImageGallery/metadata/t")
     }
     fn job(&self, request: ImageRequest, fit: Fit, resume: bool) -> JobSpec {
-        JobSpec { request, fit, output: self.out(), record: Some(self.rec()), lock_dir: self.lock_dir(), resume, timeout: None }
+        JobSpec {
+            request,
+            fit,
+            output: self.out(),
+            record: Some(self.rec()),
+            lock_dir: self.lock_dir(),
+            resume,
+            timeout: None,
+            original_prompt: None,
+        }
     }
     fn record(&self) -> Value {
         serde_json::from_slice(&std::fs::read(self.rec()).unwrap()).unwrap()
@@ -61,6 +70,7 @@ fn request(model: &str, size: &str) -> ImageRequest {
         action: Action::Generate,
         references: vec![],
         background: Background::Auto,
+        mask: None,
     }
 }
 
@@ -142,7 +152,7 @@ async fn rejects_before_any_http_call() {
         ),
         (
             {
-                let mut r = request("gpt-image-2.5", "64x64");
+                let mut r = request("gpt-image-2", "64x64");
                 r.background = Background::Transparent;
                 r
             },
@@ -398,4 +408,34 @@ async fn transparent_request_fails_when_fitting_removes_every_transparent_pixel(
     assert!(err.message.contains("투명"), "{}", err.message);
     s.assert_clean();
     assert_eq!(s.record()["status"], "failed");
+}
+
+#[tokio::test]
+async fn record_keeps_the_requested_fit_and_what_was_applied() {
+    let png = png_bytes(1145, 1374, [20, 40, 60, 255]);
+    let p = FakeProvider::start(move |_| openai_image_reply(&png));
+    let s = setup(&p);
+    generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "1920x1080"), Fit::Original, false), &CancellationToken::new()).await.unwrap();
+    assert_eq!(dims(&s.out()), (1145, 1374), "original keeps the whole provider image");
+    let rec = s.record();
+    assert_eq!(rec["fit"], "original");
+    assert_eq!(rec["fit_applied"], "none");
+    assert_eq!(rec["size"], "1920x1080");
+    assert_eq!(rec["saved_size"], "1145x1374");
+
+    let png = png_bytes(1536, 1024, [20, 40, 60, 255]);
+    let p = FakeProvider::start(move |_| openai_image_reply(&png));
+    let s = setup(&p);
+    generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "1920x1080"), Fit::Contain, false), &CancellationToken::new()).await.unwrap();
+    let rec = s.record();
+    assert_eq!(rec["fit"], "contain", "the requested mode, needed to resume with the same request");
+    assert_eq!(rec["fit_applied"], "contain");
+
+    // Padded to 16 (1920x1088) is within 1% of 1920x1080: filled, while the record keeps the requested mode.
+    let png = png_bytes(1920, 1088, [20, 40, 60, 255]);
+    let p = FakeProvider::start(move |_| openai_image_reply(&png));
+    let s = setup(&p);
+    generate_one(&s.ctx, &s.job(request("gpt-image-2.5", "1920x1080"), Fit::Contain, false), &CancellationToken::new()).await.unwrap();
+    let rec = s.record();
+    assert_eq!((rec["fit"].as_str(), rec["fit_applied"].as_str()), (Some("contain"), Some("cover")));
 }

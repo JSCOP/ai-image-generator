@@ -1,8 +1,9 @@
 //! Generation screen service: builds a single-mode spec, runs it through `image-core`, and turns the engine's
 //! progress lines into `RunEvent`s and its result JSON into a `RunSummary`.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use image_core::connection::{resolve, Resolver};
 use image_core::error::{redact, Category};
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+use super::edit::{write_edit_files, EditInput};
 use super::settings::{load_settings, Settings};
 use super::{Ctx, ServiceError};
 
@@ -41,6 +43,9 @@ pub struct GenerateInput {
     pub prompt: String,
     #[serde(default)]
     pub avoid: String,
+    /// The user's own request when `prompt` came from "영어로 다듬기"; kept in each record, never sent.
+    #[serde(default)]
+    pub original_prompt: Option<String>,
     pub image_model: String,
     pub size: String,
     pub quality: String,
@@ -50,11 +55,22 @@ pub struct GenerateInput {
     /// `auto`, `opaque` or `transparent`.
     #[serde(default = "auto")]
     pub background: String,
+    /// How a provider image of another shape is saved: `contain` (whole image, transparent margins; default),
+    /// `original` (provider size, untouched) or `cover` (crops to fill).
+    #[serde(default = "contain")]
+    pub fit: String,
     /// Existing topic to continue; `None` names a new one from the prompt.
     #[serde(default)]
     pub topic: Option<String>,
     #[serde(default)]
     pub resume: bool,
+    /// Mask edit of `references[0]` (the only reference); the saved image keeps everything outside the mask.
+    #[serde(default)]
+    pub edit: Option<EditInput>,
+}
+
+fn contain() -> String {
+    "contain".to_string()
 }
 
 fn auto() -> String {
@@ -135,6 +151,42 @@ pub fn inspect_reference(path: &Path) -> Result<ReferenceView, ServiceError> {
     Ok(ReferenceView { path: path.display().to_string(), name, bytes: meta.len(), width, height })
 }
 
+/// Saves a pasted image (base64, with or without a `data:` prefix) as a new file in
+/// `<work>/ImageGallery/references/` so it can be attached like a picked file; nothing is ever replaced.
+pub fn save_pasted_reference(work_dir: &Path, data: &str, now: chrono::DateTime<chrono::Local>) -> Result<ReferenceView, ServiceError> {
+    use base64::Engine;
+    let encoded = data.split_once(',').map_or(data, |(_, rest)| rest);
+    let bytes =
+        base64::engine::general_purpose::STANDARD.decode(encoded.trim()).map_err(|_| invalid("붙여 넣은 이미지를 읽지 못했습니다."))?;
+    if bytes.len() as u64 > MAX_REFERENCE_BYTES {
+        return Err(invalid("참조 이미지는 장당 10MB 이하여야 합니다(붙여 넣은 이미지)."));
+    }
+    let ext = match image::guess_format(&bytes) {
+        Ok(image::ImageFormat::Png) => "png",
+        Ok(image::ImageFormat::Jpeg) => "jpg",
+        Ok(image::ImageFormat::WebP) => "webp",
+        Ok(image::ImageFormat::Gif) => "gif",
+        _ => return Err(invalid("붙여 넣은 내용이 이미지가 아닙니다(PNG, JPEG, WebP, GIF).")),
+    };
+    let dir = image_core::paths::gallery_root(work_dir).join("references");
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| ServiceError::new(Category::Internal, format!("폴더를 만들지 못했습니다: {}: {e}", dir.display())))?;
+    let name = format!("pasted-{}-{}.{ext}", now.format("%Y%m%d-%H%M%S"), &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    let path = absolute(&dir.join(name));
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .map_err(|e| ServiceError::new(Category::Internal, format!("파일을 만들지 못했습니다: {}: {e}", path.display())))?;
+    std::io::Write::write_all(&mut file, &bytes)
+        .map_err(|e| ServiceError::new(Category::Internal, format!("파일을 쓰지 못했습니다: {}: {e}", path.display())))?;
+    drop(file);
+    // Same checks as a picked file (size limits, readable image); a file that fails them is not kept.
+    inspect_reference(&path).inspect_err(|_| {
+        let _ = std::fs::remove_file(&path);
+    })
+}
+
 /// Python `compose_prompt`: the prompt, then `Avoid: ...` on its own line when set.
 pub fn compose(prompt: &str, avoid: &str) -> String {
     let (prompt, avoid) = (prompt.trim(), avoid.trim());
@@ -157,6 +209,49 @@ pub fn auto_topic(prompt: &str, now: chrono::DateTime<chrono::Local>) -> String 
     safe_topic_slug(&format!("{head}-{}", now.format("%Y%m%d-%H%M%S")))
 }
 
+/// Topics of runs still going in this process: runs started in the same second must not share a folder.
+static ACTIVE_TOPICS: Mutex<Option<HashSet<(PathBuf, String)>>> = Mutex::new(None);
+
+/// A topic held for one run; dropping it frees the name (the folder the run made keeps it taken).
+pub struct TopicClaim {
+    key: (PathBuf, String),
+}
+
+impl TopicClaim {
+    pub fn topic(&self) -> &str {
+        &self.key.1
+    }
+}
+
+impl Drop for TopicClaim {
+    fn drop(&mut self) {
+        let mut active = ACTIVE_TOPICS.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(set) = active.as_mut() {
+            set.remove(&self.key);
+        }
+    }
+}
+
+/// `base`, or `base-2`, `base-3`… when another run of this process holds it or its folders already exist.
+pub fn claim_topic(work_dir: &Path, base: &str) -> TopicClaim {
+    let root = absolute(work_dir);
+    let mut active = ACTIVE_TOPICS.lock().unwrap_or_else(|e| e.into_inner());
+    let set = active.get_or_insert_with(HashSet::new);
+    let taken = |topic: &str, set: &HashSet<(PathBuf, String)>| {
+        let (images, records) = topic_dirs(&root, topic);
+        set.contains(&(root.clone(), topic.to_string())) || images.exists() || records.exists()
+    };
+    let mut topic = base.to_string();
+    let mut n = 2;
+    while taken(&topic, set) {
+        topic = format!("{base}-{n}");
+        n += 1;
+    }
+    let key = (root, topic);
+    set.insert(key.clone());
+    TopicClaim { key }
+}
+
 /// Checks the form and builds the engine spec. Returns the spec and the topic it uses.
 pub fn build_spec(
     input: &GenerateInput,
@@ -172,8 +267,17 @@ pub fn build_spec(
     if !matches!(input.background.as_str(), "auto" | "opaque" | "transparent") {
         return Err(invalid(format!("배경 옵션이 올바르지 않습니다: {}", input.background)));
     }
+    if !matches!(input.fit.as_str(), "contain" | "original" | "cover") {
+        return Err(invalid(format!("맞추는 방식이 올바르지 않습니다: {}", input.fit)));
+    }
     if input.references.len() > MAX_REFERENCES {
         return Err(invalid(format!("참조 이미지는 최대 {MAX_REFERENCES}장입니다.")));
+    }
+    if input.edit.is_some() && input.references.len() != 1 {
+        return Err(invalid("부분 수정은 수정할 이미지 한 장으로만 할 수 있습니다."));
+    }
+    if input.edit.is_some() && input.background == "transparent" {
+        return Err(invalid("부분 수정에서는 투명 배경을 고를 수 없습니다."));
     }
     for path in &input.references {
         let meta = std::fs::metadata(path).map_err(|_| invalid(format!("참조 이미지를 찾을 수 없습니다: {}", path.display())))?;
@@ -200,10 +304,14 @@ pub fn build_spec(
         "image_model": input.image_model,
         "reference_images": references,
         "background": input.background,
+        "fit": input.fit,
         "resume": input.resume,
     });
     if let Some(profile) = input.profile.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
         spec["profile"] = json!(profile);
+    }
+    if let Some(original) = input.original_prompt.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        spec["original_prompt"] = json!(original);
     }
     Ok((spec, topic))
 }
@@ -293,10 +401,28 @@ pub async fn run_generation(
     cancel: CancellationToken,
 ) -> Result<RunSummary, ServiceError> {
     let settings = load_settings(&ctx.home);
-    let (spec, topic) = build_spec(&input, &settings, chrono::Local::now())?;
+    let (mut spec, mut topic) = build_spec(&input, &settings, chrono::Local::now())?;
+    // A new run (not a resume) gets a folder of its own even when another run started in the same second.
+    let _claim = if input.topic.as_deref().map(str::trim).is_none_or(str::is_empty) {
+        let claim = claim_topic(&settings.work_dir, &topic);
+        topic = claim.topic().to_string();
+        spec["topic"] = json!(topic);
+        Some(claim)
+    } else {
+        None
+    };
     let store = Arc::new(ProfileStore::open(ctx.home.clone()));
     let resolver = Resolver { env: ctx.env.as_ref(), profiles: Some(store.as_ref()), secrets: ctx.secrets.as_ref() };
     resolve(&resolver, input.profile.as_deref().map(str::trim).filter(|p| !p.is_empty()))?;
+    // A mask edit keeps its mask (and drawing) next to the records of its topic.
+    let mut edit_files = Vec::new();
+    if let Some(edit) = &input.edit {
+        let records = topic_dirs(&settings.work_dir, &topic).1;
+        let files = write_edit_files(&input.references[0], edit, &records, &topic)?;
+        spec["reference_images"] = json!([files.reference.display().to_string()]);
+        spec["mask"] = json!(files.mask.display().to_string());
+        edit_files = files.written;
+    }
 
     let backoff =
         ctx.env.process("AI_IMAGE_RETRY_BACKOFF_SEC").map(|v| v.trim().parse().unwrap_or(f64::NAN)).unwrap_or(DEFAULT_BACKOFF_SEC);
@@ -312,6 +438,11 @@ pub async fn run_generation(
     let quiet: Progress = Arc::new(|_| {});
     let planned = run_spec_with(dry, ctx.env.clone(), quiet, CancellationToken::new(), options()).await.result;
     if let Some(err) = result_error(&planned) {
+        // Nothing ran: leave no mask files (or empty folder) behind.
+        for file in &edit_files {
+            let _ = std::fs::remove_file(file);
+        }
+        let _ = std::fs::remove_dir(topic_dirs(&settings.work_dir, &topic).1);
         return Err(err);
     }
     let output_dir = absolute(&topic_dirs(&settings.work_dir, &topic).0).display().to_string();

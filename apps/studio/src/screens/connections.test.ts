@@ -52,8 +52,8 @@ describe('kind change fills the address', () => {
   });
 
   it('an address the user typed for a proxy is kept between proxy kinds', () => {
-    const typed = { ...newForm(), baseUrl: 'http://100.98.54.122:8317/v1' };
-    expect(changeKind(typed, 'openai_compatible').baseUrl).toBe('http://100.98.54.122:8317/v1');
+    const typed = { ...newForm(), baseUrl: 'http://100.64.0.10:8317/v1' };
+    expect(changeKind(typed, 'openai_compatible').baseUrl).toBe('http://100.64.0.10:8317/v1');
   });
 
   it('an unlocked official address is replaced and locked again on another official kind', () => {
@@ -214,7 +214,7 @@ describe('transportWarning (mirror of image_core::profiles::transport_warning)',
       'http://172.16.0.1',
       'http://172.31.255.1',
       'http://192.168.1.10',
-      'http://100.98.54.122:8317/v1',
+      'http://100.64.0.10:8317/v1',
       'http://desktop-sb818kq:8317',
       'http://box.tail1234.ts.net:8317',
       'http://[fd7a:115c:a1e0::1]:8317',

@@ -74,13 +74,13 @@ fn env_still_works_when_profile_file_is_corrupt() {
 fn default_profile_used_when_env_missing() {
     let (_dir, store) = temp_store();
     let secrets = MemoryStore::new();
-    let p = store.add("집 PC", ProviderKind::Cliproxy, Some("http://100.98.54.122:8317"), None).unwrap();
+    let p = store.add("집 PC", ProviderKind::Cliproxy, Some("http://100.64.0.10:8317"), None).unwrap();
     store.set_default(Some(&p.id)).unwrap();
     let env = MapEnv::new(&[], &[]);
     let c = resolve(&resolver(&env, &store, &secrets), None).unwrap();
     assert_eq!(c.source, "profile:집 PC");
     assert_eq!(c.kind, ProviderKind::Cliproxy);
-    assert_eq!(c.base_url, "http://100.98.54.122:8317/v1");
+    assert_eq!(c.base_url, "http://100.64.0.10:8317/v1");
     assert_eq!(c.profile_id.as_deref(), Some(p.id.as_str()));
     assert!(c.api_key.is_none());
 }

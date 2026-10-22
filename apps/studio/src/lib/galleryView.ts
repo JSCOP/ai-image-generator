@@ -74,7 +74,7 @@ function searchWords(query: string): string[] {
 /** Every word of the search appears in the prompt or a model name (case ignored). */
 function matchesWords(item: GalleryItem, words: string[]): boolean {
   if (words.length === 0) return true;
-  const text = [item.prompt, item.imageModel, item.responseModel ?? ''].join('\n').toLowerCase();
+  const text = [item.prompt, item.originalPrompt ?? '', item.imageModel, item.responseModel ?? ''].join('\n').toLowerCase();
   return words.every((w) => text.includes(w));
 }
 

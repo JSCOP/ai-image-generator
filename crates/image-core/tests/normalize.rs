@@ -94,3 +94,31 @@ fn alpha_stats_separate_full_partial_opaque() {
 fn undecodable_bytes_are_provider_error() {
     assert_eq!(normalize(b"not an image", size(8, 8), Fit::Cover).unwrap_err().category, Category::Provider);
 }
+
+#[test]
+fn original_keeps_the_provider_image_and_size() {
+    let png = png_bytes(1145, 1374, [9, 9, 9, 255]);
+    let n = normalize(&png, size(1920, 1080), Fit::Original).unwrap();
+    assert_eq!(n.png, png, "a PNG is saved untouched");
+    assert_eq!((n.provider_size, n.saved_size, n.fit_applied), (size(1145, 1374), size(1145, 1374), "none"));
+
+    let jpeg = encode(&RgbaImage::from_pixel(40, 30, Rgba([10, 20, 30, 255])), ImageFormat::Jpeg);
+    let n = normalize(&jpeg, size(1920, 1080), Fit::Original).unwrap();
+    assert_eq!(&n.png[..8], b"\x89PNG\r\n\x1a\n");
+    assert_eq!((n.saved_size, n.fit_applied), (size(40, 30), "original"));
+    assert_eq!(Fit::parse("original"), Some(Fit::Original));
+    assert_eq!(Fit::Original.as_str(), "original");
+}
+
+/// A provider answer within 1% of the requested shape fills the frame: no 1px transparent seam on an opaque image.
+#[test]
+fn contain_fills_the_frame_when_the_shape_nearly_matches() {
+    let near = png_bytes(1672, 941, [10, 20, 30, 255]);
+    let out = normalize(&near, size(1920, 1080), Fit::Contain).unwrap();
+    assert_eq!(out.fit_applied, "cover");
+    assert_eq!(alpha_stats(&out.png).unwrap().transparent_ratio, 0.0);
+    let far = png_bytes(1536, 1024, [10, 20, 30, 255]);
+    let out = normalize(&far, size(1920, 1080), Fit::Contain).unwrap();
+    assert_eq!(out.fit_applied, "contain");
+    assert!(alpha_stats(&out.png).unwrap().transparent_ratio > 0.0);
+}

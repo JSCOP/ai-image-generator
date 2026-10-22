@@ -32,6 +32,16 @@ fn root(p: &FakeProvider) -> String {
     p.base_url().trim_end_matches("/v1").to_string()
 }
 
+/// "p" plus the shape line GPT prompts carry.
+fn gpt_prompt(size: &str) -> String {
+    format!(
+        "p
+
+{}",
+        image_core::size::aspect_line(image_core::size::parse_size(size).unwrap())
+    )
+}
+
 fn req(model: &str, size: &str, references: Vec<PathBuf>) -> ImageRequest {
     ImageRequest {
         prompt: "p".into(),
@@ -41,6 +51,7 @@ fn req(model: &str, size: &str, references: Vec<PathBuf>) -> ImageRequest {
         action: Action::Generate,
         references,
         background: Background::Auto,
+        mask: None,
     }
 }
 
@@ -83,6 +94,7 @@ async fn generate(conn: Connection, request: ImageRequest) -> Run {
         lock_dir: tmp.path().to_path_buf(),
         resume: false,
         timeout: None,
+        original_prompt: None,
     };
     let result = generate_one(&ctx, &job, &CancellationToken::new()).await;
     Run { tmp, result }
@@ -114,7 +126,7 @@ async fn openai_generation_and_edit_bodies() {
     assert_eq!(r.header("Authorization"), Some("Bearer fake-token"));
     assert_eq!(
         r.json(),
-        json!({"model":"gpt-image-2.5-sunburst","prompt":"p","n":1,"size":"1008x1008","quality":"high","output_format":"png"})
+        json!({"model":"gpt-image-2.5-sunburst","prompt":gpt_prompt("1000x1000"),"n":1,"size":"1008x1008","quality":"high","output_format":"png"})
     );
 
     let dir = tempfile::tempdir().unwrap();
@@ -322,7 +334,7 @@ async fn cliproxy_behaviour_is_unchanged() {
         assert_eq!(requests[before].path, "/v1/images/generations");
         assert_eq!(
             requests[before].json(),
-            json!({"model":"gpt-image-2.5","prompt":"p","n":1,"size":"1008x1008","quality":"high","output_format":"png"})
+            json!({"model":"gpt-image-2.5","prompt":gpt_prompt("1000x1000"),"n":1,"size":"1008x1008","quality":"high","output_format":"png"})
         );
         assert_eq!(
             requests[before + 1].json(),

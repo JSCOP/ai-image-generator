@@ -10,6 +10,7 @@
   import Empty from '../components/Empty.svelte';
   import Icon from '../components/Icon.svelte';
   import ImageCard from '../components/ImageCard.svelte';
+  import { editor, openEditor } from '../lib/editor.svelte';
   import ReferencePicker from '../components/ReferencePicker.svelte';
   import Segmented from '../components/Segmented.svelte';
   import Select from '../components/Select.svelte';
@@ -20,8 +21,14 @@
   import {
     gen,
     addReferencePaths,
+    promptEdited,
+    pasteReferenceFiles,
+    applyEnhanced,
     cancelRun,
+    copyPrompt,
     chooseConnection,
+    discardEnhanced,
+    enhancePrompt,
     fitToModel,
     initGenerate,
     loadHistory,
@@ -34,6 +41,9 @@
     startRun,
     stopResume,
     syncConnection,
+    undoEnhance,
+    dismissRun,
+    type RunState,
   } from '../lib/generate.svelte';
   import {
     aspectOf,
@@ -41,6 +51,7 @@
     connectionChoices,
     connectionState,
     CUSTOM_SIZE,
+    FITS,
     historyGroups,
     itemCard,
     MAX_COUNT,
@@ -54,13 +65,14 @@
     samePath,
     SIZE_PRESETS,
     tallyCards,
+    textModelOptions,
     toInput,
     type DisplayCard,
     type HistoryGroup,
     type Quality,
   } from '../lib/generateForm';
   import { app, navigate, toast, toastError } from '../lib/state.svelte';
-  import type { GalleryItem } from '../lib/types';
+  import type { Fit, GalleryItem } from '../lib/types';
 
   initGenerate();
   $effect(() => {
@@ -78,24 +90,31 @@
   const groups = $derived(historyGroups(gen.history));
   const group = $derived(gen.view === 'run' ? undefined : groups.find((g) => g.key === gen.view));
   const groupResumeBlocked = $derived(group ? resumeBlocked(group.folder, gen.folders) : null);
-  const run = $derived(gen.run);
+  const runs = $derived(gen.runs);
+  const running = $derived(runs.filter((r) => r.running).length);
+  const groupCards: DisplayCard[] = $derived(group ? group.items.map(itemCard) : []);
 
-  const cards: DisplayCard[] = $derived.by(() => {
-    if (group) return group.items.map(itemCard);
-    if (!run) return [];
+  /** What one run's block shows: its cards (keys unique across runs), counts, outcome and progress. */
+  function runView(run: RunState) {
     const transparent = run.input.background === 'transparent';
-    return run.cards.map((c) => runCard(c, transparent, run.cancelling));
-  });
-  const tally = $derived(run && !group ? tallyCards(cards) : null);
-  const finished = $derived(!!run && !gen.running && !!run.summary);
-  const outcome = $derived(tally && finished && run?.summary ? runOutcome(tally, run.summary.elapsedSec, run.summary.cancelled) : null);
-  const bar = $derived(tally ? progressView(tally, gen.running, !!run?.summary?.cancelled) : null);
-  const retryLabel = $derived(tally && tally.failed > 0 ? '실패한 장 다시 만들기' : '남은 장 이어서 만들기');
-  const canRetry = $derived(finished && !!tally && tally.failed + tally.cancelled > 0 && !!run?.topic);
+    const cards = run.cards.map((c) => {
+      const card = runCard(c, transparent, run.cancelling);
+      return { ...card, key: `${run.key}:${card.key}` };
+    });
+    const tally = tallyCards(cards);
+    const finished = !run.running && !!run.summary;
+    const outcome = finished && run.summary ? runOutcome(tally, run.summary.elapsedSec, run.summary.cancelled) : null;
+    const bar = progressView(tally, run.running, !!run.summary?.cancelled);
+    const retryLabel = tally.failed > 0 ? '실패한 장 다시 만들기' : '남은 장 이어서 만들기';
+    const canRetry = finished && tally.failed + tally.cancelled > 0 && !!run.topic;
+    const shape = aspectOf(run.input.size);
+    const cols = shape > 1.4 ? 'minmax(280px, 1fr)' : 'minmax(200px, 1fr)';
+    return { cards, tally, finished, outcome, bar, retryLabel, canRetry, aspect: shape, cols };
+  }
 
   // History: a column on wide windows, a drawer behind a slim rail below 1366px (more room for the results).
   let historyOpen = $state(false);
-  const aspect = $derived(aspectOf(group ? group.items[0]?.size : run?.input.size));
+  const aspect = $derived(aspectOf(group?.items[0]?.size));
 
   // ---- viewer ----
   let viewerIndex: number | null = $state(null);
@@ -106,12 +125,14 @@
         const card = itemCard(it);
         if (card.imagePath) out.push({ key: card.key, imagePath: card.imagePath, label: card.label, transparent: card.transparent, item: it, prompt: it.prompt, model: it.imageModel, size: it.size });
       }
-    } else if (run) {
-      for (const card of cards) {
-        if (!card.imagePath) continue;
-        const path = card.imagePath;
-        const it = gen.history.find((i) => samePath(i.imagePath, path)) ?? null;
-        out.push({ key: card.key, imagePath: path, label: card.label, transparent: card.transparent, item: it, prompt: run.input.prompt, model: run.input.imageModel, size: run.input.size });
+    } else {
+      for (const run of runs) {
+        for (const card of runView(run).cards) {
+          if (!card.imagePath) continue;
+          const path = card.imagePath;
+          const it = gen.history.find((i) => samePath(i.imagePath, path)) ?? null;
+          out.push({ key: card.key, imagePath: path, label: card.label, transparent: card.transparent, item: it, prompt: run.input.prompt, model: run.input.imageModel, size: run.input.size });
+        }
       }
     }
     return out;
@@ -157,6 +178,16 @@
     };
   });
 
+  /** Ctrl+V anywhere on this screen: pasted images become references; pasted text goes where it always went. */
+  function onpaste(e: ClipboardEvent) {
+    if (editor.source) return;
+    const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
+    if (files.length === 0) return;
+    e.preventDefault();
+    if (model && !caps.references) toast(caps.referencesReason, 'warn');
+    else void pasteReferenceFiles(files);
+  }
+
   async function pickReferences() {
     try {
       const picked = await open({
@@ -183,7 +214,12 @@
   // ---- form helpers ----
   let avoidOpen = $state(form.avoid.trim() !== '');
   const promptLength = $derived(Array.from(form.prompt).length);
+  const enh = gen.enhance;
+  const textOptions = $derived(textModelOptions(enh.models, enh.model));
+  const canEnhance = $derived(!!form.connection && !!form.prompt.trim() && !enh.busy);
   const qualities = QUALITIES.map((q) => ({ value: q.value, label: q.label }));
+  const fits = FITS.map((f) => ({ value: f.value, label: f.label }));
+  const fitHint = $derived(FITS.find((f) => f.value === form.fit)?.hint ?? '');
   const backgrounds = $derived([
     { value: 'auto' as const, label: '자동' },
     { value: 'transparent' as const, label: '투명(모델 자체)', disabled: !caps.transparency, title: caps.transparencyReason || undefined },
@@ -193,7 +229,7 @@
   function onPromptKey(e: KeyboardEvent) {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      if (check.ok && !gen.running) void startRun();
+      if (check.ok) void startRun();
     }
   }
 
@@ -205,6 +241,7 @@
   onkeydown={(e) => {
     if (e.key === 'Escape' && historyOpen && viewerIndex === null) historyOpen = false;
   }}
+  onpaste={onpaste}
 />
 
 <div class="gen" class:drawer-open={historyOpen}>
@@ -223,7 +260,57 @@
           placeholder="만들 그림을 설명하세요. 예: 아늑한 독서 공간, 오후 햇살"
           bind:value={form.prompt}
           onkeydown={onPromptKey}
+          oninput={promptEdited}
         ></textarea>
+        {#if form.originalPrompt}
+          <div class="original">
+            <span class="original-head">원래 요청 · 생성 기록에 함께 저장됩니다</span>
+            <p class="original-text">{form.originalPrompt}</p>
+            <div class="original-actions">
+              <button type="button" class="undo" onclick={() => form.originalPrompt && copyPrompt(form.originalPrompt)}>복사</button>
+              <button
+                type="button"
+                class="undo"
+                onclick={() => {
+                  form.prompt = form.originalPrompt ?? form.prompt;
+                  form.originalPrompt = null;
+                  enh.undo = null;
+                }}>원래 요청으로 바꿔서 다시 다듬기</button
+              >
+            </div>
+          </div>
+        {/if}
+        <div class="enhance">
+          <Button size="sm" icon="generate" disabled={!canEnhance} title="프롬프트를 이미지 모델이 잘 알아듣는 자세한 영어 문장으로 바꿉니다" onclick={enhancePrompt}>
+            {enh.busy ? '다듬는 중…' : '영어로 다듬기'}
+          </Button>
+          <div class="enhance-model">
+            <Select label="다듬기 모델" options={textOptions} bind:value={enh.model} disabled={enh.busy} />
+          </div>
+        </div>
+        {#if enh.busy}
+          <p class="box muted"><span class="mini-spin" aria-hidden="true"></span> {enh.model || 'gpt-6-luna'}가 영어 프롬프트를 쓰는 중… (보통 5~15초)</p>
+        {:else if enh.error}
+          <div class="box error">
+            <p>다듬지 못했습니다. {errorText(enh.error)}</p>
+            <div class="box-actions">
+              <Button size="sm" icon="refresh" onclick={enhancePrompt}>다시 시도</Button>
+              <Button size="sm" variant="ghost" onclick={discardEnhanced}>닫기</Button>
+            </div>
+          </div>
+        {:else if enh.result}
+          <div class="box enhanced" aria-live="polite">
+            <p class="enhanced-head">다듬은 프롬프트 · {enh.result.model}</p>
+            <p class="enhanced-text">{enh.result.prompt}</p>
+            <div class="box-actions">
+              <Button size="sm" variant="primary" icon="check" onclick={applyEnhanced}>적용</Button>
+              <Button size="sm" icon="refresh" onclick={enhancePrompt}>다시 다듬기</Button>
+              <Button size="sm" variant="ghost" onclick={discardEnhanced}>닫기</Button>
+            </div>
+          </div>
+        {:else if enh.undo !== null}
+          <button type="button" class="undo" onclick={undoEnhance}>다듬기 전 프롬프트로 되돌리기</button>
+        {/if}
         <button type="button" class="fold" aria-expanded={avoidOpen} onclick={() => (avoidOpen = !avoidOpen)}>
           <Icon name={avoidOpen ? 'chevronDown' : 'chevronRight'} size={16} />
           <span>피할 것(Avoid)</span>
@@ -237,7 +324,7 @@
       <section>
         <label class="label" for="conn">연결</label>
         {#if choices.length > 0 && form.connection}
-          <Select id="conn" options={choices} value={form.connection} disabled={gen.running} onchange={(v) => chooseConnection(v)} />
+          <Select id="conn" options={choices} value={form.connection} onchange={(v) => chooseConnection(v)} />
         {:else}
           <p class="box muted">{connState === 'loading' ? '연결을 불러오는 중…' : '쓸 수 있는 연결이 없습니다.'}</p>
         {/if}
@@ -308,6 +395,7 @@
           {dragging}
           onpick={pickReferences}
           onremove={removeReference}
+          onedit={(path) => void openEditor(path)}
         />
       </section>
 
@@ -325,6 +413,12 @@
           <p class="hint below">투명 PNG로 저장하고, 투명 픽셀 비율을 기록합니다.</p>
         {/if}
       </section>
+
+      <section>
+        <span class="label">맞추는 방식</span>
+        <Segmented label="맞추는 방식" options={fits} value={form.fit} disabled={form.resume} onchange={(v: Fit) => (form.fit = v)} />
+        <p class="hint below">{form.resume ? '이어서 만들 때는 처음 만든 방식을 그대로 씁니다.' : fitHint}</p>
+      </section>
     </div>
 
     <div class="action">
@@ -338,13 +432,13 @@
             <Button variant="ghost" size="sm" icon="close" label="이어서 생성 해제" onclick={stopResume} />
           </div>
         {/if}
-        {#if gen.running}
-          <Button variant="danger" size="lg" icon="stop" full disabled={run?.cancelling} onclick={cancelRun}>
-            {run?.cancelling ? '취소하는 중…' : '취소'}
-          </Button>
+        <Button variant="primary" size="lg" icon="generate" full disabled={!check.ok} onclick={startRun}>{buttonText}</Button>
+        {#if !check.ok}
+          <p class="why">{check.errors[0]}</p>
+        {:else if running > 0}
+          <p class="why">{running}개 실행 중 · 새로 누르면 따로 함께 진행합니다.</p>
         {:else}
-          <Button variant="primary" size="lg" icon="generate" full disabled={!check.ok} onclick={startRun}>{buttonText}</Button>
-          {#if !check.ok}<p class="why">{check.errors[0]}</p>{:else}<p class="why">Ctrl+Enter로도 시작합니다.</p>{/if}
+          <p class="why">Ctrl+Enter로도 시작합니다.</p>
         {/if}
       {/if}
     </div>
@@ -352,18 +446,18 @@
 
   <!-- ===== center: results ===== -->
   <section class="center" aria-label="결과">
-    {#if connState === 'none' && !run && !group}
+    {#if connState === 'none' && runs.length === 0 && !group}
       <Empty icon="connections" title="연결을 먼저 추가하세요" text="이미지를 만들려면 CLIProxyAPI나 공식 API 연결이 하나 있어야 합니다.">
         <Button variant="primary" icon="plus" onclick={() => navigate('connections')}>연결 추가하기</Button>
       </Empty>
-    {:else if connState === 'error' && !run && !group}
+    {:else if connState === 'error' && runs.length === 0 && !group}
       <Empty icon="alert" title="연결 정보를 읽지 못했습니다" text={app.connectionsError ? errorText(app.connectionsError) : ''}>
         <Button icon="connections" onclick={() => navigate('connections')}>연결 화면에서 보기</Button>
       </Empty>
     {:else if group}
       <header class="result-head">
         <div class="title">
-          <h2 class="ellipsis" title={group.prompt}>{oneLine(group.prompt) || group.topic}</h2>
+          <h2 class="ellipsis" title={group.prompt}>{oneLine(group.items[0]?.originalPrompt ?? group.prompt) || group.topic}</h2>
           <p class="meta ellipsis">{group.topic} · {formatRelativeTime(group.modified)} · {group.model}</p>
         </div>
         <div class="counters">
@@ -372,12 +466,15 @@
           {#if group.counts.other}<span class="cnt">기타 {group.counts.other}</span>{/if}
         </div>
         <div class="head-actions">
-          {#if run}<Button size="sm" variant="ghost" icon="chevronLeft" onclick={() => (gen.view = 'run')}>현재 실행</Button>{/if}
-          <Button size="sm" icon="refresh" disabled={gen.running} onclick={() => reuseItem(group.items[0])}>이 설정 다시 쓰기</Button>
+          {#if runs.length > 0}
+            <Button size="sm" variant="ghost" icon="chevronLeft" onclick={() => (gen.view = 'run')}>실행 목록{running > 0 ? ` (${running})` : ''}</Button>
+          {/if}
+          <Button size="sm" icon="copy" onclick={() => copyPrompt(group.items[0].prompt)}>프롬프트 복사</Button>
+          <Button size="sm" icon="refresh" onclick={() => reuseItem(group.items[0])}>이 설정 다시 쓰기</Button>
           <Button
             size="sm"
             icon="play"
-            disabled={gen.running || !!groupResumeBlocked}
+            disabled={!!groupResumeBlocked}
             title={groupResumeBlocked ?? undefined}
             onclick={() => resumeGroup(group.items)}>이어서 생성</Button
           >
@@ -388,53 +485,67 @@
         {/if}
       </header>
       <div class="grid" style:--cols={gridCols}>
-        {#each cards as card (card.key)}
+        {#each groupCards as card (card.key)}
           <ImageCard {card} {aspect} onopen={() => openViewer(card)} />
         {/each}
       </div>
-    {:else if run}
-      <header class="result-head">
-        <div class="title">
-          <h2 class="ellipsis" title={run.input.prompt}>{oneLine(run.input.prompt)}</h2>
-          <p class="meta ellipsis" title={[run.input.imageModel, run.input.size.replace('x', '×'), run.topic].filter(Boolean).join(' · ')}>
-            {[run.input.imageModel, run.input.size.replace('x', '×'), run.topic].filter(Boolean).join(' · ')}
-          </p>
-        </div>
-        {#if outcome}
-          <p class="outcome {outcome.tone}" aria-live="polite">{outcome.line}</p>
-        {:else if tally}
-          <div class="counters" aria-live="polite">
-            {#each runPills(tally) as pill (pill.key)}<span class="cnt {pill.tone}">{pill.label}</span>{/each}
-            {#if run.cancelling}<span class="cnt neutral">취소하는 중…</span>{/if}
-          </div>
-        {/if}
-        <div class="head-actions">
-          {#if canRetry}
-            <Button size="sm" variant="primary" icon="refresh" onclick={retryFailed}>{retryLabel}</Button>
-          {/if}
-          {#if run.outputDir && finished}
-            <Button size="sm" icon="folder" onclick={() => reveal(run.summary?.outputs[0] ?? run.outputDir)}>폴더 열기</Button>
-          {:else if run.outputDir}
-            <Button size="sm" variant="ghost" icon="folder" label="폴더 열기" title="폴더 열기" onclick={() => reveal(run.outputDir)} />
-          {/if}
-        </div>
-      </header>
-      {#if tally && bar && tally.total > 0}
-        <div class="bar" role="progressbar" aria-label="진행" aria-valuemin={0} aria-valuemax={tally.total} aria-valuenow={tally.done + tally.failed + tally.cancelled}>
-          <span style:width="{bar.fraction * 100}%" class={bar.tone}></span>
-        </div>
-      {/if}
-      {#if cards.length > 0}
-        <div class="grid" style:--cols={gridCols}>
-          {#each cards as card (card.key)}
-            <ImageCard {card} {aspect} onopen={() => openViewer(card)} />
-          {/each}
-        </div>
-      {:else if run.error}
-        <Empty icon="alert" title="생성을 시작하지 못했습니다" text={errorText(run.error)} />
-      {:else}
-        <div class="starting"><span class="mini-spin" aria-hidden="true"></span> 시작하는 중…</div>
-      {/if}
+    {:else if runs.length > 0}
+      <div class="runs">
+        {#each runs as run (run.key)}
+          {@const v = runView(run)}
+          <article class="run" class:live={run.running} aria-label="생성 실행">
+            <header class="result-head">
+              <div class="title">
+                <h2 class="ellipsis" title={run.input.prompt}>{oneLine(run.input.originalPrompt || run.input.prompt)}</h2>
+                <p class="meta ellipsis" title={[run.input.imageModel, run.input.size.replace('x', '×'), run.topic].filter(Boolean).join(' · ')}>
+                  {[run.input.imageModel, run.input.size.replace('x', '×'), run.topic].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+              {#if v.outcome}
+                <p class="outcome {v.outcome.tone}" aria-live="polite">{v.outcome.line}</p>
+              {:else if v.tally.total > 0}
+                <div class="counters" aria-live="polite">
+                  {#each runPills(v.tally) as pill (pill.key)}<span class="cnt {pill.tone}">{pill.label}</span>{/each}
+                  {#if run.cancelling}<span class="cnt neutral">취소하는 중…</span>{/if}
+                </div>
+              {/if}
+              <div class="head-actions">
+                <Button size="sm" variant="ghost" icon="copy" label="프롬프트 복사" title="프롬프트 복사" onclick={() => copyPrompt(run.input.prompt, run.input.avoid)} />
+                {#if run.running}
+                  <Button size="sm" variant="danger" icon="stop" disabled={run.cancelling} onclick={() => cancelRun(run)}>{run.cancelling ? '취소하는 중…' : '취소'}</Button>
+                {/if}
+                {#if v.canRetry}
+                  <Button size="sm" variant="primary" icon="refresh" onclick={() => retryFailed(run)}>{v.retryLabel}</Button>
+                {/if}
+                {#if run.outputDir && v.finished}
+                  <Button size="sm" icon="folder" onclick={() => reveal(run.summary?.outputs[0] ?? run.outputDir)}>폴더 열기</Button>
+                {:else if run.outputDir}
+                  <Button size="sm" variant="ghost" icon="folder" label="폴더 열기" title="폴더 열기" onclick={() => reveal(run.outputDir)} />
+                {/if}
+                {#if !run.running}
+                  <Button size="sm" variant="ghost" icon="close" label="목록에서 지우기" title="목록에서 지우기(이미지는 그대로 남습니다)" onclick={() => dismissRun(run)} />
+                {/if}
+              </div>
+            </header>
+            {#if v.tally.total > 0}
+              <div class="bar" role="progressbar" aria-label="진행" aria-valuemin={0} aria-valuemax={v.tally.total} aria-valuenow={v.tally.done + v.tally.failed + v.tally.cancelled}>
+                <span style:width="{v.bar.fraction * 100}%" class={v.bar.tone}></span>
+              </div>
+            {/if}
+            {#if v.cards.length > 0}
+              <div class="grid" style:--cols={v.cols}>
+                {#each v.cards as card (card.key)}
+                  <ImageCard {card} aspect={v.aspect} onopen={() => openViewer(card)} />
+                {/each}
+              </div>
+            {:else if run.error}
+              <Empty icon="alert" title="생성을 시작하지 못했습니다" text={errorText(run.error)} />
+            {:else}
+              <div class="starting"><span class="mini-spin" aria-hidden="true"></span> 시작하는 중…</div>
+            {/if}
+          </article>
+        {/each}
+      </div>
     {:else}
       <Empty icon="generate" title="무엇을 만들까요?" text="왼쪽에 프롬프트를 쓰고 생성 버튼을 누르세요. 진행 상황이 여기에 장마다 나타납니다." />
     {/if}
@@ -476,7 +587,8 @@
                   {/each}
                 </span>
                 <span class="text">
-                  <span class="p" title={g.prompt}>{oneLine(g.prompt) || g.topic}</span>
+                  <span class="p" title={g.original ? `${g.original}
+${g.prompt}` : g.prompt}>{oneLine(g.original ?? g.prompt) || g.topic}</span>
                   <span class="m">{g.items.length}장 · {formatRelativeTime(g.modified)}</span>
                   <span class="m ellipsis">
                     {g.model}{#if g.counts.failed}<span class="f">{` · 실패 ${g.counts.failed}`}</span>{/if}
@@ -623,6 +735,64 @@
     resize: vertical;
     min-height: 112px;
   }
+  .enhance {
+    display: flex;
+    gap: var(--s2);
+    align-items: center;
+    margin-top: var(--s2);
+  }
+  .enhance-model {
+    flex: 1;
+    min-width: 0;
+  }
+  .enhance + .box {
+    margin-top: var(--s2);
+  }
+  .enhanced {
+    border-color: var(--accent, var(--border-strong));
+  }
+  .enhanced-head {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .enhanced-text {
+    line-height: 1.5;
+    max-height: 220px;
+    overflow: auto;
+    user-select: text;
+  }
+  .original {
+    margin-top: var(--s2);
+    padding: var(--s2) var(--s3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--panel);
+  }
+  .original-head {
+    font-size: 12px;
+    color: var(--faint);
+  }
+  .original-text {
+    margin: 2px 0 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-height: 120px;
+    overflow: auto;
+  }
+  .original-actions {
+    display: flex;
+    gap: var(--s3);
+  }
+  .undo {
+    margin-top: var(--s2);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+    text-decoration: underline;
+    cursor: pointer;
+  }
   .avoid {
     resize: vertical;
     margin-top: var(--s2);
@@ -765,6 +935,26 @@
     flex-direction: column;
     overflow: hidden;
   }
+  /* Several runs at once: one scrolling column of run blocks, newest first. */
+  .runs {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  .run + .run {
+    border-top: 6px solid var(--panel-2);
+  }
+  .run.live .result-head {
+    box-shadow: inset 3px 0 0 var(--accent);
+  }
+  .run .grid {
+    flex: none;
+    overflow: visible;
+  }
+  .run .starting {
+    flex: none;
+    padding: var(--s6, 32px) 0;
+  }
   .result-head {
     display: flex;
     align-items: center;
@@ -884,7 +1074,7 @@
     border-radius: 50%;
     border: 2px solid var(--accent-soft);
     border-top-color: var(--accent);
-    animation: spin 0.9s linear infinite;
+    animation: spin 1.8s linear infinite;
   }
   @keyframes spin {
     to {

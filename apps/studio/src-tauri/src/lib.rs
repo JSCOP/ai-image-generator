@@ -21,12 +21,23 @@ macro_rules! handlers {
             commands::set_default_profile,
             commands::check_profile,
             commands::list_models,
+            commands::enhance_prompt,
+            commands::text_models,
             commands::start_generation,
             commands::cancel_generation,
             commands::inspect_reference,
+            commands::remove_background,
+            commands::paste_reference,
             commands::gallery,
             commands::add_gallery_folder,
             commands::remove_gallery_folder,
+            commands::discover_galleries,
+            commands::share_status,
+            commands::set_share,
+            commands::new_share_token,
+            commands::check_peer,
+            commands::add_peer,
+            commands::remove_peer,
         ]
     };
 }
@@ -41,10 +52,32 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(state::AppState::system())
         .invoke_handler(handlers!())
+        .register_asynchronous_uri_scheme_protocol("peer", |ctx, request, responder| {
+            // Images of other PCs ("다른 PC"): `peer://localhost/<t|f>/<id>/<path there>` from the cache or that PC.
+            let app = ctx.app_handle().clone();
+            let path = request.uri().path().to_string();
+            tauri::async_runtime::spawn(async move {
+                let ctx = app.state::<state::AppState>().ctx.clone();
+                let response = match service::peers::parse_request(&path) {
+                    Some(request) => match service::peers::peer_image(&ctx, &request).await {
+                        Ok((body, kind)) => tauri::http::Response::builder().status(200).header("Content-Type", kind).body(body),
+                        Err(e) => tauri::http::Response::builder().status(502).body(e.message.into_bytes()),
+                    },
+                    None => tauri::http::Response::builder().status(400).body(Vec::new()),
+                };
+                responder.respond(response.unwrap_or_else(|_| tauri::http::Response::new(Vec::new())));
+            });
+        })
         .setup(|app| {
             // First start writes settings.json; images of the registered galleries may show from the start.
             let settings = service::settings::ensure_settings(&app.state::<state::AppState>().ctx.home);
             commands::allow_galleries(app.handle(), &settings);
+            if settings.share.enabled {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    commands::apply_share(&handle.state::<state::AppState>(), &settings.share).await;
+                });
+            }
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -109,7 +142,7 @@ mod tests {
         let body = invoke(&webview, "app_info", json!({})).unwrap();
         let object = body.as_object().unwrap();
         assert_eq!(object.keys().collect::<Vec<_>>(), ["version", "home", "workDir"]);
-        assert_eq!(body["version"], "0.1.0");
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
         assert_eq!(body["home"], home.path().to_string_lossy().as_ref());
         assert!(body["workDir"].as_str().unwrap().ends_with("Image Studio"));
     }
