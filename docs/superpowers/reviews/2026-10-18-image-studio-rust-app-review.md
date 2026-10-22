@@ -169,7 +169,7 @@ OpenAI 공식 문서는 sunburst/flare의 투명 배경과 PNG/WebP 출력 조�
 - CLIPROXY_API_KEY는 프로세스/사용자 환경에서 설정 여부를 확인했으나 값은 표시하지 않았다.
 - CLIPROXY_BASE_URL은 해당 환경에 없고 앱 profiles.json도 없었다.
 - Tailscale BackendState는 NoState였고 활성 Self IP를 확인하지 못했다.
-- 인증 없이 TCP만 검사한 100.98.54.122:8317 연결은 3초 뒤 timeout이었다.
+- 인증 없이 TCP만 검사한 <이전 주소>:8317 연결은 3초 뒤 timeout이었다.
 - Tailscale 대역에 대한 TCP 8317 허용 방화벽 규칙은 존재했다. 따라서 방화벽 규칙 하나가 없다는 식으로 원인을 단정하지 않는다.
 - jisung-labtop은 오프라인이었다. 실제 노트북에서 생성하는 0단계 합격 조건은 통과하지 못했다.
 

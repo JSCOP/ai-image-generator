@@ -198,10 +198,10 @@ ImageGallery/output/<topic>/<filename>.png
 python scripts\gen_batch.py presets\extraction-rpg.json --count 10 --dry-run
 
 # 실제 생성
-python scripts\gen_batch.py presets\extraction-rpg.json --count 10 --concurrency 4
+python scripts\gen_batch.py presets\extraction-rpg.json --count 10
 
 # 이어서 생성
-python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume --concurrency 8
+python scripts\gen_batch.py presets\extraction-rpg.json --count 100 --resume
 ```
 
 배치 옵션:

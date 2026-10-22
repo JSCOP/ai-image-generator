@@ -79,7 +79,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 from gallery import topic_dirs
-from gen_image import DEFAULT_IMAGE_MODEL, EXIT_TRANSIENT, image_backend, resolve_base_url
+from gen_image import DEFAULT_IMAGE_MODEL, EXIT_TRANSIENT, configured_base_url, image_backend, resolve_base_url
 GEN_IMAGE = ROOT / "scripts" / "gen_image.py"
 GEN_BATCH = ROOT / "scripts" / "gen_batch.py"
 DEFAULT_TOPIC = "image-request"
@@ -161,7 +161,6 @@ EXAMPLES = {
         "mode": "batch",
         "preset": "presets/extraction-rpg.json",
         "count": 50,
-        "concurrency": 16,
         "resume": True,
     },
     "jobs_with_per_image_refs": {
@@ -169,7 +168,6 @@ EXAMPLES = {
         "topic": "airport-topview-eagle-batch10",
         "size": "1920x1088",
         "quality": "high",
-        "concurrency": 10,
         "prompt_prefix": "Strict vertical orthographic top-down view of the EXACT physical airport space shown in the reference photo.",
         "prompt_suffix": "Constraints: no invented columns, no extra walls, no unrelated furniture.",
         "jobs": [
@@ -227,6 +225,10 @@ def list_models() -> dict:
     } for model in available]
     if result["ok"] and not available:
         result.update(ok=False, error="프록시 목록에 이 CLI가 지원하는 이미지 모델이 없습니다.")
+    result["base_url_configured"] = configured_base_url() is not None
+    if not result["ok"] and not result["base_url_configured"]:
+        result["setup_hint"] = ("CLIPROXY_BASE_URL이 설정되지 않아 이 PC의 로컬 프록시(127.0.0.1:8317)를 시도했습니다. "
+                                "INSTALL.md 3절에 따라 로컬 프록시인지 다른 PC의 프록시인지 사용자에게 묻고 주소를 받아 설정하세요.")
     return result
 
 

@@ -408,7 +408,7 @@ pub fn transport_warning(base_url: &str) -> Option<String> {
         }
         // Tailscale IPv6 addresses are fd7a:115c:a1e0::/48.
         Ok(IpAddr::V6(ip)) => ip.is_loopback() || ip.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0],
-        // A single-label name (no dot, e.g. MagicDNS `desktop-sb818kq`) only resolves inside the local or tailnet DNS.
+        // A single-label name (no dot, e.g. MagicDNS `proxy-pc`) only resolves inside the local or tailnet DNS.
         Err(_) => !host.contains('.') || host.ends_with(".localhost") || host.ends_with(".ts.net"),
     };
     if trusted {

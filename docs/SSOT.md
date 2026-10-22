@@ -10,12 +10,12 @@
 
 ## 기존 운영 머신 (신규 PC의 필수 경로 아님)
 
-| 호스트 | Tailscale | 저장소 경로 | Python | CLIProxyAPI |
-|---|---|---|---|---|
-| `DESKTOP-SB818KQ` | `100.98.54.122` | `E:/ai-image-generator` | `python` | 이 머신에서 구동 (`0.0.0.0:8317`) |
-| `JS` | `100.67.54.25` | `C:/Users/jisung/workspaces/ai-image-generator` | `py` (PATH의 `python`은 깨진 hermes venv) | 없음. 위 머신을 호출 |
+| 호스트 | 저장소 경로 | Python | CLIProxyAPI |
+|---|---|---|---|
+| `DESKTOP-SB818KQ` | `E:/ai-image-generator` | `python` | 이 머신에서 구동 (`0.0.0.0:8317`) |
+| `JS` | `C:/Users/jisung/workspaces/ai-image-generator` | `py` (PATH의 `python`은 깨진 hermes venv) | 없음. 위 머신을 호출 |
 
-`CLIPROXY_BASE_URL`은 CLIProxyAPI 호스트에서 `http://127.0.0.1:8317/v1`, 그 외 머신에서 `http://100.98.54.122:8317/v1`. 에이전트/CLI는 `CLIPROXY_API_KEY`를 프로세스 또는 Windows 사용자 환경변수에서 읽고 저장소에 절대 기록하지 않습니다.
+`CLIPROXY_BASE_URL`은 각 PC의 Windows 사용자 환경변수로 설정합니다. 프록시를 실행하는 PC는 `http://127.0.0.1:8317/v1`, 다른 PC는 프록시 PC의 현재 Tailscale 주소입니다. Tailscale 주소는 바뀔 수 있으므로 저장소에 적지 않고, 필요할 때 프록시 PC에서 `tailscale ip -4`로 확인합니다. 에이전트/CLI는 `CLIPROXY_API_KEY`를 프로세스 또는 Windows 사용자 환경변수에서 읽고 저장소에 절대 기록하지 않습니다.
 
 기존 웹 Studio, PowerShell 메뉴, 수동 크롭 도구, 갤러리 이전 도구는 2026-10-18에 제거했습니다(마지막 포함 커밋 `52e220b`). 사람용 Studio는 새로 제작합니다. CLI와 MCP가 함께 쓰는 모델 카탈로그·연결 확인·프롬프트 합성은 `tools/image_core.py`에 있습니다.
 
@@ -88,7 +88,7 @@ CLIProxyAPI `routing.strategy: fill-first`에서는 동시 요청이 우선순�
 ```powershell
 # 보내는 쪽
 git bundle create sync.bundle main --not <상대가 이미 가진 커밋>
-scp -P 9991 sync.bundle jisung@100.67.54.25:C:/Users/jisung/AppData/Local/Temp/sync.bundle
+scp -P 9991 sync.bundle jisung@<받는 PC의 Tailscale 주소>:C:/Users/jisung/AppData/Local/Temp/sync.bundle
 # 받는 쪽
 git fetch --force "$env:TEMP\sync.bundle" "main:refs/remotes/origin/main"
 git merge --ff-only refs/remotes/origin/main
@@ -105,7 +105,7 @@ python scripts/sync_skills.py --check
 
 ### Endpoint selection
 
-`gen_image.resolve_base_url` is shared by the CLI and MCP server. It checks the actual hostname: `DESKTOP-SB818KQ` uses `http://127.0.0.1:8317/v1`; other machines default to the Tailscale endpoint. Explicit URL, process environment, then Windows user environment override the default. On the proxy host, the known Tailscale endpoint and localhost alias are normalized to `127.0.0.1`; custom endpoints are preserved.
+`gen_image.resolve_base_url` is shared by the CLI and MCP server. An explicit URL, then the process environment, then the Windows user environment `CLIPROXY_BASE_URL` is used; without one it falls back to this PC's local proxy `http://127.0.0.1:8317/v1`. No machine name or other PC's address is built in.
 
 ## Gallery storage
 

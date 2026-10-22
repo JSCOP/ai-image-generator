@@ -215,7 +215,7 @@ describe('transportWarning (mirror of image_core::profiles::transport_warning)',
       'http://172.31.255.1',
       'http://192.168.1.10',
       'http://100.64.0.10:8317/v1',
-      'http://desktop-sb818kq:8317',
+      'http://proxy-pc:8317',
       'http://box.tail1234.ts.net:8317',
       'http://[fd7a:115c:a1e0::1]:8317',
     ]) {

@@ -30,7 +30,6 @@ import math
 import mimetypes
 import os
 import queue
-import socket
 import re
 import sys
 import threading
@@ -44,17 +43,18 @@ if str(Path(__file__).resolve().parent) not in sys.path:
 from gallery import metadata_path, topic_dirs, write_json
 
 
+# A proxy on another PC has no built-in address: the user sets CLIPROXY_BASE_URL (see INSTALL.md).
 LOCAL_BASE_URL = "http://127.0.0.1:8317/v1"
-REMOTE_BASE_URL = "http://100.98.54.122:8317/v1"
-PROXY_HOSTNAME = "desktop-sb818kq"
-
-
-def is_proxy_host() -> bool:
-    return socket.gethostname().split(".")[0].casefold() == PROXY_HOSTNAME
 
 
 def default_base_url() -> str:
-    return LOCAL_BASE_URL if is_proxy_host() else REMOTE_BASE_URL
+    return LOCAL_BASE_URL
+
+
+def configured_base_url() -> str | None:
+    """CLIPROXY_BASE_URL from the process or Windows user environment, or None when unset."""
+    value = os.environ.get("CLIPROXY_BASE_URL") or _windows_user_environment("CLIPROXY_BASE_URL")
+    return (value or "").strip() or None
 
 
 DEFAULT_BASE_URL = default_base_url()
@@ -153,16 +153,9 @@ def infer_topic_from_prompt(prompt: str) -> str:
 
 
 def resolve_base_url(value: str | None) -> str:
-    base = (value or os.environ.get("CLIPROXY_BASE_URL")
-            or _windows_user_environment("CLIPROXY_BASE_URL") or default_base_url()).strip()
-    if not base:
-        base = default_base_url()
-    base = base.rstrip("/")
+    base = ((value or "").strip() or configured_base_url() or default_base_url()).rstrip("/")
     if not base.endswith("/v1"):
         base = f"{base}/v1"
-    # The proxy host must reach its own service without requiring Tailscale.
-    if is_proxy_host() and base in (REMOTE_BASE_URL, "http://localhost:8317/v1"):
-        return LOCAL_BASE_URL
     return base
 
 

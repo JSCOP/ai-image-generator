@@ -34,7 +34,7 @@ random, then concatenates: template + ". " + global_style + " Constraints: "
 
 Usage:
 
-  python3 scripts/gen_batch.py presets/extraction-rpg.json --count 100 --concurrency 16
+  python3 scripts/gen_batch.py presets/extraction-rpg.json --count 100
   python3 scripts/gen_batch.py presets/extraction-rpg.json --count 5 --dry-run
   python3 scripts/gen_batch.py presets/extraction-rpg.json --count 100 --resume
   python3 scripts/gen_batch.py presets/extraction-rpg.json --image-model grok-imagine-image-2.0 --dry-run

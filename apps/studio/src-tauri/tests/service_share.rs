@@ -68,7 +68,7 @@ fn found_galleries_join_the_list_and_removing_one_hides_it() {
     assert_eq!(view.items[0].prompt, "탑승교");
 
     // The same root again changes nothing but the time.
-    assert_eq!(record_roots(home.path(), &[project.clone()], true).unwrap().roots.len(), 1);
+    assert_eq!(record_roots(home.path(), std::slice::from_ref(&project), true).unwrap().roots.len(), 1);
     assert!(load_index(home.path()).scanned_at.is_some());
 
     remove_folder(home.path(), &project).unwrap();

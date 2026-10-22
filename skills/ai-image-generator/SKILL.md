@@ -26,7 +26,8 @@ The repository is the single source of truth. Agent skill folders are directory 
 ## CLIProxyAPI configuration
 
 - Use the proxy URL configured by the user through `CLIPROXY_BASE_URL`; the repository installs the image client, not a proxy/provider account. New PCs must have a reachable proxy and its API key. For connection setup and troubleshooting read `<repo>/INSTALL.md`.
-- Use `scripts.gen_image.resolve_base_url(None)` from the repository root for connection checks; the CLI and MCP server share this resolver. It honors explicit/process/Windows user settings before the historical defaults documented in `docs/SSOT.md`. The known proxy host normalizes its own historical Tailscale address to loopback. Check the actual hostname only when using that existing two-PC topology.
+- Use `scripts.gen_image.resolve_base_url(None)` from the repository root for connection checks; the CLI and MCP server share this resolver. It uses an explicit URL, then the process or Windows user `CLIPROXY_BASE_URL`, and otherwise only this PC's local proxy `http://127.0.0.1:8317/v1`. The repository contains no address of any other PC.
+- If `--list-models` fails and reports `base_url_configured: false`, or the configured proxy is unreachable, do not guess an address. Follow `INSTALL.md` section 3: ask the user whether to use a local proxy or another PC's proxy, and for another PC ask for its address (for example its Tailscale IP or device name). Never take an address from old docs, Git history, other machines, or the `tailscale status` device list without the user confirming it.
 - Read `CLIPROXY_API_KEY` from the process or Windows user environment only.
 - Never write the API key into the repository, specs, prompts, logs, or output metadata.
 - Before diagnosing model behavior, verify the authenticated `/v1/models` request succeeds.
@@ -128,10 +129,9 @@ For airport security maps, keep facility interpretation inside existing source f
   "count": 2,
   "size": "1920x1080",
   "quality": "high",
-  "image_model": "gpt-image-2",
+  "image_model": "gpt-image-2.5",
   "action": "edit",
   "resume": true,
-  "concurrency": 2,
   "reference_images": [
     "C:/absolute/path/structure-source.png"
   ]

@@ -152,9 +152,9 @@ pub async fn check_connection(http: &Http, conn: &Connection, store: Option<&Pro
 - [ ] **Step 1: 테스트 작성** (모두 `tempfile` 폴더를 `ProfileStore::open`에 준다)
 ```rust
 #[test] fn add_list_default_remove() {
-    let p = store.add("집 PC", ProviderKind::Cliproxy, Some("http://100.98.54.122:8317"), None).unwrap();
+    let p = store.add("집 PC", ProviderKind::Cliproxy, Some("http://100.64.0.10:8317"), None).unwrap();
     assert!(p.id.starts_with("p-") && p.id.len() == 10);
-    assert_eq!(p.base_url, "http://100.98.54.122:8317/v1");
+    assert_eq!(p.base_url, "http://100.64.0.10:8317/v1");
     store.set_default(Some("집 PC")).unwrap(); assert_eq!(store.load().unwrap().default, Some(p.id.clone()));
     store.remove(&p.id).unwrap(); assert_eq!(store.load().unwrap().default, None);  // 기본 프로필 삭제 시 기본값도 해제
 }
@@ -170,7 +170,7 @@ pub async fn check_connection(http: &Http, conn: &Connection, store: Option<&Pro
 #[test] fn file_never_contains_keys() { profiles.json 내용에 "key" 필드 없음 (직렬화 형태 고정: version, default, profiles[id,name,kind,base_url,concurrency?]) }
 #[test] fn transport_warning_rules() {
     for ok in ["https://api.openai.com/v1","http://127.0.0.1:8317/v1","http://localhost:1/v1","http://10.0.0.5/v1","http://172.20.1.1/v1",
-               "http://192.168.0.2/v1","http://100.98.54.122:8317/v1","http://desk.tail1234.ts.net:8317/v1","http://[::1]:1/v1"] { assert!(transport_warning(ok).is_none(), "{ok}") }
+               "http://192.168.0.2/v1","http://100.64.0.10:8317/v1","http://desk.tail1234.ts.net:8317/v1","http://[::1]:1/v1"] { assert!(transport_warning(ok).is_none(), "{ok}") }
     for warn in ["http://example.com/v1","http://8.8.8.8/v1","http://100.200.0.1/v1"] { assert!(transport_warning(warn).is_some(), "{warn}") }
 }
 #[test] fn generation_status_is_recorded_per_profile() { record_generation(id, ok:false, quota) → generation_status()[id].category == Some(Quota) }

@@ -95,7 +95,7 @@ ai-image-generator/
 - 종료 코드: 0 성공, 2 일부 실패, 1 치명적 오류.
 - 추가 키(새 기능): `mask`(마스크 PNG 경로), `background`(`"auto"|"opaque"|"transparent"`), `remove_background`(bool), `keep_outside_mask`(bool, 기본 true), `profile`(연결 프로필 이름). 기존 키의 의미는 바꾸지 않는다.
 - 연결 해석 순서: `--profile`/spec `profile` → 프로세스 환경변수 `CLIPROXY_BASE_URL`/`CLIPROXY_API_KEY` → Windows 사용자 환경변수 → 앱의 **기본 프로필**(§6.1) → 없으면 오류("연결 설정 필요"). 에이전트 스킬의 기존 동작(환경변수)을 깨지 않는다. [작성자 판단]
-- **기존 머신별 하드코딩 기본값은 Rust로 옮기지 않는다.** Python의 `default_base_url`은 호스트 이름이 `DESKTOP-SB818KQ`가 아니면 소유자의 사설 Tailscale 주소(`100.98.54.122`)로 보내는데, 배포본에 들어가면 받는 사람 모두가 소유자 PC로 요청하게 된다. 소유자 PC들은 `CLIPROXY_BASE_URL` 사용자 환경변수 또는 프로필로 대체한다(단계 0에서 각 PC의 설정 확인). 동등성 테스트는 이 항목만 의도된 차이로 제외한다. [작성자 판단]
+- **기존 머신별 하드코딩 기본값은 Rust로 옮기지 않는다.** Python의 `default_base_url`은 호스트 이름이 `DESKTOP-SB818KQ`가 아니면 소유자의 사설 Tailscale 주소(이전 주소)로 보내는데, 배포본에 들어가면 받는 사람 모두가 소유자 PC로 요청하게 된다. 소유자 PC들은 `CLIPROXY_BASE_URL` 사용자 환경변수 또는 프로필로 대체한다(단계 0에서 각 PC의 설정 확인). 동등성 테스트는 이 항목만 의도된 차이로 제외한다. [작성자 판단]
 
 - 새 키는 **받으면 적용하거나, 유료 호출 전에 구조화된 오류로 거부**한다. 조용히 무시하지 않는다(검토 P1-04). 예: 없는 마스크 파일, 투명 미지원 모델 + `background:"transparent"`, `background:"transparent"`와 `remove_background:true` 동시 지정, JPEG + 투명/정확 보존. CLI·MCP 스키마도 같이 갱신한다.
 - 추가 키 `fit`(`"cover"|"contain"`, §7.1). 결과 기록에는 실제 적용한 배경 처리 방식, 맞춤 방식, 마스크 합성 여부, 선택 프로필 id, 공급자 원본 크기를 남긴다.
@@ -131,7 +131,7 @@ ai-image-generator/
 
 | 종류 | 기본 주소 | 인증 | 비고 |
 |---|---|---|---|
-| CLIProxyAPI | 사용자 입력 (예: `http://127.0.0.1:8317/v1`, Tailscale `http://100.98.54.122:8317/v1`) | `Authorization: Bearer <키>` | 현재 검증된 경로. 모든 모델을 한 주소로 |
+| CLIProxyAPI | 사용자 입력 (예: `http://127.0.0.1:8317/v1`, Tailscale `http://<프록시 PC의 Tailscale 주소>:8317/v1`) | `Authorization: Bearer <키>` | 현재 검증된 경로. 모든 모델을 한 주소로 |
 | OpenAI 공식 | `https://api.openai.com/v1` | Bearer | gpt-image-* |
 | Gemini 공식 | `https://generativelanguage.googleapis.com` | `x-goog-api-key` | gemini-*-image. native `/v1beta/models`(페이지 처리) 별도 어댑터 |
 | xAI 공식 | `https://api.x.ai/v1` | Bearer | grok-imagine-*. 참조 편집은 JSON `/v1/images/edits` 지원(공식 문서, 검토 W2). 현재 Python의 Grok 참조 차단은 클라이언트 구현 제한일 뿐 |
@@ -268,7 +268,7 @@ ai-image-generator/
 
 | 단계 | 내용 | 완료 기준 |
 |---|---|---|
-| 0. 연결 사전 점검 | 노트북에서 **기존 Python CLI**로 `http://100.98.54.122:8317/v1` `--list-models` 및 1장 생성. 프록시가 `0.0.0.0:8317`에 열려 있는지, Windows 방화벽이 Tailscale 쪽 8317 인바운드를 허용하는지 확인 | 노트북에서 기존 CLI로 모델 조회·1장 생성·저장. **2026-10-18 현재 미통과**: 데스크톱 `CLIPROXY_BASE_URL` 미설정, Tailscale `NoState`, `100.98.54.122:8317` TCP 시간 초과, 노트북 오프라인. 방화벽 허용 규칙은 존재. 현재 Tailscale 주소를 다시 확인하고 과거 IP를 그대로 복사하지 않는다 |
+| 0. 연결 사전 점검 | 노트북에서 **기존 Python CLI**로 `http://<프록시 PC의 Tailscale 주소>:8317/v1` `--list-models` 및 1장 생성. 프록시가 `0.0.0.0:8317`에 열려 있는지, Windows 방화벽이 Tailscale 쪽 8317 인바운드를 허용하는지 확인 | 노트북에서 기존 CLI로 모델 조회·1장 생성·저장. **2026-10-18 현재 미통과**: 데스크톱 `CLIPROXY_BASE_URL` 미설정, Tailscale `NoState`, `<이전 주소>:8317` TCP 시간 초과, 노트북 오프라인. 방화벽 허용 규칙은 존재. 현재 Tailscale 주소를 다시 확인하고 과거 IP를 그대로 복사하지 않는다 |
 | 1. 엔진+CLI 동등성 | `image-core`, `image-cli`로 §5 이전, §5.4 규칙 고정 | Rust 통합 테스트 통과(§5.4 fixture 포함), Python과 동등성 비교 통과(의도된 차이 제외), 실제 프록시 1~2장 성공 **2026-10-18 통과**: Rust 테스트 70개, Python 39개, 동등성 비교 통과. 실제 프록시(CLIProxyAPI 경유) 2장: `gpt-image-2.5` 1024² cover, `gpt-image-2.5-sunburst` 투명 1024² contain(공급자 원본 1374×1145, 완전 투명 55.9%, 네 모서리 α=0, 손잡이 보존). 두 응답 모두 내부 모델 ID 없음 |
 | 2. 프로필·공식 API | §6 전체, `keyring`, 오류 구분 | 프로필별 연결 확인 테스트, 가능한 공식 API는 실제 1장 [사용자 키 있을 때] |
 | 3. 앱 1차 | Tauri 앱: 연결 설정, 생성, 배치 진행, 갤러리 | 이 PC에서 앱으로 생성·취소·이어하기 확인 **2026-10-19 부분 통과**: 서비스 테스트(가짜 공급자로 진행·취소·이어하기·갤러리 상태), vitest 122개, 목업 화면 1440×900·1100×700 확인(콘솔 오류 0, `apps/studio/docs/screenshots/`), 디버그 앱 실행(창 표시·10초 유지·settings.json 생성), 앱 서비스 경로로 `local` 프로필 실제 1장(`gpt-image-2.5` low 1024², 공급자 원본 1374×1145 → 저장 1024² cover, `ImageGallery/output/studio-app-smoke-20261018/`). 앱 창에서 직접 하는 생성·취소·이어하기·창 닫기는 README 수동 확인 목록으로 남음 |

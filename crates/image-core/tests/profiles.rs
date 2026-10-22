@@ -295,7 +295,7 @@ fn transport_warning_rules() {
         "http://desk.tail1234.ts.net:8317/v1",
         "http://[::1]:1/v1",
         // MagicDNS short names and other single-label LAN hosts.
-        "http://desktop-sb818kq:8317/v1",
+        "http://proxy-pc:8317/v1",
         "http://DESKTOP-SB818KQ:8317/v1",
         "http://nas/v1",
         // Tailscale IPv6 (fd7a:115c:a1e0::/48).
