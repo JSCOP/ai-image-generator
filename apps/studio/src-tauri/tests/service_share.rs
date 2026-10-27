@@ -84,7 +84,7 @@ fn found_galleries_join_the_list_and_removing_one_hides_it() {
 
 #[test]
 fn only_loopback_and_tailscale_addresses_may_connect() {
-    for ip in ["127.0.0.1", "100.64.0.1", "100.126.151.98", "100.127.255.255", "::1", "fd7a:115c:a1e0::1"] {
+    for ip in ["127.0.0.1", "100.64.0.1", "100.100.12.34", "100.127.255.255", "::1", "fd7a:115c:a1e0::1"] {
         assert!(allowed_peer(ip.parse::<IpAddr>().unwrap()), "{ip}");
     }
     for ip in ["192.168.0.10", "10.0.0.2", "100.63.255.255", "100.128.0.1", "8.8.8.8", "fe80::1"] {
@@ -94,7 +94,7 @@ fn only_loopback_and_tailscale_addresses_may_connect() {
 
 #[test]
 fn peer_urls_and_image_requests_parse() {
-    assert_eq!(normalize_url("100.114.3.116").unwrap(), "http://100.114.3.116:8329");
+    assert_eq!(normalize_url("100.90.1.2").unwrap(), "http://100.90.1.2:8329");
     assert_eq!(normalize_url(" http://js:9000/ ").unwrap(), "http://js:9000");
     assert_eq!(normalize_url("js").unwrap(), "http://js:8329");
     assert!(normalize_url("").is_err());

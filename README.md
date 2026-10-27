@@ -1,6 +1,6 @@
 # ai-image-generator
 
-CLIProxyAPI 기반 이미지 생성 도구입니다. 에이전트용 CLI/스킬과 선택적 MCP 서버를 제공합니다. 사람용 웹 Studio는 새로 제작할 예정입니다.
+CLIProxyAPI 기반 이미지 생성 도구입니다. 에이전트용 CLI/스킬과 선택적 MCP 서버, 같은 엔진의 Rust CLI(`image-cli`)와 사람이 쓰는 Windows 데스크톱 앱 [Image Studio](#image-studio-앱-3단계-1차판)를 제공합니다.
 
 ## 다른 PC에 설치하기
 
